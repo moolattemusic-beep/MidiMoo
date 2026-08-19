@@ -1,0 +1,8 @@
+{
+  "name": "MidiMOO",
+  "description": "Web Audio and MIDI synth replicating the Orchid instrument workflow for chord generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

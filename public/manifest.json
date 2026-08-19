@@ -1,0 +1,16 @@
+{
+  "name": "MidiMOO",
+  "short_name": "MidiMOO",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#12120f",
+  "theme_color": "#c4ff00",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
