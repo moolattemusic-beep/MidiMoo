@@ -111,10 +111,10 @@ export const ModifierPads: React.FC<ModifierPadsProps> = ({
   const isDominant = ext_alt && activeBaseType === 3;
 
   return (
-    <div className="module h-full flex flex-col">
+    <div className="pad-wrap module h-full flex flex-col">
       {!hideHeader && (
-        <div className="flex justify-between items-center mb-4">
-          <p className="label-meta">Chord Modifiers</p>
+        <div className="flex justify-between items-center gap-2 mb-4 min-w-0">
+          <p className="label-meta truncate">Chord Modifiers</p>
           <button
             onPointerDown={(e) => { 
               e.preventDefault(); 
@@ -129,20 +129,21 @@ export const ModifierPads: React.FC<ModifierPadsProps> = ({
       
 
 
-      <div className="flex justify-between items-center mb-2 mt-2">
+      <div className="flex justify-between items-center gap-2 mb-2 mt-2 min-w-0">
         <p className="label-meta">BASE TYPE</p>
         {!hideHeader && (
           <div className="flex items-center gap-2">
-            <span className="label-meta text-[10px]">MOMENTARY</span>
+            <span className="momentary-label label-meta text-[10px]">MOMENTARY</span>
             <div 
-              className={`toggle-switch ${params.momentaryBase ? 'on' : ''}`}
+              className={`toggle-switch shrink-0 ${params.momentaryBase ? 'on' : ''}`}
               onClick={() => updateParam('momentaryBase', !params.momentaryBase)}
             ></div>
           </div>
         )}
       </div>
       
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="mb-6">
+        <div className="pad-grid grid grid-cols-4 gap-4">
         {baseTypes.map((type) => {
           const isActive = activeBaseType === type.val;
           return (
@@ -173,27 +174,29 @@ export const ModifierPads: React.FC<ModifierPadsProps> = ({
                 ${isActive ? 'border-[var(--accent)] shadow-[0_0_15px_rgba(240,160,32,0.2)]' : 'hover:border-[#333]'}
               `}
             >
-              <span className="font-['Oswald'] text-xl text-[var(--accent)] pointer-events-none">{type.label}</span>
-              <span className="absolute bottom-1 right-2 font-['Space_Mono'] text-[10px] text-[#555] pointer-events-none">{type.hotkey}</span>
+              <span className="pad-label font-['Oswald'] text-[var(--accent)] pointer-events-none">{type.label}</span>
+              <span className="pad-hotkey absolute bottom-1 right-2 font-['Space_Mono'] text-[#555] pointer-events-none">{type.hotkey}</span>
             </button>
           );
         })}
+        </div>
       </div>
 
-      <div className="flex justify-between items-center mb-2 mt-2">
+      <div className="flex justify-between items-center gap-2 mb-2 mt-2 min-w-0">
         <p className="label-meta">EXTENSIONS</p>
         {!hideHeader && (
           <div className="flex items-center gap-2">
-            <span className="label-meta text-[10px]">MOMENTARY</span>
+            <span className="momentary-label label-meta text-[10px]">MOMENTARY</span>
             <div 
-              className={`toggle-switch ${params.momentaryExt ? 'on' : ''}`}
+              className={`toggle-switch shrink-0 ${params.momentaryExt ? 'on' : ''}`}
               onClick={() => updateParam('momentaryExt', !params.momentaryExt)}
             ></div>
           </div>
         )}
       </div>
       
-      <div className="grid grid-cols-4 gap-4">
+      <div>
+        <div className="pad-grid grid grid-cols-4 gap-4">
         {(isDominant ? [
           { id: 'm7', label: 'b9', hotkey: '[A]', active: ext_m7 },
           { id: 'M7', label: '#9', hotkey: '[S]', active: ext_M7 },
@@ -235,10 +238,11 @@ export const ModifierPads: React.FC<ModifierPadsProps> = ({
               ${ext.active ? 'border-[var(--accent)] shadow-[0_0_15px_rgba(240,160,32,0.2)]' : 'hover:border-[#333]'}
             `}
           >
-            <span className="font-['Oswald'] text-xl text-[var(--accent)] pointer-events-none">{ext.label}</span>
-            <span className="absolute bottom-1 right-2 font-['Space_Mono'] text-[10px] text-[#555] pointer-events-none">{ext.hotkey}</span>
+            <span className="pad-label font-['Oswald'] text-[var(--accent)] pointer-events-none">{ext.label}</span>
+            <span className="pad-hotkey absolute bottom-1 right-2 font-['Space_Mono'] text-[#555] pointer-events-none">{ext.hotkey}</span>
           </button>
         ))}
+        </div>
       </div>
     </div>
   );

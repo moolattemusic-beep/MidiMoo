@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
+import { parseProgression } from '../lib/ChordSymbol';
 
 export type MemorySlot = {
   rootPitch: number;
@@ -9,6 +10,11 @@ export type MemorySlot = {
   ext_6: boolean;
   ext_9: boolean;
   customVoicing?: number[];
+  // Set when the slot came from a pasted chord symbol. The intervals are what
+  // the chord is built from, so it still follows register, inversion and the
+  // voicing disk rather than being frozen the way customVoicing is.
+  symbol?: string;
+  chordIntervals?: number[];
 } | null;
 
 interface MemorySlotsProps {
@@ -40,6 +46,9 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
   if (!slot) {
     return (lastPlayedChord && !isEditMode) ? "SAVE" : "EMPTY";
   }
+
+  // A pasted chord shows the symbol it was written as.
+  if (slot.symbol) return slot.symbol;
   
   if (slot.customVoicing && slot.customVoicing.length > 0) {
      const sorted = [...slot.customVoicing].sort((a,b) => a-b);
@@ -61,6 +70,48 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
 
 export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [pasteStatus, setPasteStatus] = useState<string | null>(null);
+  // Reading the clipboard needs the document focused and the permission
+  // granted; when that fails there has to be somewhere to paste by hand
+  // rather than a dead end.
+  const [pasteFallback, setPasteFallback] = useState(false);
+
+  const applyProgression = (text: string) => {
+    const { chords, rejected } = parseProgression(text);
+    if (chords.length === 0) {
+      setPasteStatus(rejected.length ? `UNREADABLE: ${rejected.slice(0, 3).join(' ')}` : 'NOTHING TO PASTE');
+      return;
+    }
+    // Fill what came in and leave the rest of the pads alone-empty.
+    const next: MemorySlot[] = Array(8).fill(null);
+    chords.slice(0, 8).forEach((c, i) => {
+      next[i] = {
+        rootPitch: 60 + c.root,
+        baseType: -1,
+        ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
+        symbol: c.symbol,
+        chordIntervals: c.intervals,
+      };
+    });
+    onUpdateSlots(next);
+    setPasteStatus(
+      rejected.length
+        ? `${Math.min(chords.length, 8)} PASTED, SKIPPED: ${rejected.slice(0, 3).join(' ')}`
+        : `${Math.min(chords.length, 8)} CHORDS PASTED`
+    );
+    setPasteFallback(false);
+  };
+
+  const pasteProgression = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) { setPasteStatus('CLIPBOARD IS EMPTY'); return; }
+      applyProgression(text);
+    } catch {
+      setPasteStatus('PASTE HERE WITH CMD-V');
+      setPasteFallback(true);
+    }
+  };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
@@ -89,16 +140,45 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
       <div className="flex items-center justify-between mb-1">
         {!hideHeader && (
           <div className="flex items-center gap-4">
-             <span className="label-meta">CHORD MEMORY (1-8)</span>
              <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[#888]">VEL</span>
                 <input 
                   type="range" min="1" max="127" 
                   value={memoryVelocity}
                   onChange={(e) => onMemoryVelocityChange(parseInt(e.target.value))}
-                  className="w-16 h-1 accent-[var(--accent)]"
+                  className="range-sm w-16 accent-[var(--accent)]"
                 />
              </div>
+             {isEditMode && (
+                <button
+                   onClick={pasteProgression}
+                   className="analog-btn ml-4 !py-1 !px-2 !text-[9px]"
+                   title="Read chord symbols from the clipboard into the pads"
+                >
+                   PASTE CHORDS
+                </button>
+             )}
+             {isEditMode && pasteFallback && (
+                <input
+                   autoFocus
+                   type="text"
+                   placeholder="Cmaj7 Dm7 G7…"
+                   className="ml-2 bg-black text-[var(--accent)] border border-[#444] px-2 py-1 font-['Space_Mono'] text-[10px] rounded-sm outline-none w-56"
+                   onPaste={(e) => {
+                      const text = e.clipboardData.getData('text');
+                      if (text) { e.preventDefault(); applyProgression(text); }
+                   }}
+                   onKeyDown={(e) => {
+                      if (e.key === 'Enter') applyProgression((e.target as HTMLInputElement).value);
+                      if (e.key === 'Escape') { setPasteFallback(false); setPasteStatus(null); }
+                   }}
+                />
+             )}
+             {isEditMode && pasteStatus && (
+                <span className="label-meta !text-[9px] !text-[var(--accent)] ml-2 max-w-[180px] truncate" title={pasteStatus}>
+                   {pasteStatus}
+                </span>
+             )}
              {isEditMode && (
                 <div className="flex items-center gap-2 ml-4">
                    <span className="label-meta text-[10px]">FREE EDIT</span>
@@ -119,7 +199,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
         </button>
       </div>
-      <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         {slots.map((slot, i) => {
           const isPlaying = playingSlotIndex === i;
           return (
@@ -147,7 +227,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   e.preventDefault();
                   if (engine && slot) {
                     engine.setModifiers(slot.baseType, slot.ext_m7, slot.ext_M7, slot.ext_6, slot.ext_9);
-                    engine.handleMidi(slot.rootPitch, memoryVelocity, true, false, false, false, true, slot.customVoicing);
+                    engine.handleMidi(slot.rootPitch, memoryVelocity, true, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                     onPlaySlot(i);
                   } else if (!slot && lastPlayedChord) {
                     onSaveSlot(i, lastPlayedChord);
@@ -157,7 +237,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   if (isEditMode) return;
                   e.preventDefault();
                   if (engine && slot) {
-                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing);
+                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                     onStopSlot(i);
                   }
                 }}
@@ -165,7 +245,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   if (isEditMode) return;
                   e.preventDefault();
                   if (engine && slot) {
-                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing);
+                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                     onStopSlot(i);
                   }
                 }}

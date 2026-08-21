@@ -2,40 +2,98 @@ import { CustomSlider } from './CustomSlider';
 import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
+import { stageDurationMs } from '../lib/VelocityModulator';
 
 interface SettingsPanelProps {
   engine: OrchidEngine | null;
   params: OrchidParams;
   setParams: (p: OrchidParams) => void;
+  onResendMpeConfig?: () => void;
 }
 
 
-const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; extraHeader?: React.ReactNode }> = ({ title, children, extraHeader }) => {
-  const storageKey = `orchid-collapse-${title.replace(/\s+/g, '-').toLowerCase()}`;
-  const [isOpen, setIsOpen] = useState(() => {
-    const saved = localStorage.getItem(storageKey);
-    return saved !== null ? saved === 'true' : false; // Default collapsed
-  });
+// Sensitivity is a multiplier, so it wants equal proportional steps rather
+// than equal numeric ones — otherwise 1x would sit crammed against the left.
+const SENS_MIN = 1;
+const SENS_MAX = 8;
+const SENS_TICKS = 1000;
+const sensToSlider = (g: number) =>
+  Math.round(Math.log(Math.max(SENS_MIN, g) / SENS_MIN) / Math.log(SENS_MAX / SENS_MIN) * SENS_TICKS);
+const sliderToSens = (pos: number) => {
+  const g = SENS_MIN * Math.pow(SENS_MAX / SENS_MIN, pos / SENS_TICKS);
+  return Math.min(SENS_MAX, Math.max(SENS_MIN, Math.round(g * 20) / 20));
+};
 
-  const toggle = () => {
-    const next = !isOpen;
-    setIsOpen(next);
-    localStorage.setItem(storageKey, String(next));
-  };
+// Vibrato depth wants proportional steps: the difference between 0.1 and 0.2
+// semitones matters far more than between 11 and 12.
+const VDEP_MIN = 0.02;
+const VDEP_MAX = 12;
+const VDEP_TICKS = 1000;
+const vdepToSlider = (st: number) =>
+  st <= 0 ? 0 : Math.round(Math.log(Math.max(VDEP_MIN, st) / VDEP_MIN) / Math.log(VDEP_MAX / VDEP_MIN) * VDEP_TICKS);
+const sliderToVdep = (pos: number) => {
+  if (pos <= 0) return 0;
+  const st = VDEP_MIN * Math.pow(VDEP_MAX / VDEP_MIN, pos / VDEP_TICKS);
+  const grain = st < 0.5 ? 0.01 : st < 2 ? 0.05 : 0.1;
+  return Math.min(VDEP_MAX, Math.round(st / grain) * grain);
+};
+
+// Attack/Release use the Logic script's curve; show the time it works out to.
+const fmtStage = (p: number) => {
+  const ms = stageDurationMs(p);
+  if (ms <= 0) return 'INSTANT';
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}S` : `${Math.round(ms)}MS`;
+};
+
+/**
+ * Sections behave as an accordion: opening one closes its siblings, so the
+ * panel never grows past a screenful. Nesting is respected — opening a
+ * subsection must not collapse the section containing it — so each level keeps
+ * its own "which one is open", keyed by group.
+ */
+const AccordionContext = React.createContext<{
+  openByGroup: Record<string, string | null>;
+  setOpen: (group: string, title: string | null) => void;
+}>({ openByGroup: {}, setOpen: () => {} });
+
+const CollapsibleSection: React.FC<{
+  title: string;
+  children: React.ReactNode;
+  extraHeader?: React.ReactNode;
+  group?: string;
+}> = ({ title, children, extraHeader, group = 'root' }) => {
+  const { openByGroup, setOpen } = React.useContext(AccordionContext);
+  const isOpen = openByGroup[group] === title;
+
+  const toggle = () => setOpen(group, isOpen ? null : title);
+
+  // Top-level sections behave as a drill-in list rather than an accordion: the
+  // headers read as buttons, and choosing one hands it the whole column while
+  // the others step aside. That way a section is never fighting six headers for
+  // room, which is what forced scrolling before.
+  const openTitle = openByGroup[group];
+  const drillIn = group === 'root';
+  if (drillIn && openTitle && !isOpen) return null;
 
   return (
-    <div className="module overflow-hidden">
-      <div className="flex justify-between items-center cursor-pointer select-none" onClick={toggle}>
-        <p className="label-meta">{title}</p>
+    <div className="module !py-3 flex flex-col shrink-0">
+      <div
+        className={`shrink-0 flex justify-between items-center cursor-pointer select-none ${isOpen && drillIn ? 'pb-1' : ''}`}
+        onClick={toggle}
+      >
+        <p className="label-meta flex items-center gap-2">
+          {isOpen && drillIn && <span className="text-[var(--accent)] text-[10px]">◀</span>}
+          {title}
+        </p>
         <div className="flex items-center gap-3">
           {extraHeader && <div onClick={(e) => e.stopPropagation()}>{extraHeader}</div>}
           <span className="text-[var(--accent)] opacity-50 text-[10px]">
-            {isOpen ? '▲' : '▼'}
+            {isOpen ? (drillIn ? 'BACK' : '▲') : '▼'}
           </span>
         </div>
       </div>
       {isOpen && (
-        <div className="mt-4 pt-4 border-t border-white/5">
+        <div className="mt-3 pt-3 border-t border-white/5">
           {children}
         </div>
       )}
@@ -43,10 +101,30 @@ const CollapsibleSection: React.FC<{ title: string; children: React.ReactNode; e
   );
 };
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, setParams }) => {
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, setParams, onResendMpeConfig }) => {
+  const [openByGroup, setOpenByGroup] = useState<Record<string, string | null>>(() => {
+    try { return JSON.parse(localStorage.getItem('orchid-open-sections') || '{}'); } catch { return {}; }
+  });
+  const setOpen = React.useCallback((group: string, title: string | null) => {
+    setOpenByGroup(prev => {
+      const next = { ...prev, [group]: title };
+      localStorage.setItem('orchid-open-sections', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+  const accordion = React.useMemo(() => ({ openByGroup, setOpen }), [openByGroup, setOpen]);
+
   
   const updateParam = (key: keyof OrchidParams, value: any) => {
-    const newParams = { ...params, [key]: value };
+    let newParams = { ...params, [key]: value };
+
+    // Free MOO is the glide engine for Free mode, so pick it automatically as
+    // soon as both switches line up. Still overridable by hand afterwards.
+    const enteringFreeMoo =
+      (key === 'keyboardMapping' && value === 3 && newParams.mpeEnabled) ||
+      (key === 'mpeEnabled' && value === true && newParams.keyboardMapping === 3);
+    if (enteringFreeMoo) newParams = { ...newParams, mpeGlideMode: 3 };
+
     setParams(newParams);
     if (engine) {
       if (key === 'chordRegisterStart') {
@@ -56,6 +134,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
       } else if (key === 'registerMode' || key === 'chordDensity' || key === 'voicingRange') {
         engine.params = newParams;
         engine.retriggerHeldKeys(true);
+      } else if (key === 'mpeEnabled' || key === 'mpeGlideMode' || key === 'keyboardMapping') {
+        engine.params = newParams;
+        // Switching engines must not strand notes parked by the previous one.
+        engine.flushGlideCarry();
       } else {
         engine.params = newParams;
       }
@@ -65,7 +147,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
   const keyRoots = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "G#", "A", "Bb", "B"];
   
   return (
-    <>
+    <AccordionContext.Provider value={accordion}>
       <CollapsibleSection title="Global Mapping">
         <div className="grid grid-cols-4 gap-2">
           {["CLASSIC", "CIRCLE 5TH", "KEY MODE", "FREE MODE"].map((mode, idx) => (
@@ -193,15 +275,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           ))}
         </div>
       </CollapsibleSection>
-      <div className="module">
-        <div className="flex justify-between items-center mb-4">
-          <p className="label-meta">MPE GLIDE</p>
-          <div 
+      <CollapsibleSection title="MPE GLIDE" extraHeader={<div
             className={`toggle-switch ${params.mpeEnabled ? 'on' : ''}`}
             onClick={() => updateParam('mpeEnabled', !params.mpeEnabled)}
-          ></div>
-        </div>
-        
+          ></div>}>
         {params.mpeEnabled && (
           <div className="fade-in">
             <div className="flex justify-between items-center mb-2">
@@ -215,11 +292,244 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
               value={params.mpeGlideTimeMs}
               onChange={(val) => updateParam('mpeGlideTimeMs', val)}
             />
+
+            <p className="label-meta mt-4 mb-2">BEND RANGE (MATCH YOUR SYNTH)</p>
+            <div className="grid grid-cols-4 gap-2">
+              {[2, 12, 24, 48].map((val) => (
+                <button
+                  key={val}
+                  onClick={() => updateParam('mpeBendRange', val)}
+                  className={`analog-btn ${params.mpeBendRange === val ? 'active' : ''}`}
+                >
+                  ±{val}
+                </button>
+              ))}
+            </div>
+            <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-2 leading-relaxed">
+              GLIDED NOTES SOUND AT THE WRONG PITCH UNLESS THIS MATCHES THE
+              RECEIVING SYNTH. ±48 IS THE MPE DEFAULT; NON-MPE SYNTHS USE ±2.
+            </p>
+            <button
+              onClick={() => onResendMpeConfig?.()}
+              className="analog-btn w-full !py-2 mt-2"
+              title="Re-send the pitch bend range to the synth"
+            >
+              SEND CONFIG TO SYNTH
+            </button>
+            <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+              PRESS AFTER LOADING A NEW PLUGIN. NOT AUTOMATIC: THE CONFIG
+              CONTAINS CC 6, WHICH AN ARMED MIDI-LEARN WOULD GRAB.
+            </p>
+
+            <p className="label-meta mt-4 mb-2">GLIDE ENGINE</p>
+            <div className="grid grid-cols-4 gap-2">
+              {["LEGATO", "GRACE", "HOLD", "FREE MOO"].map((val, idx) => (
+                <button
+                  key={val}
+                  onClick={() => updateParam('mpeGlideMode', idx)}
+                  className={`analog-btn ${params.mpeGlideMode === idx ? 'active' : ''}`}
+                >
+                  {val}
+                </button>
+              ))}
+            </div>
+            <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-2 leading-relaxed">
+              {params.mpeGlideMode === 0 && 'GLIDES ONLY WHILE CHORDS OVERLAP OR SUSTAIN IS HELD'}
+              {params.mpeGlideMode === 1 && 'CHORDS STAY ALIVE BRIEFLY AFTER RELEASE SO THE NEXT ONE GLIDES'}
+              {params.mpeGlideMode === 2 && 'CHORDS RING UNTIL THE NEXT ONE GLIDES IN — PANIC TO STOP'}
+              {params.mpeGlideMode === 3 && (params.keyboardMapping === 3
+                ? 'FIXED VOICE POOL — ONE NOTE MOVES A VOICE, A CHORD RE-VOICES THEM ALL'
+                : 'FREE MOO ONLY APPLIES IN FREE MODE — OTHER MAPPINGS GLIDE AS LEGATO')}
+            </p>
+
+            {params.mpeGlideMode === 1 && (
+              <div className="fade-in mt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="label-meta">GRACE WINDOW</span>
+                  <span className="label-meta !text-[var(--accent)]">{params.mpeGraceMs}MS</span>
+                </div>
+                <CustomSlider
+                  min={50}
+                  max={2000}
+                  step={10}
+                  value={params.mpeGraceMs}
+                  onChange={(val) => updateParam('mpeGraceMs', val)}
+                />
+              </div>
+            )}
+
+            <div className="mt-4">
+              <div className="flex justify-between items-center mb-2">
+                <span className="label-meta">MAX VOICES</span>
+                <span className="label-meta !text-[var(--accent)]">{params.mpeMaxVoices}</span>
+              </div>
+              <CustomSlider
+                min={1}
+                max={8}
+                step={1}
+                value={params.mpeMaxVoices}
+                onChange={(val) => updateParam('mpeMaxVoices', val)}
+              />
+              <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+                THE SIZE OF THE FREE MOO VOICE POOL, AND HOW MANY NOTES A MEMORY
+                CHORD IS VOICED WITH. THE 5TH IS DROPPED BEFORE ANY ALTERATION.
+              </p>
+            </div>
+
+            {params.mpeGlideMode === 3 && (
+              <div className="fade-in mt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="label-meta">CHORD WINDOW</span>
+                  <span className="label-meta !text-[var(--accent)]">{params.mpeChordWindowMs}MS</span>
+                </div>
+                <CustomSlider
+                  min={10}
+                  max={300}
+                  step={5}
+                  value={params.mpeChordWindowMs}
+                  onChange={(val) => updateParam('mpeChordWindowMs', val)}
+                />
+              </div>
+            )}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      <CollapsibleSection title="STRUM ENGINE" extraHeader={<div 
+      <CollapsibleSection title="VELOCITY MOD" extraHeader={<div
+            className={`toggle-switch ${params.velModEnabled ? 'on' : ''}`}
+            onClick={() => updateParam('velModEnabled', !params.velModEnabled)}
+          ></div>}>
+        <p className="help-text label-meta !text-[0.6rem] opacity-60 mb-4 leading-relaxed">
+          HOW HARD YOU PLAY SWEEPS PITCH AND CC1 AND LETS THEM FALL BACK.
+          THE FIRST NOTE OF A CHORD SETS THE DEPTH. MIDI OUT ONLY.
+        </p>
+
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-1">
+            <span className="label-meta">SENSITIVITY</span>
+            <span className="label-meta !text-[var(--accent)]">×{(params.velModSensitivity ?? 1).toFixed(2)}</span>
+          </div>
+          <CustomSlider
+            min={0} max={SENS_TICKS} step={1}
+            value={sensToSlider(params.velModSensitivity ?? 1)}
+            onChange={(pos) => updateParam('velModSensitivity', sliderToSens(pos))}
+          />
+          <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+            STEEPENS THE VELOCITY RESPONSE FOR BOTH PITCH AND CC1, PIVOTING
+            AROUND MID VELOCITY. AT ×{(params.velModSensitivity ?? 1).toFixed(2)} THE FULL DEPTH IS SPANNED
+            BETWEEN VELOCITY {Math.round(127 * Math.max(0, 0.5 - 0.5 / (params.velModSensitivity ?? 1)))} AND {Math.round(127 * Math.min(1, 0.5 + 0.5 / (params.velModSensitivity ?? 1)))}.
+          </p>
+        </div>
+
+        <CollapsibleSection group="velmod" title="VEL PITCH" extraHeader={<div
+              className={`toggle-switch ${params.velModPitchEnabled ? 'on' : ''}`}
+              onClick={() => updateParam('velModPitchEnabled', !params.velModPitchEnabled)}
+            ></div>}>
+          {([
+            ['AMOUNT', 'velModPitchAmount', -24, 24, 0.5, (v: number) => `${v > 0 ? '+' : ''}${v}ST`],
+            ['ATTACK', 'velModPitchAttack', 0, 100, 1, fmtStage],
+            ['RELEASE', 'velModPitchRelease', 0, 100, 1, fmtStage],
+          ] as const).map(([label, key, min, max, step, fmt]) => (
+            <div className="mb-3" key={key}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="label-meta">{label}</span>
+                <span className="label-meta !text-[var(--accent)]">{fmt(params[key] as number)}</span>
+              </div>
+              <CustomSlider min={min} max={max} step={step} value={params[key] as number}
+                onChange={(v) => updateParam(key, v)} />
+            </div>
+          ))}
+          <p className="help-text label-meta !text-[0.6rem] opacity-60 leading-relaxed">
+            PITCH ALWAYS RESTS AT ZERO — ONLY THE ENVELOPE MOVES IT.
+          </p>
+        </CollapsibleSection>
+
+        <CollapsibleSection group="velmod" title="VIBRATO" extraHeader={<div
+              className={`toggle-switch ${params.vibratoEnabled ? 'on' : ''}`}
+              onClick={() => updateParam('vibratoEnabled', !params.vibratoEnabled)}
+            ></div>}>
+          <div className="mb-3">
+            <div className="flex justify-between items-center mb-1">
+              <span className="label-meta">PITCH DEPTH</span>
+              <span className="label-meta !text-[var(--accent)]">{(params.vibratoDepth ?? 0).toFixed(2)}ST</span>
+            </div>
+            <CustomSlider
+              min={0} max={VDEP_TICKS} step={1}
+              value={vdepToSlider(params.vibratoDepth ?? 0)}
+              onChange={(pos) => updateParam('vibratoDepth', sliderToVdep(pos))}
+            />
+          </div>
+          {([
+            ['RATE', 'vibratoRateHz', 0.5, 12, 0.1, (v: number) => `${v.toFixed(1)}HZ`],
+            ['FADE IN', 'vibratoFadeMs', 0, 5000, 50, (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}S` : `${v}MS`)],
+            ['FADE FROM', 'vibratoFadeStart', 0, 100, 1, (v: number) => `${v}%`],
+            ['CC80 DEPTH', 'vibratoCC80Depth', -127, 127, 1, (v: number) => `${v > 0 ? '+' : ''}${v}`],
+            ['CC80 CENTRE', 'vibratoCC80Center', 0, 127, 1, (v: number) => `${v}`],
+          ] as const).map(([label, key, min, max, step, fmt]) => (
+            <div className="mb-3" key={key}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="label-meta">{label}</span>
+                <span className="label-meta !text-[var(--accent)]">{fmt(params[key] as number)}</span>
+              </div>
+              <CustomSlider min={min} max={max} step={step} value={params[key] as number}
+                onChange={(v) => updateParam(key, v)} />
+            </div>
+          ))}
+          <button
+            onClick={() => engine?.wiggleCC(80)}
+            className="analog-btn w-full !py-2 mb-2"
+            title="Send CC80 back and forth so the plugin can learn it"
+          >
+            SEND CC80 FOR MAPPING
+          </button>
+          <p className="help-text label-meta !text-[0.6rem] opacity-60 leading-relaxed">
+            CC80 RIDES THE SAME LFO, SO TREMOLO STAYS LOCKED TO THE PITCH. HIT
+            LEARN IN YOUR SYNTH, PRESS THE BUTTON, THEN SET DEPTH. CENTRE IS
+            WHERE THE PARAMETER RESTS BETWEEN NOTES — SENDING CC80 FROM A
+            CONTROLLER MOVES IT LIVE. NEGATIVE DEPTH FLIPS THE DIRECTION.
+          </p>
+        </CollapsibleSection>
+
+        <CollapsibleSection group="velmod" title="VEL CC1" extraHeader={<div
+              className={`toggle-switch ${params.velModCC1Enabled ? 'on' : ''}`}
+              onClick={() => updateParam('velModCC1Enabled', !params.velModCC1Enabled)}
+            ></div>}>
+          {([
+            ['ANCHOR', 'velModCC1Anchor', 0, 127, 1, (v: number) => `${v}`],
+            ['AMOUNT', 'velModCC1Amount', -100, 100, 1, (v: number) => `${v}%`],
+            ['ATTACK', 'velModCC1Attack', 0, 100, 1, fmtStage],
+            ['RELEASE', 'velModCC1Release', 0, 100, 1, fmtStage],
+          ] as const).map(([label, key, min, max, step, fmt]) => (
+            <div className="mb-3" key={key}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="label-meta">{label}</span>
+                <span className="label-meta !text-[var(--accent)]">{fmt(params[key] as number)}</span>
+              </div>
+              <CustomSlider min={min} max={max} step={step} value={params[key] as number}
+                onChange={(v) => updateParam(key, v)} />
+            </div>
+          ))}
+          <p className="help-text label-meta !text-[0.6rem] opacity-60 leading-relaxed">
+            MOVING THE PHYSICAL MOD WHEEL TAKES OVER THE ANCHOR.
+            MOVING THIS SLIDER TAKES IT BACK.
+          </p>
+        </CollapsibleSection>
+
+        <div className="mt-5">
+          <div className="flex justify-between items-center mb-1">
+            <span className="label-meta">CHORD WINDOW</span>
+            <span className="label-meta !text-[var(--accent)]">{params.velModChordThresholdMs}MS</span>
+          </div>
+          <CustomSlider min={0} max={300} step={5} value={params.velModChordThresholdMs}
+            onChange={(v) => updateParam('velModChordThresholdMs', v)} />
+          <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+            NOTES CLOSER TOGETHER THAN THIS COUNT AS ONE CHORD AND DO NOT RETRIGGER.
+            KEEP IT ABOVE YOUR STRUM SPEED.
+          </p>
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection title="STRUM ENGINE" extraHeader={<div
             className={`toggle-switch ${params.strumEngine === 1 ? 'on' : ''}`}
             onClick={() => updateParam('strumEngine', params.strumEngine === 1 ? 0 : 1)}
           ></div>}>
@@ -333,6 +643,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           ></div>
         </div>
       </CollapsibleSection>
-    </>
+    </AccordionContext.Provider>
   );
 };

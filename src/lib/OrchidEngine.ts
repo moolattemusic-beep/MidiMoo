@@ -1,5 +1,18 @@
 import { OrchidParams, NoteEvent } from '../types';
 
+// One voice in the Free MOO pool: a held MPE channel that is bent around
+// rather than retriggered.
+interface MooVoice {
+  channel: number;
+  basePitch: number; // pitch of the note-on, the reference for pitch bend
+  currentPitch: number; // where it is sounding right now (updated while gliding)
+  targetPitch: number;
+  sourceKey: number; // performance key that currently owns it
+  released: boolean; // key lifted but still ringing under the sustain pedal
+  isInternalSynthOnly: boolean;
+  glideTimers: any[];
+}
+
 export class OrchidEngine {
   public params: OrchidParams;
 
@@ -16,7 +29,7 @@ export class OrchidEngine {
 
 
   // Track the actual notes currently playing for a given physical input key
-  private activePitchesMemory: Record<number, Array<{ pitch: number, delayUsed: number, isBass: boolean, timeoutId?: any, mpeChannel?: number, mpeBasePitch?: number, mpeCurrentPitch?: number, isInternalSynthOnly?: boolean }>> = {};
+  private activePitchesMemory: Record<number, Array<{ pitch: number, delayUsed: number, isBass: boolean, timeoutId?: any, mpeChannel?: number, mpeBasePitch?: number, mpeCurrentPitch?: number, mpeTargetPitch?: number, isInternalSynthOnly?: boolean }>> = {};
   private mpeChannelsAllocated: boolean[] = new Array(16).fill(false);
 
   private allocateMpeChannel(): number {
@@ -35,29 +48,483 @@ export class OrchidEngine {
     }
   }
 
-  private emitMpePitchBend(channel: number, basePitch: number, currentPitch: number, targetPitch: number, delayOffset: number) {
-    const steps = 20; // 20 steps over the glide time
-    const glideMs = this.params.mpeGlideTimeMs || 150;
+  // --- MPE glide carry ---------------------------------------------------
+  // A released note can't be bent, so glide between non-overlapping chords is
+  // only possible if the previous chord is kept sounding. Keys parked here have
+  // been released but are still playing, waiting to be glided from.
+  // Value = grace-window timeout, or undefined in Hold mode (no auto-release).
+  private glideCarryKeys: Map<number, any> = new Map();
+
+  // 0=Legato (overlap only, nothing is carried), 1=Grace window, 2=Hold.
+  private get glideCarryMode(): number {
+    if (!this.params.mpeEnabled) return 0;
+    const mode = this.params.mpeGlideMode || 0;
+    // Free MOO runs its own voice pool and only applies in Free mode. Outside
+    // it nothing may be carried, or the chord modes would stop releasing notes.
+    if (mode === 3) return 0;
+    return mode;
+  }
+
+  private silenceMemory(pitch: number) {
+    const notes = this.activePitchesMemory[pitch];
+    if (!notes) return;
+    for (const note of notes) {
+      if (note.timeoutId) clearTimeout(note.timeoutId);
+      else this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
+      if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
+    }
+    delete this.activePitchesMemory[pitch];
+  }
+
+  // Keep a released chord alive so the next chord can glide out of it.
+  private carryGlideNotes(pitch: number) {
+    const existing = this.glideCarryKeys.get(pitch);
+    if (existing) clearTimeout(existing);
+
+    if (this.glideCarryMode === 1) {
+      const graceMs = this.params.mpeGraceMs ?? 250;
+      const timeoutId = setTimeout(() => {
+        this.glideCarryKeys.delete(pitch);
+        this.silenceMemory(pitch);
+        this.updateStrumplatePitches();
+      }, graceMs);
+      this.glideCarryKeys.set(pitch, timeoutId);
+    } else {
+      // Hold mode: sustain until something glides from it, or PANIC.
+      this.glideCarryKeys.set(pitch, undefined);
+    }
+  }
+
+  // Take ownership of a carried key so its pending release doesn't fire.
+  private claimGlideCarry(pitch: number) {
+    const timeoutId = this.glideCarryKeys.get(pitch);
+    if (timeoutId) clearTimeout(timeoutId);
+    this.glideCarryKeys.delete(pitch);
+  }
+
+  // Release everything parked for glide. Used on panic and when the glide
+  // mode changes, so Hold mode can never strand notes.
+  public flushGlideCarry() {
+    for (const [pitch, timeoutId] of this.glideCarryKeys.entries()) {
+      if (timeoutId) clearTimeout(timeoutId);
+      this.silenceMemory(pitch);
+    }
+    this.glideCarryKeys.clear();
+    for (const voice of [...this.mooVoices]) this.mooReleaseVoice(voice);
+    this.clearMooGesture();
+    this.syncMooMirror();
+    this.updateStrumplatePitches();
+  }
+
+  // --- Free MOO mode -----------------------------------------------------
+  // A fixed pool of MPE voices the player re-voices by ear. Notes played close
+  // together count as one chord gesture; a lone note edits a single voice.
+
+  private mooVoices: MooVoice[] = [];
+  private mooGesture: number[] = [];
+  private mooGestureTimer: any = null;
+  private mooMirrorKeys: Set<number> = new Set();
+  // Voices spawned while a gesture was still arriving — provisional until the
+  // finished chord shows how many voices it actually needs.
+  private mooGestureBorn: Set<MooVoice> = new Set();
+
+  public isFreeMooActive(): boolean {
+    return this.params.mpeEnabled
+      && (this.params.mpeGlideMode || 0) === 3
+      && this.params.keyboardMapping === 3;
+  }
+
+  private mooMaxVoices(): number {
+    return Math.max(1, Math.min(14, this.params.mpeMaxVoices ?? 5));
+  }
+
+  // The voice pool owns its notes, but the strum plate and panic read
+  // activePitchesMemory, so keep a mirror of the pool in there.
+  private syncMooMirror() {
+    for (const key of this.mooMirrorKeys) delete this.activePitchesMemory[key];
+    this.mooMirrorKeys.clear();
+
+    for (const voice of this.mooVoices) {
+      const entry = {
+        pitch: Math.round(voice.currentPitch),
+        delayUsed: 0,
+        isBass: false,
+        mpeChannel: voice.channel,
+        mpeBasePitch: voice.basePitch,
+        mpeCurrentPitch: voice.currentPitch,
+        isInternalSynthOnly: voice.isInternalSynthOnly,
+      };
+      if (this.mooMirrorKeys.has(voice.sourceKey)) {
+        this.activePitchesMemory[voice.sourceKey].push(entry);
+      } else {
+        this.activePitchesMemory[voice.sourceKey] = [entry];
+        this.mooMirrorKeys.add(voice.sourceKey);
+      }
+    }
+  }
+
+  private emitMooBend(voice: MooVoice, pitch: number) {
+    if (this.onOutputNote) {
+      this.onOutputNote({
+        pitch: voice.basePitch,
+        velocity: 0,
+        isOn: false,
+        mpeChannel: voice.channel,
+        isPitchBend: true,
+        pitchBendValue: pitch - voice.basePitch,
+      });
+    }
+  }
+
+  // Glide steps run on cancellable timers rather than being pre-scheduled to
+  // the MIDI port, so a gesture can re-target a voice that is still moving.
+  private mooGlide(voice: MooVoice, targetPitch: number) {
+    for (const t of voice.glideTimers) clearTimeout(t);
+    voice.glideTimers = [];
+    voice.targetPitch = targetPitch;
+
+    const from = voice.currentPitch;
+    if (from === targetPitch) return;
+
+    const glideMs = this.params.mpeGlideTimeMs || 0;
+    if (glideMs <= 0) {
+      voice.currentPitch = targetPitch;
+      this.emitMooBend(voice, targetPitch);
+      return;
+    }
+
+    const steps = 20;
     const stepTime = glideMs / steps;
-    
     for (let i = 1; i <= steps; i++) {
-      const progress = i / steps;
-      const pitchAtStep = currentPitch + (targetPitch - currentPitch) * progress;
-      const bendAmount = pitchAtStep - basePitch;
-      const delayMs = delayOffset + (i * stepTime) + (channel * 0.1); // Add jitter per channel
-      
+      const timer = setTimeout(() => {
+        const pitch = from + (targetPitch - from) * (i / steps);
+        voice.currentPitch = pitch;
+        this.emitMooBend(voice, pitch);
+        if (i === steps) voice.glideTimers = [];
+      }, i * stepTime);
+      voice.glideTimers.push(timer);
+    }
+  }
+
+  private mooNearestVoice(pitch: number, pool: MooVoice[] = this.mooVoices): MooVoice | undefined {
+    let best: MooVoice | undefined;
+    let bestDiff = Infinity;
+    for (const voice of pool) {
+      const diff = Math.abs(voice.currentPitch - pitch);
+      if (diff < bestDiff) { bestDiff = diff; best = voice; }
+    }
+    return best;
+  }
+
+  // Lifting a key marks its voice expendable, so that is what gets taken first.
+  private mooPickVictim(pitch: number): MooVoice | undefined {
+    const released = this.mooVoices.filter(v => v.released);
+    return this.mooNearestVoice(pitch, released.length > 0 ? released : this.mooVoices);
+  }
+
+  // Every live voice must own a distinct MIDI note number. Receivers that key
+  // notes by pitch — the internal synth does, for both note-on and bend — drop
+  // one of two voices sharing a number. Where the natural number is taken,
+  // borrow a free one and let pitch bend cover the difference.
+  private mooFreeNoteNumber(preferred: number, exclude?: MooVoice): number {
+    const taken = new Set(
+      this.mooVoices.filter(v => v !== exclude).map(v => v.basePitch)
+    );
+    if (!taken.has(preferred)) return preferred;
+    for (let offset = 1; offset <= 24; offset++) {
+      if (preferred - offset >= 0 && !taken.has(preferred - offset)) return preferred - offset;
+      if (preferred + offset <= 127 && !taken.has(preferred + offset)) return preferred + offset;
+    }
+    return preferred;
+  }
+
+  private mooStartVoice(notePitch: number, soundAt: number, velocity: number, isSynthOnly: boolean): MooVoice {
+    const basePitch = this.mooFreeNoteNumber(notePitch);
+    const voice: MooVoice = {
+      channel: this.allocateMpeChannel(),
+      basePitch,
+      currentPitch: soundAt,
+      targetPitch: notePitch,
+      sourceKey: notePitch,
+      released: false,
+      isInternalSynthOnly: isSynthOnly,
+      glideTimers: [],
+    };
+
+    this.emitNoteOn(basePitch, velocity, 0, voice.channel, isSynthOnly);
+    this.mooVoices.push(voice);
+    // emitNoteOn resets bend to zero, so place the voice afterwards.
+    if (soundAt !== basePitch) this.emitMooBend(voice, soundAt);
+    if (soundAt !== notePitch) this.mooGlide(voice, notePitch);
+    return voice;
+  }
+
+  private mooAddVoice(pitch: number, velocity: number, isSynthOnly: boolean): MooVoice {
+    // Swoop in from a voice that was already sounding before this gesture —
+    // that is what makes a chord grow by splitting a note. A chord played from
+    // silence has nothing to swoop from, so it attacks cleanly.
+    const settled = this.mooVoices.filter(v => !this.mooGestureBorn.has(v));
+    const neighbour = this.mooNearestVoice(pitch, settled);
+    return this.mooStartVoice(pitch, neighbour ? neighbour.currentPitch : pitch, velocity, isSynthOnly);
+  }
+
+  private mooRetriggerVoice(voice: MooVoice, pitch: number, velocity: number) {
+    for (const t of voice.glideTimers) clearTimeout(t);
+    voice.glideTimers = [];
+    this.emitNoteOff(voice.basePitch, 0, 0, voice.channel, voice.isInternalSynthOnly);
+    voice.basePitch = this.mooFreeNoteNumber(pitch, voice);
+    voice.currentPitch = pitch;
+    voice.targetPitch = pitch;
+    this.emitNoteOn(voice.basePitch, velocity, 0, voice.channel, voice.isInternalSynthOnly);
+    if (pitch !== voice.basePitch) this.emitMooBend(voice, pitch);
+  }
+
+  private mooSplitVoice(source: MooVoice, targetPitch: number, velocity: number) {
+    if (this.mooVoices.length >= this.mooMaxVoices()) return;
+    // Starts in unison with the voice it splits off, then glides to its target.
+    this.mooStartVoice(targetPitch, source.currentPitch, velocity, source.isInternalSynthOnly);
+  }
+
+  private mooReleaseVoice(voice: MooVoice) {
+    for (const t of voice.glideTimers) clearTimeout(t);
+    voice.glideTimers = [];
+    this.emitNoteOff(voice.basePitch, 0, 0, voice.channel, voice.isInternalSynthOnly);
+    this.freeMpeChannel(voice.channel);
+    const idx = this.mooVoices.indexOf(voice);
+    if (idx !== -1) this.mooVoices.splice(idx, 1);
+  }
+
+  private clearMooGesture() {
+    if (this.mooGestureTimer) clearTimeout(this.mooGestureTimer);
+    this.mooGestureTimer = null;
+    this.mooGesture = [];
+    this.mooGestureBorn.clear();
+  }
+
+  // Monotone (order-preserving) assignment of sounding voices to target pitches,
+  // minimising total movement. Moves are restricted to exactly the split/merge
+  // budget the note counts imply: with equal counts this is a strict 1:1
+  // pairing, so voices can never double up on a pitch and abandon another.
+  private mooAlign(voicePitches: number[], targets: number[]): Array<[number, number]> {
+    const n = voicePitches.length;
+    const m = targets.length;
+    const allowSplit = m > n; // one voice covers several targets
+    const allowMerge = n > m; // several voices land on one target
+
+    const cost: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(Infinity));
+    cost[0][0] = 0;
+
+    for (let i = 1; i <= n; i++) {
+      for (let j = 1; j <= m; j++) {
+        let best = cost[i - 1][j - 1];
+        if (allowSplit && cost[i][j - 1] < best) best = cost[i][j - 1];
+        if (allowMerge && cost[i - 1][j] < best) best = cost[i - 1][j];
+        if (best === Infinity) continue;
+        cost[i][j] = Math.abs(voicePitches[i - 1] - targets[j - 1]) + best;
+      }
+    }
+
+    const pairs: Array<[number, number]> = [];
+    let i = n;
+    let j = m;
+    while (i > 0 && j > 0) {
+      pairs.push([i - 1, j - 1]);
+      const diag = cost[i - 1][j - 1];
+      const left = allowSplit ? cost[i][j - 1] : Infinity;
+      const up = allowMerge ? cost[i - 1][j] : Infinity;
+      if (diag <= left && diag <= up) { i--; j--; }
+      else if (left <= up) { j--; }
+      else { i--; }
+    }
+    return pairs.reverse();
+  }
+
+  // A gesture of two or more notes is a new chord: every voice is re-assigned
+  // to it, splitting or merging as the note count demands.
+  private mooReplaceChord(gesture: number[]) {
+    if (this.mooVoices.length === 0) return;
+
+    let targets = Array.from(new Set(gesture)).sort((a, b) => a - b);
+    const max = this.mooMaxVoices();
+    if (targets.length > max) targets = targets.slice(0, max);
+
+    // Voices born mid-gesture were a guess made before the chord was complete.
+    // If the finished chord needs fewer, drop those again — merging them would
+    // leave a doubled note and burn a voice. Genuine shrinking still merges.
+    let surplus = this.mooVoices.length - targets.length;
+    if (surplus > 0 && this.mooGestureBorn.size > 0) {
+      const born = this.mooVoices.filter(v => this.mooGestureBorn.has(v));
+      for (let k = born.length - 1; k >= 0 && surplus > 0; k--) {
+        this.mooReleaseVoice(born[k]);
+        this.mooGestureBorn.delete(born[k]);
+        surplus--;
+      }
+    }
+
+    const voices = [...this.mooVoices].sort((a, b) => a.currentPitch - b.currentPitch);
+    const pairs = this.mooAlign(voices.map(v => v.currentPitch), targets);
+
+    const targetsForVoice = new Map<number, number[]>();
+    for (const [vi, ti] of pairs) {
+      const list = targetsForVoice.get(vi);
+      if (list) { if (!list.includes(ti)) list.push(ti); }
+      else targetsForVoice.set(vi, [ti]);
+    }
+
+    for (const [vi, tis] of targetsForVoice.entries()) {
+      const voice = voices[vi];
+      const keepPitch = targets[tis[0]];
+      voice.released = false;
+      voice.sourceKey = keepPitch;
+      this.mooGlide(voice, keepPitch);
+
+      for (let k = 1; k < tis.length; k++) {
+        const splitPitch = targets[tis[k]];
+        this.mooSplitVoice(voice, splitPitch, this.heldKeys.get(splitPitch) ?? 100);
+      }
+    }
+
+    // A gesture resolves after its window closes, by which time a staccato
+    // chord may already be back up. Voices left owned by a key that is no
+    // longer down would never be sent a note-off, so settle them here.
+    for (const voice of [...this.mooVoices]) {
+      const keyStillDown = this.heldKeys.has(voice.sourceKey)
+        && !this.physicallyReleasedKeys.has(voice.sourceKey);
+      if (keyStillDown) continue;
+      if (this.sustainPedalActive) voice.released = true;
+      else this.mooReleaseVoice(voice);
+    }
+
+    this.syncMooMirror();
+    this.updateStrumplatePitches();
+  }
+
+  private freeMooNoteOn(pitch: number, velocity: number) {
+    this.heldKeys.set(pitch, velocity);
+    if (this.physicallyReleasedKeys.has(pitch)) this.physicallyReleasedKeys.delete(pitch);
+
+    // Group note-ons that land together, then re-voice once the window closes.
+    this.mooGesture.push(pitch);
+    if (this.mooGestureTimer) clearTimeout(this.mooGestureTimer);
+    this.mooGestureTimer = setTimeout(() => {
+      const gesture = this.mooGesture;
+      this.mooGesture = [];
+      this.mooGestureTimer = null;
+      if (gesture.length >= 2) this.mooReplaceChord(gesture);
+      this.mooGestureBorn.clear();
+    }, this.params.mpeChordWindowMs ?? 60);
+
+    // Act now so playing never waits on the window; the gesture pass refines it.
+    const isSynthOnly = this.params.omnichordMode;
+    const owned = this.mooVoices.find(v => v.sourceKey === pitch);
+
+    if (owned) {
+      owned.released = false;
+      this.mooRetriggerVoice(owned, pitch, velocity);
+    } else if (this.mooVoices.length < this.mooMaxVoices()) {
+      this.mooGestureBorn.add(this.mooAddVoice(pitch, velocity, isSynthOnly));
+    } else {
+      const victim = this.mooPickVictim(pitch);
+      if (victim) {
+        victim.released = false;
+        victim.sourceKey = pitch;
+        this.mooGlide(victim, pitch);
+      }
+    }
+
+    this.syncMooMirror();
+    if (this.onPerformanceKey) this.onPerformanceKey(pitch, true, false);
+  }
+
+  private freeMooNoteOff(pitch: number) {
+    const owned = this.mooVoices.filter(v => v.sourceKey === pitch);
+
+    if (this.sustainPedalActive) {
+      this.physicallyReleasedKeys.add(pitch);
+      // Still ringing, but now first in line to be stolen.
+      for (const voice of owned) voice.released = true;
+    } else {
+      this.heldKeys.delete(pitch);
+      for (const voice of owned) this.mooReleaseVoice(voice);
+    }
+
+    this.syncMooMirror();
+    if (this.onPerformanceKey) this.onPerformanceKey(pitch, false, this.heldKeys.size === 0);
+  }
+
+  private releaseMooSustainedVoices() {
+    for (const voice of [...this.mooVoices]) {
+      if (!voice.released) continue;
+      this.heldKeys.delete(voice.sourceKey);
+      this.mooReleaseVoice(voice);
+    }
+    this.syncMooMirror();
+  }
+
+  // Glide steps in flight, per MIDI channel. Messages handed to the MIDI port
+  // with a future timestamp cannot be recalled, so a glide that outlives its
+  // note would keep bending whatever plays on that channel next. Running the
+  // steps on timers instead means a channel can be cut short.
+  private channelGlideTimers: Map<number, any[]> = new Map();
+
+  private cancelChannelGlide(channel?: number) {
+    if (channel === undefined) return;
+    const timers = this.channelGlideTimers.get(channel);
+    if (!timers) return;
+    for (const t of timers) clearTimeout(t);
+    this.channelGlideTimers.delete(channel);
+  }
+
+  private cancelAllChannelGlides() {
+    for (const timers of this.channelGlideTimers.values()) {
+      for (const t of timers) clearTimeout(t);
+    }
+    this.channelGlideTimers.clear();
+  }
+
+  // `note` is updated as the glide progresses, so a re-target part way through
+  // (dragging a slider, say) continues from where the note actually is rather
+  // than from where the last glide was aiming.
+  private emitMpePitchBend(channel: number, basePitch: number, currentPitch: number, targetPitch: number, delayOffset: number, note?: any) {
+    const steps = 20; // 20 steps over the glide time
+    const glideMs = this.params.mpeGlideTimeMs || 0;
+    const stepTime = glideMs / steps;
+
+    // Whatever this channel was doing is superseded.
+    this.cancelChannelGlide(channel);
+    if (note) note.mpeTargetPitch = targetPitch;
+
+    const sendStep = (pitch: number) => {
+      if (note) note.mpeCurrentPitch = pitch;
       if (this.onOutputNote) {
         this.onOutputNote({
           pitch: basePitch,
           velocity: 0,
           isOn: false,
-          delayMs,
+          delayMs: 0,
           mpeChannel: channel,
           isPitchBend: true,
-          pitchBendValue: bendAmount
+          pitchBendValue: pitch - basePitch
         });
       }
+    };
+
+    if (glideMs <= 0 || currentPitch === targetPitch) {
+      sendStep(targetPitch);
+      return;
     }
+
+    const timers: any[] = [];
+    for (let i = 1; i <= steps; i++) {
+      const progress = i / steps;
+      const pitchAtStep = currentPitch + (targetPitch - currentPitch) * progress;
+      const timer = setTimeout(() => {
+        sendStep(pitchAtStep);
+        if (i === steps) this.channelGlideTimers.delete(channel);
+      }, delayOffset + (i * stepTime));
+      timers.push(timer);
+    }
+    this.channelGlideTimers.set(channel, timers);
   }
 
   // Callback to emit output MIDI (to Web MIDI or Audio Synth)
@@ -85,6 +552,18 @@ export class OrchidEngine {
 
 
   public panic() {
+    this.cancelAllChannelGlides();
+    for (const timeoutId of this.glideCarryKeys.values()) {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+    this.glideCarryKeys.clear();
+    for (const voice of this.mooVoices) {
+      for (const t of voice.glideTimers) clearTimeout(t);
+      this.freeMpeChannel(voice.channel);
+    }
+    this.mooVoices = [];
+    this.mooMirrorKeys.clear();
+    this.clearMooGesture();
     for (const pitch in this.activePitchesMemory) {
       const memory = this.activePitchesMemory[pitch];
       if (memory) {
@@ -96,6 +575,8 @@ export class OrchidEngine {
     this.activePitchesMemory = {};
     this.heldKeys.clear();
     this.heldCustomVoicings.clear();
+    this.heldChordIntervals.clear();
+    this.heldMemoryKeys.clear();
     this.lastStrumIndex = -1;
     this.sustainPedalActive = false;
     this.strumplatePitches = [];
@@ -236,6 +717,13 @@ export class OrchidEngine {
   private physicallyReleasedKeys: Set<number> = new Set();
   public heldKeys: Map<number, number> = new Map();
   public heldCustomVoicings: Map<number, number[]> = new Map();
+  // Intervals of a pasted chord symbol, kept so retriggers (a register move,
+  // an inversion change) rebuild the same chord rather than the default one.
+  public heldChordIntervals: Map<number, number[]> = new Map();
+  // Which held keys came from a memory pad. In Free mode the pads still play
+  // chords, so a retrigger has to go back down the chord path — routing it
+  // through the free-mode branch instead would strand the chord's notes.
+  public heldMemoryKeys: Set<number> = new Set();
 
   public retriggerHeldKeys(skipBass: boolean = false, forcePlay: boolean = false) {
     const keysToRetrigger = Array.from(this.heldKeys.entries());
@@ -243,7 +731,8 @@ export class OrchidEngine {
     for (const [pitch, velocity] of keysToRetrigger) {
       if (pitch <= 127) {
          const cv = this.heldCustomVoicings.get(pitch);
-         this.handleMidi(pitch, velocity, true, skipBass, true, forcePlay, false, cv);
+         const ci = this.heldChordIntervals.get(pitch);
+         this.handleMidi(pitch, velocity, true, skipBass, true, forcePlay, this.heldMemoryKeys.has(pitch), cv, ci);
       }
     }
   }
@@ -450,7 +939,22 @@ export class OrchidEngine {
     return 40 - interval; // Higher intervals have slightly lower base priority
   }
 
-  private calculateFoldedPitches(rootPitch: number, intervals: number[]): number[] {
+  /**
+   * Ranking used when MAX VOICES caps a memory chord. The 5th goes before any
+   * extension: an altered chord is named for its alterations, so thinning
+   * B7(b13,#9) down to a plain B7 would throw away the point of it. Played
+   * chords keep using getIntervalPriority, which is unchanged.
+   */
+  private getVoiceCapPriority(interval: number): number {
+    const pc = interval % 12;
+    if (pc === 0) return 100; // root
+    if (pc === 3 || pc === 4) return 90; // 3rd
+    if (pc === 10 || pc === 11) return 80; // 7th
+    if (pc === 7) return 20; // 5th: the first thing a player drops
+    return 60 - interval / 100; // colour tones, lower ones first
+  }
+
+  private calculateFoldedPitches(rootPitch: number, intervals: number[], keepAllTones = false, noteLimit?: number): number[] {
     const startRange = this.params.chordRegisterStart;
     const endRange = startRange + this.params.voicingRange;
     const registerStartPC = startRange % 12;
@@ -470,14 +974,21 @@ export class OrchidEngine {
     if (this.ext_9) extensionBoost++;
     if (this.ext_alt) extensionBoost++;
     
-    let targetNotes = maxNotes + extensionBoost;
+    // A chord pasted as a symbol is played as spelled: thinning it by density
+    // would drop the very alteration that gives it its name. MAX VOICES is a
+    // deliberate limit though, so it still applies.
+    let targetNotes = keepAllTones ? intervals.length : maxNotes + extensionBoost;
+    if (noteLimit !== undefined) targetNotes = noteLimit;
     if (targetNotes > intervals.length) {
       targetNotes = intervals.length;
     }
+    if (targetNotes < 1) targetNotes = 1;
 
     const scoredIntervals = intervals.map(interval => {
       // Deterministic scoring: base priority + tiebreaker favoring smaller intervals
-      const score = this.getIntervalPriority(interval) + (100 - interval) / 100;
+      const score = noteLimit !== undefined
+        ? this.getVoiceCapPriority(interval)
+        : this.getIntervalPriority(interval) + (100 - interval) / 100;
       return { interval, score };
     });
 
@@ -559,6 +1070,82 @@ export class OrchidEngine {
     return validNotes.filter(n => n < maxPitch);
   }
 
+  // --- Arpeggio patterns -------------------------------------------------
+  // The pad maps its Y axis onto a list of chord tones. A pattern reorders and
+  // lengthens that list, so a swipe walks the figure instead of running
+  // straight up the chord. getArpeggioPitches stays the plain ascending list.
+
+  // Most patterns are a window of offsets slid along the notes by a fixed step:
+  // [0,1,2] step 1 gives "1 2 3, 2 3 4, 3 4 5". The window wraps at the top so
+  // the last groups still complete.
+  private arpWindow(pitches: number[], offsets: number[], step: number): number[] {
+    const n = pitches.length;
+    const out: number[] = [];
+    for (let start = 0; start < n; start += step) {
+      for (const offset of offsets) {
+        out.push(pitches[(start + offset) % n]);
+      }
+    }
+    return out;
+  }
+
+  private arpRandomCache: { key: string; sequence: number[] } | null = null;
+
+  public getArpeggioSequence(): number[] {
+    const pitches = this.getArpeggioPitches();
+    const n = pitches.length;
+    if (n === 0) return [];
+
+    switch (this.params.arpeggioPattern ?? 0) {
+      case 1: // Down
+        return [...pitches].reverse();
+
+      case 2: // Two up, one down
+        return this.arpWindow(pitches, [0, 1, 2], 1);
+
+      case 3: // Alternate: 1 3 2 4, 3 5 4 6
+        return this.arpWindow(pitches, [0, 2, 1, 3], 2);
+
+      case 4: { // Thirds: every other note up, then the ones it skipped —
+        // 1 3 5, 2 4 6. A sliding [0,2] window would just reproduce Alternate.
+        const odd: number[] = [];
+        const even: number[] = [];
+        pitches.forEach((p, i) => (i % 2 === 0 ? odd : even).push(p));
+        return [...odd, ...even];
+      }
+
+      case 5: { // Pendulum: up then back down, without repeating the turns
+        return n < 3 ? [...pitches] : [...pitches, ...pitches.slice(1, -1).reverse()];
+      }
+
+      case 6: { // Outside-in: 1 n 2 n-1 3 ...
+        const out: number[] = [];
+        for (let lo = 0, hi = n - 1; lo <= hi; lo++, hi--) {
+          out.push(pitches[lo]);
+          if (lo !== hi) out.push(pitches[hi]);
+        }
+        return out;
+      }
+
+      case 7: { // Random, held steady until the chord itself changes
+        const key = pitches.join(',');
+        if (this.arpRandomCache && this.arpRandomCache.key === key) {
+          return this.arpRandomCache.sequence;
+        }
+        const shuffled = [...pitches];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        this.arpRandomCache = { key, sequence: shuffled };
+        return shuffled;
+      }
+
+      default: // Up
+        return pitches;
+    }
+  }
+
   public handleArpeggioNoteOn(pitch: number, velocity: number) {
     if (this.activeArpeggioNotes.has(pitch)) {
        const existing = this.activeArpeggioNotes.get(pitch);
@@ -572,12 +1159,13 @@ export class OrchidEngine {
     const isMidiOnly = this.params.omnichordMode && this.params.omnichordSynthMonitor;
     this.emitNoteOn(pitch, velocity, 0, channel, false, isMidiOnly);
     
-    // Auto-release arpeggio notes shortly after triggering (staccato pulse)
+    // Auto-release arpeggio notes after their set length (a staccato pulse by
+    // default, longer when you want the notes to ring without a sustain pedal).
     const timeoutId = setTimeout(() => {
       if (this.activeArpeggioNotes.has(pitch)) {
         this.handleArpeggioNoteOff(pitch);
       }
-    }, 100);
+    }, this.params.arpeggioNoteLengthMs ?? 100);
     
     this.activeArpeggioNotes.set(pitch, { pitch, mpeChannel: channel, timeoutId });
   }
@@ -597,11 +1185,15 @@ export class OrchidEngine {
   private recalculateActiveChords() {
     for (const pkStr in this.activePitchesMemory) {
       const perfKey = parseInt(pkStr);
-      const mappedRoot = this.getMappedRootPitch(perfKey);
+      const pasted = this.heldChordIntervals.get(perfKey);
+      const mappedRoot = pasted ? perfKey : this.getMappedRootPitch(perfKey);
       const memoryArray = this.activePitchesMemory[perfKey];
+      const limit = (this.heldMemoryKeys.has(perfKey) && this.params.mpeEnabled)
+        ? Math.max(1, this.params.mpeMaxVoices ?? 5)
+        : undefined;
 
-      const newIntervals = this.getIntervalsForState(perfKey);
-      const newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals);
+      const newIntervals = pasted ?? this.getIntervalsForState(perfKey);
+      const newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
       
       const oldPitches = memoryArray.filter(n => !n.isBass).map(n => n.pitch);
 
@@ -783,6 +1375,13 @@ export class OrchidEngine {
         }
         this.activeArpeggioNotes.clear();
 
+        // Free MOO owns its notes, so let the pool release them before the
+        // generic flush below can touch the mirror entries.
+        if (this.isFreeMooActive()) {
+          this.releaseMooSustainedVoices();
+          this.physicallyReleasedKeys.clear();
+        }
+
         // Flush all physically released keys
         for (const pitch of this.physicallyReleasedKeys) {
           this.heldKeys.delete(pitch);
@@ -808,7 +1407,7 @@ export class OrchidEngine {
 
   
 
-  public handleMidi(pitch: number, velocity: number, isOn: boolean, skipBass: boolean = false, isUpdate: boolean = false, forcePlay: boolean = false, isMemoryTrigger: boolean = false, customVoicing?: number[]) {
+  public handleMidi(pitch: number, velocity: number, isOn: boolean, skipBass: boolean = false, isUpdate: boolean = false, forcePlay: boolean = false, isMemoryTrigger: boolean = false, customVoicing?: number[], chordIntervals?: number[]) {
     const controlLowBound = 24 + (this.params.controlOctave * 12);
     const controlHighBound = controlLowBound + 11;
     let isControlKey = pitch >= controlLowBound && pitch <= controlHighBound;
@@ -838,9 +1437,20 @@ export class OrchidEngine {
     }
 
     if (isFreeMode) {
+      if (this.isFreeMooActive()) {
+        if (!isOn || velocity === 0) this.freeMooNoteOff(pitch);
+        else this.freeMooNoteOn(pitch, velocity);
+        this.updateStrumplatePitches();
+        return;
+      }
+
       if (!isOn || velocity === 0) {
         if (this.sustainPedalActive) {
           this.physicallyReleasedKeys.add(pitch);
+        } else if (this.glideCarryMode > 0 && this.activePitchesMemory[pitch]?.length > 0) {
+          // Keep it sounding so the next note can glide from it.
+          this.heldKeys.delete(pitch);
+          this.carryGlideNotes(pitch);
         } else {
           this.heldKeys.delete(pitch);
           if (this.activePitchesMemory[pitch]) {
@@ -856,15 +1466,28 @@ export class OrchidEngine {
         if (this.onPerformanceKey) this.onPerformanceKey(pitch, false, this.heldKeys.size === 0);
       } else {
         this.heldKeys.set(pitch, velocity);
-        
+        // Re-pressing a carried key re-attacks it, so drop its pending release
+        // before it can silence the new note.
+        this.claimGlideCarry(pitch);
+
         let stolenNote: any = null;
         
-        if (this.params.mpeEnabled && this.sustainPedalActive) {
+        if (this.params.mpeEnabled) {
+          // Glide from the nearest note that has been released but is still
+          // sounding — either held by the sustain pedal or parked for glide.
+          // Keys the player is still physically holding are left alone so Free
+          // mode stays polyphonic.
+          const candidates = new Set<number>();
+          if (this.sustainPedalActive) {
+            for (const pk of this.physicallyReleasedKeys) candidates.add(pk);
+          }
+          for (const pk of this.glideCarryKeys.keys()) candidates.add(pk);
+
           let closestPitch = -1;
           let minDiff = 9999;
-          
-          for (const pk of this.physicallyReleasedKeys) {
-            if (this.activePitchesMemory[pk] && this.activePitchesMemory[pk].length > 0) {
+
+          for (const pk of candidates) {
+            if (pk !== pitch && this.activePitchesMemory[pk] && this.activePitchesMemory[pk].length > 0) {
               const diff = Math.abs(pk - pitch);
               if (diff < minDiff) {
                 minDiff = diff;
@@ -872,12 +1495,13 @@ export class OrchidEngine {
               }
             }
           }
-          
+
           if (closestPitch !== -1) {
             stolenNote = this.activePitchesMemory[closestPitch][0];
             this.activePitchesMemory[closestPitch] = [];
             this.physicallyReleasedKeys.delete(closestPitch);
             this.heldKeys.delete(closestPitch);
+            this.claimGlideCarry(closestPitch);
           }
         }
 
@@ -962,6 +1586,8 @@ export class OrchidEngine {
       if (!isControlKey) {
         this.heldKeys.delete(pitch);
         this.heldCustomVoicings.delete(pitch);
+        this.heldChordIntervals.delete(pitch);
+        this.heldMemoryKeys.delete(pitch);
         const allReleased = this.heldKeys.size === 0;
         if (this.onPerformanceKey) {
           this.onPerformanceKey(pitch, false, allReleased);
@@ -972,6 +1598,10 @@ export class OrchidEngine {
       }
       if (this.sustainPedalActive && !isControlKey) {
         this.physicallyReleasedKeys.add(pitch);
+      } else if (!isControlKey && this.glideCarryMode > 0 && this.activePitchesMemory[pitch]?.length > 0) {
+        // Keep it sounding so the next chord can glide from it.
+        this.carryGlideNotes(pitch);
+        this.checkAndClearLatches();
       } else {
         if (this.activePitchesMemory[pitch]) {
           const notesToKill = this.activePitchesMemory[pitch];
@@ -1021,6 +1651,10 @@ export class OrchidEngine {
     this.heldKeys.set(pitch, velocity);
     if (customVoicing) this.heldCustomVoicings.set(pitch, customVoicing);
     else this.heldCustomVoicings.delete(pitch);
+    if (chordIntervals) this.heldChordIntervals.set(pitch, chordIntervals);
+    else this.heldChordIntervals.delete(pitch);
+    if (isMemoryTrigger) this.heldMemoryKeys.add(pitch);
+    else this.heldMemoryKeys.delete(pitch);
     // Clean up if it was a re-triggered key while sustained
     if (this.physicallyReleasedKeys.has(pitch)) {
       this.physicallyReleasedKeys.delete(pitch);
@@ -1036,16 +1670,32 @@ export class OrchidEngine {
       }
       
       if (this.params.mpeEnabled) {
-        for (const pkStr in this.activePitchesMemory) {
-          const pk = parseInt(pkStr);
-          if (pk !== pitch && this.activePitchesMemory[pk] && this.activePitchesMemory[pk].length > 0) {
-            stolenMemory = this.activePitchesMemory[pk];
-            this.activePitchesMemory[pk] = []; // Clear old key so it doesn't kill notes when released
-            performGlideFromPrevious = true;
-            break; // Steal from the first active chord found
+        // A carried chord on this same key must glide too — two memory pads can
+        // share a root pitch (e.g. Cmaj -> Cmin), and the search below skips
+        // the current key. Only carried (already released) notes qualify:
+        // re-pressing a key that is still held should re-attack, not glide.
+        if (this.glideCarryKeys.has(pitch) && this.activePitchesMemory[pitch]?.length > 0) {
+          stolenMemory = this.activePitchesMemory[pitch];
+          this.claimGlideCarry(pitch);
+          this.activePitchesMemory[pitch] = [];
+          performGlideFromPrevious = true;
+        } else {
+          for (const pkStr in this.activePitchesMemory) {
+            const pk = parseInt(pkStr);
+            if (pk !== pitch && this.activePitchesMemory[pk] && this.activePitchesMemory[pk].length > 0) {
+              stolenMemory = this.activePitchesMemory[pk];
+              this.activePitchesMemory[pk] = []; // Clear old key so it doesn't kill notes when released
+              this.claimGlideCarry(pk);
+              performGlideFromPrevious = true;
+              break; // Steal from the first active chord found
+            }
           }
         }
       }
+
+      // Drop any leftover carry for this key so a pending grace timer can't
+      // silence the notes we are about to play. No-op if already claimed above.
+      this.claimGlideCarry(pitch);
 
       if (this.activePitchesMemory[pitch]) {
         const notesToKill = this.activePitchesMemory[pitch];
@@ -1062,8 +1712,18 @@ export class OrchidEngine {
     }
 
     // Regular Performance Key
-    const mappedRoot = this.getMappedRootPitch(pitch);
-    const intervals = this.getIntervalsForState(pitch);
+    const usingPastedChord = !!(chordIntervals && chordIntervals.length > 0);
+    // With MPE glide on, the voice pool size decides how many notes a memory
+    // chord is voiced with. Played chords keep using MAX NOTES.
+    const memoryVoiceLimit = (isMemoryTrigger && this.params.mpeEnabled)
+      ? Math.max(1, this.params.mpeMaxVoices ?? 5)
+      : undefined;
+    // A pasted symbol names its own root, so it is taken literally rather than
+    // run through the key-mode or circle-of-fifths remapping.
+    const mappedRoot = usingPastedChord ? pitch : this.getMappedRootPitch(pitch);
+    // A pasted chord symbol supplies its own intervals; the modifier pads and
+    // key-mode defaults do not reshape it.
+    const intervals = usingPastedChord ? chordIntervals! : this.getIntervalsForState(pitch);
     
     let finalPitches: number[];
     let isSingleNote = false;
@@ -1076,7 +1736,7 @@ export class OrchidEngine {
       finalPitches = [pitch];
       isSingleNote = true;
     } else {
-      finalPitches = this.calculateFoldedPitches(mappedRoot, intervals);
+      finalPitches = this.calculateFoldedPitches(mappedRoot, intervals, usingPastedChord, memoryVoiceLimit);
 
       // Apply Voicing Mutation (only to generated chords)
       finalPitches.sort((a, b) => a - b);
@@ -1149,13 +1809,20 @@ export class OrchidEngine {
         const existingBass = oldMemory.find(n => n.isBass);
         
         if (this.params.mpeEnabled && existingBass && !skipBass) {
-          if (existingBass.pitch !== bassPitch || existingBass.mpeCurrentPitch !== bassPitch) {
+          const bassAimingAt = existingBass.mpeTargetPitch ?? existingBass.mpeCurrentPitch ?? existingBass.pitch;
+          if (existingBass.pitch !== bassPitch || bassAimingAt !== bassPitch) {
             const basePitch = existingBass.mpeBasePitch ?? existingBass.pitch;
             const currentPitch = existingBass.mpeCurrentPitch ?? existingBass.pitch;
             const channel = existingBass.mpeChannel ?? this.allocateMpeChannel();
-            
-            this.emitMpePitchBend(channel, basePitch, currentPitch, bassPitch, 0);
-            newMemory.push({ ...existingBass, pitch: bassPitch, mpeBasePitch: basePitch, mpeCurrentPitch: bassPitch, mpeChannel: channel });
+
+            // Update in place rather than copying: a strum-delayed note clears
+            // its own timeoutId when it fires, and a copy would keep the stale
+            // id, making the release path skip its note-off.
+            existingBass.pitch = bassPitch;
+            existingBass.mpeBasePitch = basePitch;
+            existingBass.mpeChannel = channel;
+            this.emitMpePitchBend(channel, basePitch, currentPitch, bassPitch, 0, existingBass);
+            newMemory.push(existingBass);
           } else {
             newMemory.push(existingBass);
           }
@@ -1216,12 +1883,22 @@ export class OrchidEngine {
           
           if (oldNote && newPitch !== undefined) {
             // Glide
-            if (oldNote.pitch !== newPitch || oldNote.mpeCurrentPitch !== newPitch) {
+            // Compare against where the note is heading, not where it is: while
+            // a glide is running mpeCurrentPitch is still catching up, and
+            // re-aiming at the same target would restart it on every update.
+            const aimingAt = oldNote.mpeTargetPitch ?? oldNote.mpeCurrentPitch ?? oldNote.pitch;
+            if (oldNote.pitch !== newPitch || aimingAt !== newPitch) {
               const basePitch = oldNote.mpeBasePitch ?? oldNote.pitch;
               const currentPitch = oldNote.mpeCurrentPitch ?? oldNote.pitch;
               const channel = oldNote.mpeChannel ?? this.allocateMpeChannel();
-              this.emitMpePitchBend(channel, basePitch, currentPitch, newPitch, 0);
-              newMemory.push({ ...oldNote, pitch: newPitch, mpeBasePitch: basePitch, mpeCurrentPitch: newPitch, mpeChannel: channel });
+              // Update in place rather than copying: a strum-delayed note clears
+              // its own timeoutId when it fires, and a copy would keep the stale
+              // id, making the release path skip its note-off.
+              oldNote.pitch = newPitch;
+              oldNote.mpeBasePitch = basePitch;
+              oldNote.mpeChannel = channel;
+              this.emitMpePitchBend(channel, basePitch, currentPitch, newPitch, 0, oldNote);
+              newMemory.push(oldNote);
             } else {
               newMemory.push(oldNote);
             }
@@ -1333,6 +2010,9 @@ export class OrchidEngine {
   }
 
   private emitNoteOn(pitch: number, velocity: number, delayMs: number = 0, channel?: number, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false) {
+    // A glide still running on this channel belongs to the note being replaced;
+    // letting it continue would bend the note starting here.
+    this.cancelChannelGlide(channel);
     const finalVelocity = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
     if (this.onOutputNote) this.onOutputNote({ pitch, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly });
     
@@ -1346,10 +2026,21 @@ export class OrchidEngine {
   }
 
   private emitNoteOff(pitch: number, velocity: number = 0, delayMs: number = 0, channel: number = 1, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false) {
+    // The note is ending; its glide must not outlive it and bend the next one.
+    this.cancelChannelGlide(channel);
     if (isInternalSynthOnly && !this.params.omnichordSynthMonitor) {
       return; // Fully silent
     }
     if (this.onOutputNote) this.onOutputNote({ pitch, velocity, isOn: false, delayMs, mpeChannel: channel, isInternalSynthOnly, isMidiOnly });
+  }
+
+  /**
+   * Sweep a controller up and down so a plugin's MIDI-learn can catch it.
+   * Ends back at the middle, which is also where the tremolo will centre.
+   */
+  public wiggleCC(ccNumber: number, channel: number = 1) {
+    const path = [0, 32, 64, 96, 127, 96, 64, 32, 0, 64];
+    path.forEach((value, i) => this.emitControlChange(ccNumber, value, channel, i * 45));
   }
 
   public emitControlChange(ccNumber: number, ccValue: number, channel: number = 1, delayMs: number = 0) {

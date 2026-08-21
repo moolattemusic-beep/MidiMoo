@@ -57,6 +57,13 @@ export class MidiDeviceManager {
       this.selectedOutputId = this.outputs[0].id;
     }
 
+    // Open the selected output now, so the MPE configuration that follows is
+    // not sent into a port that is still closed.
+    if (this.selectedOutputId) {
+      const output = this.outputs.find(o => o.id === this.selectedOutputId);
+      if (output) this.ensureOutputOpen(output);
+    }
+
     // Bind listener to selected input
     if (this.selectedInputId) {
       const input = this.inputs.find(i => i.id === this.selectedInputId);
@@ -73,6 +80,20 @@ export class MidiDeviceManager {
 
   public selectOutput(id: string) {
     this.selectedOutputId = id;
+    const output = this.outputs.find(o => o.id === id);
+    if (output) this.ensureOutputOpen(output);
+  }
+
+  // Web MIDI ports start out closed. send() opens them implicitly, but that
+  // open is asynchronous, so anything sent first can be dropped. Opening up
+  // front means the first message out is never the one that pays for it.
+  private async ensureOutputOpen(output: MIDIOutput): Promise<void> {
+    if (output.connection === 'open') return;
+    try {
+      await output.open();
+    } catch (e) {
+      console.warn('Failed to open MIDI output', output.name, e);
+    }
   }
 
   private handleMidiMessage(event: MIDIMessageEvent) {
@@ -121,6 +142,21 @@ export class MidiDeviceManager {
   }
 
 
+  // In MPE, a controller on the master channel applies to the whole zone, but
+  // plenty of instruments only act on the member channel a voice is playing on.
+  // Sending both keeps the mod wheel (and friends) behaving the way it would
+  // if the controller were plugged straight into the DAW.
+  public sendControlChangeAllChannels(cc: number, value: number) {
+    if (!this.midiAccess || !this.selectedOutputId) return;
+    const output = this.outputs.find(o => o.id === this.selectedOutputId);
+    if (!output) return;
+
+    const now = window.performance.now();
+    for (let channel = 0; channel < 16; channel++) {
+      output.send([0xB0 | channel, cc, value], now + channel * 0.2);
+    }
+  }
+
   public sendMpeExpression(channel: number, value: number, delayMs: number = 0) {
     if (!this.midiAccess || !this.selectedOutputId) return;
     const output = this.outputs.find(o => o.id === this.selectedOutputId);
@@ -136,34 +172,138 @@ export class MidiDeviceManager {
     }
   }
 
-    public setMpeBendRange(semitones: number) {
+    public async setMpeBendRange(semitones: number) {
     if (!this.midiAccess || !this.selectedOutputId) return;
     const output = this.outputs.find(o => o.id === this.selectedOutputId);
     if (!output) return;
 
-    // Send MPE Configuration Message (MCM) to Master Channel (Ch 1)
-    // RPN 0x00 0x06, Value: 15 (Channels 2-16)
-    output.send([0xB0, 101, 0]);
-    output.send([0xB0, 100, 6]);
-    output.send([0xB0, 6, 15]);
-    output.send([0xB0, 38, 0]);
+    // A port that has not been opened yet is "closed", and sending into it
+    // races the implicit open — the configuration below is silently lost, so
+    // the synth keeps its default +/-2 bend range and glides barely move.
+    await this.ensureOutputOpen(output);
 
-    // Send Pitch Bend Sensitivity RPN to all 16 channels
+    // These 68 messages used to go out as one burst, which plugins and drivers
+    // can drop under load — the symptom being MPE that only behaves after the
+    // configuration is sent a second or third time. Spacing them out costs a
+    // few inaudible milliseconds and makes the configuration stick.
+    const now = window.performance.now();
+    const gap = 1.5;
+    let step = 0;
+    const at = () => now + (step++ * gap);
+
+    // MPE Configuration Message (MCM) on the master channel: RPN 0x00 0x06,
+    // value 15 = member channels 2-16.
+    output.send([0xB0, 101, 0], at());
+    output.send([0xB0, 100, 6], at());
+    output.send([0xB0, 6, 15], at());
+    output.send([0xB0, 38, 0], at());
+
+    // Let the zone take effect before configuring the member channels.
+    step += 8;
+
+    this.sendBendRangeRpn(output, semitones, at);
+  }
+
+  /**
+   * Pitch bend sensitivity only — no MPE zone message. Anything that sends
+   * bend needs the synth to agree on what a bend unit is worth, whether or not
+   * MPE is involved: without this the synth keeps its +/-2 default while the
+   * app computes against the configured range, and every bend comes out a
+   * fraction of its intended size.
+   */
+  public async setBendRangeOnly(semitones: number) {
+    if (!this.midiAccess || !this.selectedOutputId) return;
+    const output = this.outputs.find(o => o.id === this.selectedOutputId);
+    if (!output) return;
+    await this.ensureOutputOpen(output);
+
+    const now = window.performance.now();
+    let step = 0;
+    this.sendBendRangeRpn(output, semitones, () => now + (step++ * 1.5));
+  }
+
+  private sendBendRangeRpn(output: MIDIOutput, semitones: number, at: () => number) {
+    // Pitch Bend Sensitivity RPN on every channel
     for (let ch = 1; ch <= 16; ch++) {
       const status = 0xB0 | (ch - 1);
-      output.send([status, 101, 0]); // RPN MSB
-      output.send([status, 100, 0]); // RPN LSB
-      output.send([status, 6, semitones]); // Data Entry MSB (semitones)
-      output.send([status, 38, 0]); // Data Entry LSB (cents)
+      output.send([status, 101, 0], at()); // RPN MSB
+      output.send([status, 100, 0], at()); // RPN LSB
+      output.send([status, 6, semitones], at()); // Data Entry MSB (semitones)
+      output.send([status, 38, 0], at()); // Data Entry LSB (cents)
+      output.send([status, 101, 127], at()); // RPN null: stop further data entry
+      output.send([status, 100, 127], at()); //   from being misread as bend range
     }
   }
 
+  // --- Global bend offset -------------------------------------------------
+  // The glide engine is the only author of glide bend, per channel. The
+  // velocity envelope needs to bend on top of that without ever writing to the
+  // same place, so it publishes an offset here: the last bend sent on each
+  // channel is remembered, and the offset is added on the way out. When the
+  // offset moves, every channel is refreshed from its remembered value.
+  private lastBendSemitones: Map<number, number> = new Map();
+  private bendOffsetSemitones: number = 0;
+  private lastBendRange: number = 48;
+  private mpeMode: boolean = false;
+
+  /**
+   * In MPE, channel 1 is the master channel and its pitch bend applies to the
+   * whole zone. The offset must therefore only ever go to member channels —
+   * bending master as well would apply it twice and leave a permanent shift on
+   * every note. Outside MPE there are no member channels and channel 1 is
+   * where the notes are, so that is exactly where it has to go.
+   */
+  public setMpeMode(enabled: boolean) {
+    if (this.mpeMode === enabled) return;
+    this.mpeMode = enabled;
+    // Whatever the previous mode left on the master channel has to go, or it
+    // becomes a fixed transposition of everything that follows.
+    this.sendNeutralBend(1);
+    this.lastBendSemitones.clear();
+  }
+
+  private sendNeutralBend(channel: number) {
+    if (!this.midiAccess || !this.selectedOutputId) return;
+    const output = this.outputs.find(o => o.id === this.selectedOutputId);
+    if (!output) return;
+    output.send([0xE0 | ((channel - 1) & 0x0F), 0, 64]); // 8192 = centre
+  }
+
+  public setGlobalBendOffset(semitones: number) {
+    if (semitones === this.bendOffsetSemitones) return;
+    this.bendOffsetSemitones = semitones;
+
+    if (this.lastBendSemitones.size === 0) {
+      // Nothing has bent yet. With MPE off no bend is ever sent, so without
+      // this the offset would sit unheard until something else happened to
+      // bend. In MPE this must not happen at all: channel 1 is the master and
+      // would bend the whole zone on top of the per-voice bends below.
+      if (!this.mpeMode) this.emitBend(1, 0, this.lastBendRange, 0);
+      return;
+    }
+
+    for (const [channel, base] of this.lastBendSemitones.entries()) {
+      this.emitBend(channel, base, this.lastBendRange, 0);
+    }
+  }
+
+  public clearBendMemory(channel?: number) {
+    if (channel === undefined) this.lastBendSemitones.clear();
+    else this.lastBendSemitones.delete(channel);
+  }
+
   public sendMpePitchBend(channel: number, semitones: number, bendRange: number, delayMs: number = 0) {
+    this.lastBendSemitones.set(channel, semitones);
+    this.lastBendRange = bendRange;
+    this.emitBend(channel, semitones, bendRange, delayMs);
+  }
+
+  private emitBend(channel: number, semitones: number, bendRange: number, delayMs: number) {
     if (!this.midiAccess || !this.selectedOutputId) return;
     const output = this.outputs.find(o => o.id === this.selectedOutputId);
     if (!output) return;
 
-    let v = Math.round(8192 + (semitones * 8192 / bendRange));
+    let v = Math.round(8192 + ((semitones + this.bendOffsetSemitones) * 8192 / bendRange));
     v = Math.max(0, Math.min(16383, v));
     const lsb = v & 0x7F;
     const msb = (v >> 7) & 0x7F;

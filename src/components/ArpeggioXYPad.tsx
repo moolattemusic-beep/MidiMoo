@@ -3,6 +3,28 @@ import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
 import { CustomSlider } from './CustomSlider';
 
+// Note length runs 20ms to 5s on an exponential curve, so the short staccato
+// values that need fine control get most of the travel instead of being
+// crammed into the first few pixels.
+const NOTE_LEN_MIN = 20;
+const NOTE_LEN_MAX = 5000;
+const NOTE_LEN_TICKS = 1000;
+
+const noteLenToSlider = (ms: number) =>
+  Math.round(Math.log(Math.max(NOTE_LEN_MIN, ms) / NOTE_LEN_MIN) / Math.log(NOTE_LEN_MAX / NOTE_LEN_MIN) * NOTE_LEN_TICKS);
+
+const sliderToNoteLen = (pos: number) => {
+  const ms = NOTE_LEN_MIN * Math.pow(NOTE_LEN_MAX / NOTE_LEN_MIN, pos / NOTE_LEN_TICKS);
+  // Round to something readable at each end of the range.
+  const grain = ms < 100 ? 5 : ms < 500 ? 10 : ms < 2000 ? 25 : 50;
+  return Math.min(NOTE_LEN_MAX, Math.max(NOTE_LEN_MIN, Math.round(ms / grain) * grain));
+};
+
+const formatNoteLen = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms % 1000 === 0 ? 0 : 1)}S` : `${ms}MS`);
+
+// Order must match arpeggioPattern in OrchidEngine.getArpeggioSequence
+const ARP_PATTERNS = ['UP', 'DOWN', '2UP1DN', 'ALT', '3RDS', 'PEND', 'OUT-IN', 'RND'];
+
 interface ArpeggioXYPadProps {
   engine: OrchidEngine | null;
   params: OrchidParams;
@@ -60,9 +82,8 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
     
     if (type === 'up') {
       setIsDragging(false);
-      if (activePitchRef.current !== null) {
-         engine.handleArpeggioNoteOff(activePitchRef.current);
-      }
+      // The note keeps ringing for its set length — lifting off only clears the
+      // cursor. Its own timer releases it.
       activePitchRef.current = null;
       setActivePitch(null);
       return;
@@ -74,7 +95,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
     engine.emitControlChange(124, Math.round(xVal * 127), 8);
     engine.emitControlChange(125, Math.round((1 - yVal) * 127), 8);
     
-    const pitches = engine.getArpeggioPitches();
+    const pitches = engine.getArpeggioSequence();
     if (pitches.length === 0) return;
     
     const index = Math.floor(yVal * pitches.length);
@@ -89,15 +110,19 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
        setActivePitch(targetPitch);
        (containerRef as any).lastIndex = safeIndex;
     } else if (type === 'midi_jump') {
-       // Clear old note if it was held
-       if (activePitchRef.current !== null) {
-          engine.handleArpeggioNoteOff(activePitchRef.current);
+       // Landing on the pad normally just moves the cursor — notes come from
+       // swiping. With TAP TO PLAY on, the landing sounds too, so you can
+       // sprinkle single notes over a chord without swiping.
+       if (params.arpeggioTapToPlay) {
+          const maxVel = params.arpeggioMaxVelocity ?? 127;
+          const velocity = Math.max(1, Math.min(maxVel, Math.round(xVal * maxVel)));
+          engine.handleArpeggioNoteOn(targetPitch, velocity);
        }
-       // Update cursor position silently without playing a note
+       // Any sounding note is left to its own timer.
        activePitchRef.current = targetPitch;
        setActivePitch(targetPitch);
        (containerRef as any).lastIndex = safeIndex;
-       
+
        jumpOriginYRef.current = ly;
        isSwipingRef.current = false;
     } else if ((type === 'move' || type === 'midi_move') && targetPitch !== activePitchRef.current) {
@@ -127,14 +152,11 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
            const minIdx = Math.min(lastIndex, safeIndex);
            const maxIdx = Math.max(lastIndex, safeIndex);
            
-           engine.handleArpeggioNoteOff(activePitchRef.current);
-           
+           // Notes swept over are left to ring for their set length rather than
+           // being cut off the moment the finger moves on.
            for (let i = minIdx; i <= maxIdx; i++) {
              if (i !== lastIndex) {
                 engine.handleArpeggioNoteOn(pitches[i], velocity);
-                if (i !== safeIndex) {
-                   engine.handleArpeggioNoteOff(pitches[i]);
-                }
              }
            }
            
@@ -187,11 +209,13 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
     <div className="module flex flex-col items-center flex-1 h-full">
       <p className="label-meta self-start mb-2">ARPEGGIO STRUM PAD</p>
       
-      <div className="w-full flex gap-4 mb-4">
-        <div className="flex-1">
+      {/* Two columns rather than four: at four across, the labels wrapped and
+          collided with the neighbouring readouts. */}
+      <div className="w-full grid grid-cols-2 gap-x-5 gap-y-1 mb-4">
+        <div>
           <div className="flex justify-between items-center mb-1">
-            <span className="label-meta !text-[10px]">LOWEST NOTE</span>
-            <span className="label-meta !text-[var(--accent)] !text-[10px]">{
+            <span className="label-meta !text-[10px] whitespace-nowrap">LOWEST NOTE</span>
+            <span className="label-meta !text-[var(--accent)] !text-[10px] whitespace-nowrap">{
               (() => {
                 const p = params.arpeggioRegisterStart ?? 48;
                 const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -209,10 +233,10 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
             }} 
           />
         </div>
-        <div className="flex-1">
+        <div>
           <div className="flex justify-between items-center mb-1">
-            <span className="label-meta !text-[10px]">OCTAVES</span>
-            <span className="label-meta !text-[var(--accent)] !text-[10px]">{params.arpeggioOctaves ?? 4}</span>
+            <span className="label-meta !text-[10px] whitespace-nowrap">OCTAVES</span>
+            <span className="label-meta !text-[var(--accent)] !text-[10px] whitespace-nowrap">{params.arpeggioOctaves ?? 4}</span>
           </div>
           <CustomSlider 
             min={1} max={6} step={1} 
@@ -224,23 +248,70 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
             }} 
           />
         </div>
-        <div className="flex-1">
+        <div>
           <div className="flex justify-between items-center mb-1">
-            <span className="label-meta !text-[10px]">MAX VEL</span>
-            <span className="label-meta !text-[var(--accent)] !text-[10px]">{params.arpeggioMaxVelocity ?? 127}</span>
+            <span className="label-meta !text-[10px] whitespace-nowrap">MAX VEL</span>
+            <span className="label-meta !text-[var(--accent)] !text-[10px] whitespace-nowrap">{params.arpeggioMaxVelocity ?? 127}</span>
           </div>
-          <CustomSlider 
-            min={10} max={127} step={1} 
-            value={params.arpeggioMaxVelocity ?? 127} 
+          <CustomSlider
+            min={10} max={127} step={1}
+            value={params.arpeggioMaxVelocity ?? 127}
             onChange={(v) => {
               const newParams = { ...params, arpeggioMaxVelocity: v };
               setParams(newParams);
               if (engine) engine.params = newParams;
-            }} 
+            }}
+          />
+        </div>
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <span className="label-meta !text-[10px] whitespace-nowrap">LENGTH</span>
+            <span className="label-meta !text-[var(--accent)] !text-[10px] whitespace-nowrap">{formatNoteLen(params.arpeggioNoteLengthMs ?? 100)}</span>
+          </div>
+          <CustomSlider
+            min={0} max={NOTE_LEN_TICKS} step={1}
+            value={noteLenToSlider(params.arpeggioNoteLengthMs ?? 100)}
+            onChange={(pos) => {
+              const newParams = { ...params, arpeggioNoteLengthMs: sliderToNoteLen(pos) };
+              setParams(newParams);
+              if (engine) engine.params = newParams;
+            }}
           />
         </div>
       </div>
-      
+
+      <div className="w-full mb-3">
+        <div className="flex justify-between items-center mb-1">
+          <span className="label-meta !text-[10px] whitespace-nowrap">PATTERN</span>
+          <div className="flex items-center gap-2">
+            <span className="label-meta !text-[10px] whitespace-nowrap">TAP TO PLAY</span>
+            <div
+              className={`toggle-switch ${params.arpeggioTapToPlay ? 'on' : ''}`}
+              onClick={() => {
+                const newParams = { ...params, arpeggioTapToPlay: !params.arpeggioTapToPlay };
+                setParams(newParams);
+                if (engine) engine.params = newParams;
+              }}
+            ></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-4 gap-1">
+          {ARP_PATTERNS.map((name, idx) => (
+            <button
+              key={name}
+              onClick={() => {
+                const newParams = { ...params, arpeggioPattern: idx };
+                setParams(newParams);
+                if (engine) engine.params = newParams;
+              }}
+              className={`analog-btn !text-[9px] !px-1 !py-[5px] ${(params.arpeggioPattern ?? 0) === idx ? 'active' : ''}`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex gap-4 w-full h-[240px]">
         {/* Global Pitch Bend Strip */}
         <MagneticPitchBend engine={engine} incomingCC={incomingCC} />

@@ -164,3 +164,137 @@ input[type="range"]::-moz-range-thumb {
   background: #4caf50;
   box-shadow: 0 0 8px #4caf50;
 }
+
+/* Whole-interface zoom.
+   The layout is scaled visually rather than re-flowed, so every element keeps
+   its position and proportions at any size — fonts included, since they scale
+   with the transform rather than being re-computed. */
+.ui-scale-viewport {
+  width: 100%;
+  height: 100vh;
+  overflow: auto;
+}
+
+.ui-scale-content {
+  transform: scale(var(--ui-scale, 1));
+  transform-origin: top left;
+  /* The laid-out width stays the window width at every scale. Dividing it by
+     the scale would hand the layout more room as you zoom out and the grids
+     would re-flow into it — precisely the rearranging this exists to avoid. */
+  width: 100%;
+  /* A real height, not a minimum: flex children can only be bounded — and so
+     only scroll internally — if the column itself has a size to divide up.
+     Dividing by the scale means the layout still fills the window exactly at
+     any zoom, so the page never scrolls vertically whatever the size. */
+  height: calc(100vh / var(--ui-scale, 1));
+  display: flex;
+  flex-direction: column;
+}
+
+/* Parameter help text, hidden by the info toggle in the header. Tagging the
+   paragraphs and switching one class beats threading a flag through every
+   control. */
+.hide-help .help-text {
+  display: none;
+}
+
+/* Chord pads.
+   The labels used to be a fixed size, so once the column could be narrowed —
+   by folding a panel, or by the UI scale — "MAJOR" grew wider than its button
+   and spilled over the neighbouring pad. The type now scales with the column,
+   and below the width where four pads can hold a five-letter word at a legible
+   size, they drop to two rows of two rather than shrinking into nothing. */
+.pad-wrap {
+  container-type: inline-size;
+}
+
+.pad-label {
+  font-size: clamp(0.7rem, 5.2cqi, 1.25rem);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.pad-hotkey {
+  font-size: clamp(0.4rem, 2.2cqi, 0.625rem);
+}
+
+@container (max-width: 300px) {
+  /* The section name is what identifies the row, so the secondary "MOMENTARY"
+     caption is what gives way — its switch stays, which is the part you use. */
+  .momentary-label {
+    display: none;
+  }
+}
+
+@container (max-width: 260px) {
+  .pad-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pad-label {
+    font-size: clamp(0.7rem, 11cqi, 1.25rem);
+  }
+  .pad-hotkey {
+    font-size: clamp(0.4rem, 4.5cqi, 0.625rem);
+  }
+}
+
+/* Compact toggle for the top bar, where the row is tight and the switches are
+   secondary to the controls beside them. */
+.toggle-switch.sm {
+  width: 34px;
+  height: 18px;
+  border-width: 2px;
+}
+
+.toggle-switch.sm::after {
+  width: 10px;
+  height: 10px;
+}
+
+.toggle-switch.sm.on::after {
+  left: 18px; /* 34 - 2 - 10 - 4 border */
+}
+
+/* Compact range for the top bar. The app-wide slider has a deliberately fat
+   thumb for playing; in the header it only sets a monitor level, and its
+   height was what made the bar taller than its own controls. */
+input[type="range"].range-sm {
+  height: 22px;
+}
+
+input[type="range"].range-sm::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+input[type="range"].range-sm::-webkit-slider-thumb {
+  width: 12px;
+  height: 18px;
+  margin-top: -7px;
+  border-width: 1px;
+}
+
+input[type="range"].range-sm::-moz-range-track {
+  height: 4px;
+}
+
+input[type="range"].range-sm::-moz-range-thumb {
+  width: 12px;
+  height: 18px;
+  border-width: 1px;
+}
+
+/* The settings column scrolls on its own so a tall open section never pushes
+   the instrument below the window. Keep the scrollbar unobtrusive. */
+.settings-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a34 transparent;
+}
+
+.settings-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-scroll::-webkit-scrollbar-thumb {
+  background: #3a3a34;
+  border-radius: 3px;
+}
