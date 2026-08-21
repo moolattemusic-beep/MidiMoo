@@ -5,6 +5,11 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // The packaged app loads index.html over file://, where a root-absolute
+    // "/assets/…" resolves against the filesystem root rather than the asar,
+    // leaving the window blank. Relative paths resolve against the html itself,
+    // which works both inside the bundle and on the dev server.
+    base: './',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
