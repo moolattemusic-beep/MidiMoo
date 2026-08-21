@@ -3,9 +3,11 @@ const path = require('node:path');
 
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = 'http://localhost:3000';
-// nativeImage (used by BrowserWindow icon / app.dock.setIcon) can't load .icns;
-// that format is only used by electron-builder for the packaged app bundle.
-const ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
+// Only used when running unpackaged, where the process is generic Electron and
+// would otherwise wear the Electron icon. The packaged bundle already carries
+// its own icon.icns through CFBundleIconFile, and build/ is deliberately not
+// shipped inside the asar — so this path only exists in a working tree.
+const DEV_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -15,7 +17,7 @@ function createWindow() {
     minHeight: 600,
     title: 'MidiMOO',
     backgroundColor: '#1a1a1a',
-    icon: ICON_PATH,
+    ...(isDev ? { icon: DEV_ICON_PATH } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -40,16 +42,22 @@ function createWindow() {
   }
 }
 
-if (process.platform === 'darwin' && app.dock) {
-  app.dock.setIcon(ICON_PATH);
-}
-
 // macOS App Nap will suspend a background app regardless of how the renderer is
 // configured, which would stall the same timers. Keep the process awake.
 let powerSaveBlockerId = null;
 
 app.whenReady().then(() => {
   powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+
+  // Dev only, and never fatal: setIcon throws if the file is missing, and a
+  // cosmetic icon has no business taking down the instrument at startup.
+  if (isDev && process.platform === 'darwin' && app.dock) {
+    try {
+      app.dock.setIcon(DEV_ICON_PATH);
+    } catch (err) {
+      console.warn('Could not set dev dock icon:', err.message);
+    }
+  }
 
   // Electron denies all permission requests by default; MIDI needs an
   // explicit grant so navigator.requestMIDIAccess() resolves like it does
