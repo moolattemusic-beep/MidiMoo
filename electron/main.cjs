@@ -9,11 +9,23 @@ const DEV_SERVER_URL = 'http://localhost:3000';
 // shipped inside the asar — so this path only exists in a working tree.
 const DEV_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
 
+// The layout is designed against 1500x800 and scales as a whole rather than
+// re-flowing, so the window is locked to that shape. A control tuned at one
+// size then behaves the same at every other, and the only thing resizing
+// changes is how large it all appears.
+const DESIGN_WIDTH = 1500;
+const DESIGN_HEIGHT = 800;
+const ASPECT_RATIO = DESIGN_WIDTH / DESIGN_HEIGHT;
+
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
+    // Sizes refer to the page itself, so the layout gets the full design width
+    // rather than losing the title bar out of its height.
+    useContentSize: true,
+    width: DESIGN_WIDTH,
+    height: DESIGN_HEIGHT,
+    // Kept on the same ratio: a minimum off the diagonal would fight the lock.
+    minWidth: Math.round(600 * ASPECT_RATIO),
     minHeight: 600,
     title: 'MidiMOO',
     backgroundColor: '#1a1a1a',
@@ -33,6 +45,11 @@ function createWindow() {
 
   win.webContents.setBackgroundThrottling(false);
   win.setMenuBarVisibility(false);
+  // Constrains dragging any edge or corner, and the green zoom button, so the
+  // window can only ever be a scaled copy of the design size. The ratio is
+  // measured against the page, not the frame — Electron accounts for the title
+  // bar itself, so declaring it again as extra size would double-count it.
+  win.setAspectRatio(ASPECT_RATIO);
 
   if (isDev) {
     win.loadURL(DEV_SERVER_URL);
