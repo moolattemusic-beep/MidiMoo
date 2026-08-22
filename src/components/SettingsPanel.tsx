@@ -96,7 +96,7 @@ const CollapsibleSection: React.FC<{
         </p>
         <div className="flex items-center gap-3">
           {extraHeader && <div onClick={(e) => e.stopPropagation()}>{extraHeader}</div>}
-          <span className="text-[var(--accent)] opacity-50 text-[10px]">
+          <span className="text-[var(--accent)] opacity-80 text-[10px]">
             {isOpen ? (drillIn ? 'BACK' : '▲') : '▼'}
           </span>
         </div>
@@ -314,7 +314,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 </button>
               ))}
             </div>
-            <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-2 leading-relaxed">
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-2 leading-relaxed">
               GLIDED NOTES SOUND AT THE WRONG PITCH UNLESS THIS MATCHES THE
               RECEIVING SYNTH. ±48 IS THE MPE DEFAULT; NON-MPE SYNTHS USE ±2.
             </p>
@@ -325,7 +325,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
             >
               SEND CONFIG TO SYNTH
             </button>
-            <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
               PRESS AFTER LOADING A NEW PLUGIN. NOT AUTOMATIC: THE CONFIG
               CONTAINS CC 6, WHICH AN ARMED MIDI-LEARN WOULD GRAB.
             </p>
@@ -342,7 +342,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 </button>
               ))}
             </div>
-            <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-2 leading-relaxed">
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-2 leading-relaxed">
               {params.mpeGlideMode === 0 && 'GLIDES ONLY WHILE CHORDS OVERLAP OR SUSTAIN IS HELD'}
               {params.mpeGlideMode === 1 && 'CHORDS STAY ALIVE BRIEFLY AFTER RELEASE SO THE NEXT ONE GLIDES'}
               {params.mpeGlideMode === 2 && 'CHORDS RING UNTIL THE NEXT ONE GLIDES IN — PANIC TO STOP'}
@@ -379,7 +379,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 value={params.mpeMaxVoices}
                 onChange={(val) => updateParam('mpeMaxVoices', val)}
               />
-              <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+              <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
                 THE SIZE OF THE FREE MOO VOICE POOL, AND HOW MANY NOTES A MEMORY
                 CHORD IS VOICED WITH. THE 5TH IS DROPPED BEFORE ANY ALTERATION.
               </p>
@@ -408,7 +408,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
             className={`toggle-switch ${params.velModEnabled ? 'on' : ''}`}
             onClick={() => updateParam('velModEnabled', !params.velModEnabled)}
           ></div>}>
-        <p className="help-text label-meta !text-[0.6rem] opacity-60 mb-4 leading-relaxed">
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-4 leading-relaxed">
           HOW HARD YOU PLAY SWEEPS PITCH AND CC1 AND LETS THEM FALL BACK.
           THE FIRST NOTE OF A CHORD SETS THE DEPTH. MIDI OUT ONLY.
         </p>
@@ -423,7 +423,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
             value={sensToSlider(params.velModSensitivity ?? 1)}
             onChange={(pos) => updateParam('velModSensitivity', sliderToSens(pos))}
           />
-          <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
             STEEPENS THE VELOCITY RESPONSE FOR BOTH PITCH AND CC1, PIVOTING
             AROUND MID VELOCITY. AT ×{(params.velModSensitivity ?? 1).toFixed(2)} THE FULL DEPTH IS SPANNED
             BETWEEN VELOCITY {Math.round(127 * Math.max(0, 0.5 - 0.5 / (params.velModSensitivity ?? 1)))} AND {Math.round(127 * Math.min(1, 0.5 + 0.5 / (params.velModSensitivity ?? 1)))}.
@@ -448,7 +448,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 onChange={(v) => updateParam(key, v)} />
             </div>
           ))}
-          <p className="help-text label-meta !text-[0.6rem] opacity-60 leading-relaxed">
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
             PITCH ALWAYS RESTS AT ZERO — ONLY THE ENVELOPE MOVES IT.
           </p>
         </CollapsibleSection>
@@ -491,7 +491,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           >
             SEND CC80 FOR MAPPING
           </button>
-          <p className="help-text label-meta !text-[0.6rem] opacity-60 leading-relaxed">
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
             CC80 RIDES THE SAME LFO, SO TREMOLO STAYS LOCKED TO THE PITCH. HIT
             LEARN IN YOUR SYNTH, PRESS THE BUTTON, THEN SET DEPTH. CENTRE IS
             WHERE THE PARAMETER RESTS BETWEEN NOTES — SENDING CC80 FROM A
@@ -518,7 +518,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 onChange={(v) => updateParam(key, v)} />
             </div>
           ))}
-          <p className="help-text label-meta !text-[0.6rem] opacity-60 leading-relaxed">
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
             MOVING THE PHYSICAL MOD WHEEL TAKES OVER THE ANCHOR.
             MOVING THIS SLIDER TAKES IT BACK.
           </p>
@@ -531,7 +531,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           </div>
           <CustomSlider min={0} max={300} step={5} value={params.velModChordThresholdMs}
             onChange={(v) => updateParam('velModChordThresholdMs', v)} />
-          <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-1 leading-relaxed">
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
             NOTES CLOSER TOGETHER THAN THIS COUNT AS ONE CHORD AND DO NOT RETRIGGER.
             KEEP IT ABOVE YOUR STRUM SPEED.
           </p>

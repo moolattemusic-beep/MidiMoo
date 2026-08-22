@@ -771,12 +771,12 @@ function App() {
         <div className="fixed bottom-16 right-4 w-80 h-56 bg-[#12120f]/90 backdrop-blur-md border border-[var(--accent)] rounded-md overflow-hidden flex flex-col pointer-events-none shadow-2xl z-[9999]">
            <div className="bg-[#1e1e19] px-3 py-1 label-meta border-b border-white/5">MIDI IN MONITOR</div>
            <div className="flex-1 overflow-y-auto p-2 font-mono text-[9px] flex flex-col gap-1">
-             {midiLog.length === 0 && <span className="text-white/30 italic">Waiting for MIDI...</span>}
+             {midiLog.length === 0 && <span className="text-white/60 italic">Waiting for MIDI...</span>}
              {midiLog.map((log, i) => (
                <div key={i} className="flex gap-2">
-                 <span className="text-white/40">{log.time}</span>
+                 <span className="text-white/65">{log.time}</span>
                  <span className="text-[var(--accent)] w-12">{log.type}</span>
-                 <span className="w-12 text-white/50">CH {log.ch}</span>
+                 <span className="w-12 text-white/75">CH {log.ch}</span>
                  <span className="w-8">{log.d1}</span>
                  {log.d2 !== undefined && <span>{log.d2}</span>}
                </div>

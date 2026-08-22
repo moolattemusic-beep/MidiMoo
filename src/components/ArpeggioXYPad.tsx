@@ -330,8 +330,8 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
            backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, var(--accent) 19px, var(--accent) 20px)'
         }} />
         
-        <div className="absolute top-2 left-2 label-meta pointer-events-none text-white/50 text-[10px]">VELOCITY →</div>
-        <div className="absolute bottom-2 left-2 label-meta pointer-events-none text-white/50 text-[10px]" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>PITCH ↑</div>
+        <div className="absolute top-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]">VELOCITY →</div>
+        <div className="absolute bottom-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>PITCH ↑</div>
         
         {/* XY Visual Indicator */}
         <div 
@@ -424,7 +424,7 @@ function MagneticPitchBend({ engine, incomingCC }: { engine: OrchidEngine | null
       }}
       className="w-12 shrink-0 h-full bg-[#12120f] border-[6px] border-[var(--surface)] rounded-md relative touch-none shadow-[inset_0_0_10px_#000]"
     >
-      <div className="absolute top-2 left-0 right-0 label-meta text-white/50 text-[9px] text-center pointer-events-none">PB</div>
+      <div className="absolute top-2 left-0 right-0 label-meta text-white/75 text-[9px] text-center pointer-events-none">PB</div>
       
       <div className="absolute left-0 right-0 bg-[var(--accent)] transition-all duration-75 pointer-events-none" style={{
         bottom: '50%',

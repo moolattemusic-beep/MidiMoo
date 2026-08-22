@@ -18,7 +18,7 @@ export const CollapsiblePanel: React.FC<{
         onClick={onToggle}
         title={`Show ${title}`}
       >
-        <span className="text-[var(--accent)] opacity-60 text-[10px]">▶</span>
+        <span className="text-[var(--accent)] opacity-90 text-[10px]">▶</span>
         {/* Reads bottom-to-top in the rail, and stays horizontal when the
             columns stack on a narrow window. */}
         <span className="label-meta whitespace-nowrap xl:[writing-mode:vertical-rl] xl:rotate-180">
@@ -31,7 +31,7 @@ export const CollapsiblePanel: React.FC<{
   return (
     <div className="flex flex-col min-w-0">
       <div
-        className="flex items-center justify-between mb-2 cursor-pointer select-none opacity-60 hover:opacity-100"
+        className="flex items-center justify-between mb-2 cursor-pointer select-none opacity-90 hover:opacity-100"
         onClick={onToggle}
         title={`Hide ${title}`}
       >

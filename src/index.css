@@ -10,8 +10,12 @@
   --bg: #1a1a17;
   --surface: #262621;
   --surface-deep: #12120f;
-  --ink: #e6e0d4;
-  --ink-dim: rgba(230, 224, 212, 0.4);
+  --ink: #f6f3ed;
+  /* Held just off the full ink rather than the 0.4 it was: at that alpha the
+     labels blended most of the way into the panel, and they carry the names of
+     every control. Enough separation to keep the hierarchy, not enough to make
+     them work to read. */
+  --ink-dim: rgba(246, 243, 237, 0.82);
   --accent: #f0a020;
   --wood: #4d2d18;
   --panel-border: 2px solid #33312a;
