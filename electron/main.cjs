@@ -9,12 +9,19 @@ const DEV_SERVER_URL = 'http://localhost:3000';
 // shipped inside the asar — so this path only exists in a working tree.
 const DEV_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
 
-// The layout is designed against 1500x800 and scales as a whole rather than
-// re-flowing, so the window is locked to that shape. A control tuned at one
-// size then behaves the same at every other, and the only thing resizing
+// The layout is designed against these numbers and scales as a whole rather
+// than re-flowing, so the window is locked to that shape. A control tuned at
+// one size then behaves the same at every other, and the only thing resizing
 // changes is how large it all appears.
-const DESIGN_WIDTH = 1500;
-const DESIGN_HEIGHT = 800;
+//
+// 4:3 to match the iPad this is played from, which offers 1112x834 to a Sidecar
+// display. The design is deliberately wider than the tablet rather than set to
+// it: at the iPad's own width the columns fall below the layout's 1280
+// breakpoint and stack, and the chord pads drop to two-across once their column
+// gets under 300px. This is the narrowest round width that clears both, so the
+// arrangement holds and the zoom stays as close to 1 as it can.
+const DESIGN_WIDTH = 1400;
+const DESIGN_HEIGHT = 1050;
 const ASPECT_RATIO = DESIGN_WIDTH / DESIGN_HEIGHT;
 
 function createWindow() {

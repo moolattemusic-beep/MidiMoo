@@ -54,18 +54,19 @@ export const CustomSlider: React.FC<CustomSliderProps> = ({ min, max, step, valu
   return (
     <div 
       ref={containerRef}
-      className={`relative w-full h-[40px] flex items-center cursor-pointer touch-none ${className}`}
+      className={`custom-slider relative w-full h-[40px] flex items-center cursor-pointer touch-none ${className}`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
       {/* Track */}
-      <div className="w-full h-[8px] bg-[#111] border border-[#444] rounded-[4px]" />
-      {/* Thumb */}
+      <div className="custom-slider-track w-full h-[8px] bg-[#111] border border-[#444] rounded-[4px]" />
+      {/* Thumb. Centred by transform rather than by subtracting half its width,
+          so its size can be restyled without the position drifting with it. */}
       <div 
-        className="absolute top-1/2 -translate-y-1/2 w-[24px] h-[36px] bg-[var(--accent)] border-2 border-white rounded-[2px] shadow-[0_0_10px_rgba(0,0,0,0.5)]"
-        style={{ left: `calc(${percentage}% - 12px)` }}
+        className="custom-slider-thumb absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-[24px] h-[36px] bg-[var(--accent)] border-2 border-white rounded-[2px] shadow-[0_0_10px_rgba(0,0,0,0.5)]"
+        style={{ left: `${percentage}%` }}
       />
     </div>
   );
