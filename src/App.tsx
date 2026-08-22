@@ -53,11 +53,13 @@ function App() {
   useEffect(() => { localStorage.setItem('orchid-ui-scale', String(uiScale)); }, [uiScale]);
 
   // Parameter descriptions are useful while learning a control and clutter
-  // afterwards, so they can be switched off wholesale.
+  // afterwards, so they stay off until asked for, like the keyboard below.
+  // The key is versioned because the old one was written on every mount, so
+  // every existing install has a stale "true" that would mask the new default.
   const [showHelp, setShowHelp] = useState<boolean>(
-    () => localStorage.getItem('orchid-show-help') !== 'false'
+    () => localStorage.getItem('orchid-show-help-v2') === 'true'
   );
-  useEffect(() => { localStorage.setItem('orchid-show-help', String(showHelp)); }, [showHelp]);
+  useEffect(() => { localStorage.setItem('orchid-show-help-v2', String(showHelp)); }, [showHelp]);
 
   // The on-screen keyboard is a monitor rather than a control for most playing,
   // so it stays out of the way until it is wanted.
