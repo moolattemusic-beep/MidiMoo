@@ -68,6 +68,9 @@ export interface OrchidParams {
   // With MPE on, each sounding voice runs its own velocity envelope from its
   // own note's velocity, so a strummed chord modulates unevenly across it.
   velModPerVoice: boolean;
+  // A voicing saved by hand in free mode follows the register slider rather
+  // than staying at the exact notes it was played at.
+  memoryFollowRegister: boolean;
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -143,6 +146,7 @@ export const defaultParams: OrchidParams = {
   velModCC74Attack: 0,
   velModCC74Release: 20,
   velModPerVoice: true,
+  memoryFollowRegister: true,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,

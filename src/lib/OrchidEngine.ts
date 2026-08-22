@@ -991,6 +991,25 @@ export class OrchidEngine {
     return 60 - interval / 100; // colour tones, lower ones first
   }
 
+  /**
+   * Move a hand-played voicing to the register without rebuilding it. Notes
+   * that fall below the start are lifted an octave at a time, so sliding up
+   * walks the voicing through its own inversions — the same idea as folding a
+   * chord, but working on the notes that were actually played rather than on
+   * intervals. Nothing is dropped and nothing above the start is touched, so
+   * the voicing keeps its content and its upward spread; running it through the
+   * chord folding instead would thin it by density and close up the spacing,
+   * which is the whole of what free mode was for.
+   */
+  private reRegisterVoicing(voicing: number[]): number[] {
+    const start = this.params.chordRegisterStart;
+    return voicing.map(note => {
+      let n = note;
+      while (n < start) n += 12;
+      return n > 127 ? note : n;
+    });
+  }
+
   private calculateFoldedPitches(rootPitch: number, intervals: number[], keepAllTones = false, noteLimit?: number): number[] {
     const startRange = this.params.chordRegisterStart;
     const endRange = startRange + this.params.voicingRange;
@@ -1246,8 +1265,18 @@ export class OrchidEngine {
         ? Math.max(1, this.params.mpeMaxVoices ?? 5)
         : undefined;
 
-      const newIntervals = pasted ?? this.getIntervalsForState(perfKey);
-      const newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
+      // A held free-mode voicing is re-registered rather than rebuilt, so
+      // dragging the slider inverts the voicing that is actually sounding.
+      const heldVoicing = this.heldCustomVoicings.get(perfKey);
+      let newPitches: number[];
+      if (heldVoicing && heldVoicing.length > 0) {
+        newPitches = this.params.memoryFollowRegister !== false
+          ? this.reRegisterVoicing(heldVoicing)
+          : [...heldVoicing];
+      } else {
+        const newIntervals = pasted ?? this.getIntervalsForState(perfKey);
+        newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
+      }
       
       const oldPitches = memoryArray.filter(n => !n.isBass).map(n => n.pitch);
 
@@ -1785,7 +1814,9 @@ export class OrchidEngine {
     const extraInversions = this.params.inversionRepeat > 0 ? (this.consecutiveChordCount * this.params.inversionRepeat) : 0;
 
     if (customVoicing && customVoicing.length > 0) {
-      finalPitches = [...customVoicing];
+      finalPitches = this.params.memoryFollowRegister !== false
+        ? this.reRegisterVoicing(customVoicing)
+        : [...customVoicing];
     } else if (intervals.length === 0) {
       finalPitches = [pitch];
       isSingleNote = true;

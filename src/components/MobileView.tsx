@@ -78,6 +78,8 @@ export function MobileView({
             activeEditSlotIndex={null}
             onSelectEditSlot={() => {}}
             memoryVelocity={params.memoryVelocity || 100}
+            followRegister={params.memoryFollowRegister !== false}
+            onToggleFollowRegister={() => setParams({ ...params, memoryFollowRegister: !params.memoryFollowRegister })}
             onMemoryVelocityChange={() => {}}
             isFreeEditMode={false}
             onToggleFreeEditMode={() => {}}

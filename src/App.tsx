@@ -716,6 +716,8 @@ function App() {
               }}
               memoryVelocity={params.memoryVelocity}
               onMemoryVelocityChange={(vel) => setParams(prev => ({ ...prev, memoryVelocity: vel }))}
+              followRegister={params.memoryFollowRegister !== false}
+              onToggleFollowRegister={() => setParams(prev => ({ ...prev, memoryFollowRegister: !prev.memoryFollowRegister }))}
               isFreeEditMode={isFreeEditMode}
               onToggleFreeEditMode={() => {
                  const newFree = !isFreeEditMode;

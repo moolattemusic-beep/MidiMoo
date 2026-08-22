@@ -37,6 +37,8 @@ interface MemorySlotsProps {
   onToggleFreeEditMode: () => void;
   armedSlotIndex: number | null;
   onArmSlot: (index: number) => void;
+  followRegister: boolean;
+  onToggleFollowRegister: () => void;
 }
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -68,7 +70,7 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
   return `${note} ${base}${exts}`;
 }
 
-export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot }: MemorySlotsProps) {
+export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   // Reading the clipboard needs the document focused and the permission
@@ -140,6 +142,16 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
       <div className="flex items-center justify-between mb-1">
         {!hideHeader && (
           <div className="flex items-center gap-4">
+             {/* A hand-played voicing normally sits at the exact notes it was
+                 played at. Following the register lets the same voicing be
+                 tried an inversion or a register away without re-recording it. */}
+             <div className="flex items-center gap-2" title="Saved voicings follow the CHORD START slider, inverting as it rises">
+                <span className="label-meta !text-[9px] whitespace-nowrap">FOLLOW REG</span>
+                <div
+                  className={`toggle-switch sm ${followRegister ? 'on' : ''}`}
+                  onClick={onToggleFollowRegister}
+                ></div>
+             </div>
              <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[#888]">VEL</span>
                 <input 
