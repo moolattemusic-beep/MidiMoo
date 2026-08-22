@@ -51,6 +51,23 @@ function createWindow() {
   // bar itself, so declaring it again as extra size would double-count it.
   win.setAspectRatio(ASPECT_RATIO);
 
+  // Zoom is what keeps the interface proportional, and it has to be the browser
+  // zoom rather than a CSS transform: media queries answer to the real viewport,
+  // so a merely transformed layout still crosses breakpoints as the window
+  // shrinks and the sections rearrange. Zooming instead divides the viewport by
+  // the same factor, holding it at the design size, so every query, grid and
+  // font keeps the value it was designed with and only the picture changes size.
+  const applyZoom = () => {
+    if (win.isDestroyed()) return;
+    const [contentWidth, contentHeight] = win.getContentSize();
+    if (!contentWidth || !contentHeight) return;
+    win.webContents.setZoomFactor(
+      Math.min(contentWidth / DESIGN_WIDTH, contentHeight / DESIGN_HEIGHT)
+    );
+  };
+  win.on('resize', applyZoom);
+  win.webContents.on('did-finish-load', applyZoom);
+
   if (isDev) {
     win.loadURL(DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: 'detach' });

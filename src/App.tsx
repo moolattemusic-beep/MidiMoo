@@ -22,6 +22,7 @@ const UI_SCALE_MIN = 0.5;
 const UI_SCALE_MAX = 2;
 const UI_SCALE_STEP = 0.1;
 
+
 function App() {
   const [engine, setEngine] = useState<OrchidEngine | null>(null);
   const [midiManager] = useState(() => new MidiDeviceManager());
@@ -51,6 +52,7 @@ function App() {
     return Number.isFinite(saved) && saved >= UI_SCALE_MIN && saved <= UI_SCALE_MAX ? saved : 1;
   });
   useEffect(() => { localStorage.setItem('orchid-ui-scale', String(uiScale)); }, [uiScale]);
+
 
   // Parameter descriptions are useful while learning a control and clutter
   // afterwards, so they stay off until asked for, like the keyboard below.
@@ -501,9 +503,10 @@ function App() {
       )}
       <div className="ui-scale-viewport">
       <div
-        className={`ui-scale-content ${showHelp ? '' : 'hide-help'}`}
+        className="ui-scale-sizer"
         style={{ '--ui-scale': uiScale } as React.CSSProperties}
       >
+      <div className={`ui-scale-content ${showHelp ? '' : 'hide-help'}`}>
       <header className="bg-[var(--surface)] border-b-[4px] border-[var(--wood)] px-4 lg:px-6 py-3 shadow-md">
         {/* One rail: brand, transport, devices and view controls all live in the
             same rectangle rather than three floating clusters. */}
@@ -786,6 +789,7 @@ function App() {
         <span className="label-meta !text-black font-bold tracking-[0.2em]">MidiMOO v1.0.4</span>
         <span className="label-meta !text-black font-bold tracking-[0.2em]">STATUS: SIGNAL LOCK</span>
       </footer>
+      </div>
       </div>
       </div>
     </>

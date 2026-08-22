@@ -166,27 +166,40 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* Whole-interface zoom.
-   The layout is scaled visually rather than re-flowed, so every element keeps
-   its position and proportions at any size — fonts included, since they scale
-   with the transform rather than being re-computed. */
+   The interface is laid out once at its design size and then scaled as a single
+   image, so resizing the window can only ever make it larger or smaller. Laying
+   out into the window instead would let breakpoints and grids re-flow, and the
+   sections would change shape relative to each other as the window is dragged.
+   The window's zoom does the fitting, so the viewport stays at the design size
+   however large the window is; this scale is the separate, deliberate zoom on
+   top of it from the UI SIZE control. */
 .ui-scale-viewport {
-  width: 100%;
+  width: 100vw;
   height: 100vh;
   overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Carries the scaled footprint. A transform paints outside the layout box
+   without enlarging it, so magnifying past the window would have nothing to
+   scroll; this element reserves the real estate the scaled interface occupies
+   and centres it while it is smaller than the window. */
+.ui-scale-sizer {
+  flex: none;
+  margin: auto;
+  width: calc(100vw * var(--ui-scale, 1));
+  height: calc(100vh * var(--ui-scale, 1));
 }
 
 .ui-scale-content {
+  /* The viewport is held at the design size by the window's zoom, so filling it
+     is the design size — and the layout never sees a different one. */
+  width: 100vw;
+  height: 100vh;
   transform: scale(var(--ui-scale, 1));
   transform-origin: top left;
-  /* The laid-out width stays the window width at every scale. Dividing it by
-     the scale would hand the layout more room as you zoom out and the grids
-     would re-flow into it — precisely the rearranging this exists to avoid. */
-  width: 100%;
-  /* A real height, not a minimum: flex children can only be bounded — and so
-     only scroll internally — if the column itself has a size to divide up.
-     Dividing by the scale means the layout still fills the window exactly at
-     any zoom, so the page never scrolls vertically whatever the size. */
-  height: calc(100vh / var(--ui-scale, 1));
   display: flex;
   flex-direction: column;
 }
