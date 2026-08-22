@@ -318,10 +318,18 @@ function App() {
     velMod.onPitchOffset = (semitones) => midiManager.setGlobalBendOffset(semitones);
     velMod.onCC1 = (value) => midiManager.sendControlChangeAllChannels(1, value);
     velMod.onCC80 = (value) => midiManager.sendControlChangeAllChannels(80, value);
+    // CC74 is the per-note expression MPE defines, so it goes to the voice's own
+    // channel when there is one and to the master channel when there is not.
+    velMod.onCC74 = (value) => midiManager.sendControlChange(74, value, 0, 1);
+    velMod.onVoicePitchOffset = (channel, semitones) => midiManager.setChannelBendOffset(channel, semitones);
+    velMod.onVoiceCC74 = (channel, value) => midiManager.sendControlChange(74, value, 0, channel);
     return () => {
       velMod.onPitchOffset = undefined;
       velMod.onCC1 = undefined;
       velMod.onCC80 = undefined;
+      velMod.onCC74 = undefined;
+      velMod.onVoicePitchOffset = undefined;
+      velMod.onVoiceCC74 = undefined;
     };
   }, [velMod, midiManager]);
 
@@ -437,8 +445,16 @@ function App() {
           midiManager.sendControlChange(event.ccNumber!, event.ccValue!, event.delayMs || 0, event.mpeChannel || 1);
         } else {
           if (!event.isInternalSynthOnly) {
-            if (event.isOn && event.velocity > 0) velMod.noteOn(event.velocity);
-            else velMod.noteOff();
+            // A raw note is played as struck: its channel is marked so neither
+            // modulation layer reaches it, and it never enters the modulator.
+            if (event.mpeChannel) midiManager.setChannelRaw(event.mpeChannel, event.isRaw === true);
+            if (event.isRaw) {
+              if (!event.isOn) midiManager.clearChannelBendOffset(event.mpeChannel || 1);
+            } else if (event.isOn && event.velocity > 0) {
+              velMod.noteOn(event.velocity, event.mpeChannel);
+            } else {
+              velMod.noteOff(event.mpeChannel);
+            }
             midiManager.sendNote(event.pitch, event.velocity, event.isOn, event.delayMs, event.mpeChannel || 1);
           }
           

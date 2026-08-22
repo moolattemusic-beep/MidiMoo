@@ -310,6 +310,30 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
             </button>
           ))}
         </div>
+
+        {/* Routing. Independent of each other: a note can be on its own channel
+            and glide in from the last one, or neither, and RAW overrides both
+            by taking the note out of the modulation entirely. */}
+        <div className="grid grid-cols-3 gap-1 mt-2">
+          {([
+            ['MPE', 'arpeggioMpeChannels', 'EACH NOTE ON ITS OWN MPE CHANNEL'],
+            ['GLIDE', 'arpeggioGlide', 'BEND FROM THE PREVIOUS NOTE. NEEDS MPE ON'],
+            ['RAW', 'arpeggioRaw', 'NO MODULATION, VELOCITY ONLY'],
+          ] as const).map(([label, key, title]) => (
+            <button
+              key={key}
+              title={title}
+              onClick={() => {
+                const newParams = { ...params, [key]: !params[key] };
+                setParams(newParams);
+                if (engine) engine.params = newParams;
+              }}
+              className={`analog-btn !text-[9px] !px-1 !py-[5px] ${params[key] ? 'active' : ''}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-4 w-full h-[240px]">

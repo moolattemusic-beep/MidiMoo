@@ -524,6 +524,44 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           </p>
         </CollapsibleSection>
 
+        <CollapsibleSection group="velmod" title="VEL CC74" extraHeader={<div
+              className={`toggle-switch ${params.velModCC74Enabled ? 'on' : ''}`}
+              onClick={() => updateParam('velModCC74Enabled', !params.velModCC74Enabled)}
+            ></div>}>
+          {([
+            ['ANCHOR', 'velModCC74Anchor', 0, 127, 1, (v: number) => `${v}`],
+            ['AMOUNT', 'velModCC74Amount', -100, 100, 1, (v: number) => `${v}%`],
+            ['ATTACK', 'velModCC74Attack', 0, 100, 1, fmtStage],
+            ['RELEASE', 'velModCC74Release', 0, 100, 1, fmtStage],
+          ] as const).map(([label, key, min, max, step, fmt]) => (
+            <div className="mb-3" key={key}>
+              <div className="flex justify-between items-center mb-1">
+                <span className="label-meta">{label}</span>
+                <span className="label-meta !text-[var(--accent)]">{fmt(params[key] as number)}</span>
+              </div>
+              <CustomSlider min={min} max={max} step={step} value={params[key] as number}
+                onChange={(v) => updateParam(key, v)} />
+            </div>
+          ))}
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+            CC74 IS THE ONE EXPRESSION MPE DEFINES PER NOTE, SO IT IS WHAT CARRIES
+            THE PER-VOICE MODULATION. WITH MPE OFF IT GOES OUT ON THE MASTER CHANNEL.
+          </p>
+        </CollapsibleSection>
+
+        <div className="mt-5 flex justify-between items-center">
+          <span className="label-meta">PER VOICE (MPE)</span>
+          <div
+            className={`toggle-switch ${params.velModPerVoice ? 'on' : ''}`}
+            onClick={() => updateParam('velModPerVoice', !params.velModPerVoice)}
+          ></div>
+        </div>
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
+          EACH MPE VOICE RUNS ITS OWN VELOCITY ENVELOPE FROM ITS OWN NOTE, SO A
+          STRUMMED CHORD MODULATES UNEVENLY ACROSS IT. VIBRATO STAYS ONE SHAPE
+          ACROSS THE WHOLE INSTRUMENT EITHER WAY.
+        </p>
+
         <div className="mt-5">
           <div className="flex justify-between items-center mb-1">
             <span className="label-meta">CHORD WINDOW</span>

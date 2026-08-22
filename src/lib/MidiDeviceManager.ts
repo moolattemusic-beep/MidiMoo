@@ -269,6 +269,36 @@ export class MidiDeviceManager {
     output.send([0xE0 | ((channel - 1) & 0x0F), 0, 64]); // 8192 = centre
   }
 
+  /**
+   * Per-voice modulation, kept apart from the global offset because the two
+   * layers have different reach: vibrato is one shape across the whole
+   * instrument, while the velocity envelope belongs to the note that played it.
+   * A channel's bend is its glide position plus both.
+   */
+  public setChannelBendOffset(channel: number, semitones: number) {
+    if (this.channelBendOffsets.get(channel) === semitones) return;
+    if (semitones === 0) this.channelBendOffsets.delete(channel);
+    else this.channelBendOffsets.set(channel, semitones);
+    // Re-send from the glide position this channel was left at, so the offset
+    // lands on top of the note rather than replacing where it had bent to.
+    this.emitBend(channel, this.lastBendSemitones.get(channel) ?? 0, this.lastBendRange, 0);
+  }
+
+  public clearChannelBendOffset(channel: number) {
+    if (!this.channelBendOffsets.has(channel)) return;
+    this.channelBendOffsets.delete(channel);
+    this.emitBend(channel, this.lastBendSemitones.get(channel) ?? 0, this.lastBendRange, 0);
+  }
+
+  /**
+   * A raw channel is left out of both modulation layers. The glide bend still
+   * applies — raw means unmodulated, not unbent.
+   */
+  public setChannelRaw(channel: number, raw: boolean) {
+    if (raw) this.rawChannels.add(channel);
+    else this.rawChannels.delete(channel);
+  }
+
   public setGlobalBendOffset(semitones: number) {
     if (semitones === this.bendOffsetSemitones) return;
     this.bendOffsetSemitones = semitones;
@@ -282,10 +312,14 @@ export class MidiDeviceManager {
       return;
     }
 
-    for (const [channel, base] of this.lastBendSemitones.entries()) {
-      this.emitBend(channel, base, this.lastBendRange, 0);
+    const touched = new Set([...this.lastBendSemitones.keys(), ...this.channelBendOffsets.keys()]);
+    for (const channel of touched) {
+      this.emitBend(channel, this.lastBendSemitones.get(channel) ?? 0, this.lastBendRange, 0);
     }
   }
+
+  private channelBendOffsets: Map<number, number> = new Map();
+  private rawChannels: Set<number> = new Set();
 
   public clearBendMemory(channel?: number) {
     if (channel === undefined) this.lastBendSemitones.clear();
@@ -303,7 +337,10 @@ export class MidiDeviceManager {
     const output = this.outputs.find(o => o.id === this.selectedOutputId);
     if (!output) return;
 
-    let v = Math.round(8192 + ((semitones + this.bendOffsetSemitones) * 8192 / bendRange));
+    const modulation = this.rawChannels.has(channel)
+      ? 0
+      : this.bendOffsetSemitones + (this.channelBendOffsets.get(channel) ?? 0);
+    let v = Math.round(8192 + ((semitones + modulation) * 8192 / bendRange));
     v = Math.max(0, Math.min(16383, v));
     const lsb = v & 0x7F;
     const msb = (v >> 7) & 0x7F;

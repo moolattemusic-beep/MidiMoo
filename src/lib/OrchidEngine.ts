@@ -32,7 +32,23 @@ export class OrchidEngine {
   private activePitchesMemory: Record<number, Array<{ pitch: number, delayUsed: number, isBass: boolean, timeoutId?: any, mpeChannel?: number, mpeBasePitch?: number, mpeCurrentPitch?: number, mpeTargetPitch?: number, isInternalSynthOnly?: boolean }>> = {};
   private mpeChannelsAllocated: boolean[] = new Array(16).fill(false);
 
-  private allocateMpeChannel(): number {
+  /**
+   * Member channels are 2-15. Chords take from the bottom and the arpeggiator
+   * from the top, so a busy arpeggio — whose notes can ring for seconds — can
+   * only exhaust its own end of the pool. Sharing one end meant a long arpeggio
+   * could take every channel and leave held chords colliding on the fallback,
+   * where two notes fight over one channel's expression.
+   */
+  private allocateMpeChannel(fromTop: boolean = false): number {
+    if (fromTop) {
+      for (let ch = 15; ch >= 2; ch--) {
+        if (!this.mpeChannelsAllocated[ch - 1]) {
+          this.mpeChannelsAllocated[ch - 1] = true;
+          return ch;
+        }
+      }
+      return 15; // fallback
+    }
     for (let i = 1; i <= 14; i++) { // Channels 2-15
       if (!this.mpeChannelsAllocated[i]) {
         this.mpeChannelsAllocated[i] = true;
@@ -544,6 +560,20 @@ export class OrchidEngine {
   
   // Track active arpeggio notes for sustain pedal handling
   public activeArpeggioNotes: Map<number, { pitch: number, mpeChannel?: number, timeoutId?: any }> = new Map();
+  // Where the arpeggio glides from, kept separate from the chord voices so the
+  // two can glide independently of each other.
+  private lastArpeggioPitch: number | null = null;
+  private arpChannel: number | null = null;
+
+  /**
+   * One channel the whole arpeggio shares. Held rather than allocated per note,
+   * so turning per-note channels off gives the arpeggio a single voice whose
+   * expression is its own but never spreads across the pool.
+   */
+  private arpSharedChannel(): number {
+    if (this.arpChannel === null) this.arpChannel = this.allocateMpeChannel(true);
+    return this.arpChannel;
+  }
 
 
   constructor(initialParams: OrchidParams) {
@@ -553,6 +583,13 @@ export class OrchidEngine {
 
   public panic() {
     this.cancelAllChannelGlides();
+    // The arpeggio's own channel and glide origin are part of what panic is
+    // for: a stuck arpeggio should come back on a clean channel.
+    if (this.arpChannel !== null) {
+      this.freeMpeChannel(this.arpChannel);
+      this.arpChannel = null;
+    }
+    this.lastArpeggioPitch = null;
     for (const timeoutId of this.glideCarryKeys.values()) {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -1155,9 +1192,24 @@ export class OrchidEngine {
        // Retrigger
        this.handleArpeggioNoteOff(pitch, true);
     }
-    const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
+    // The three routings are independent. A note can be on its own channel, or
+    // share the arpeggiator's one; it can glide in from the note before it; and
+    // RAW takes it out of the modulation without affecting either of those.
+    const perNoteChannels = this.params.arpeggioMpeChannels !== false;
+    const channel = this.params.mpeEnabled
+      ? (perNoteChannels ? this.allocateMpeChannel(true) : this.arpSharedChannel())
+      : undefined;
     const isMidiOnly = this.params.omnichordMode && this.params.omnichordSynthMonitor;
-    this.emitNoteOn(pitch, velocity, 0, channel, false, isMidiOnly);
+    const raw = this.params.arpeggioRaw === true;
+    this.emitNoteOn(pitch, velocity, 0, channel, false, isMidiOnly, raw);
+
+    // Glide is bend, so it needs a channel of its own to bend on: without MPE
+    // the only channel available is the master, and bending that would drag any
+    // chord being held underneath along with it.
+    if (channel && this.params.arpeggioGlide && this.lastArpeggioPitch !== null && this.lastArpeggioPitch !== pitch) {
+      this.emitMpePitchBend(channel, pitch, this.lastArpeggioPitch, pitch, 0);
+    }
+    this.lastArpeggioPitch = pitch;
     
     // Auto-release arpeggio notes after their set length (a staccato pulse by
     // default, longer when you want the notes to ring without a sustain pedal).
@@ -1177,7 +1229,9 @@ export class OrchidEngine {
         clearTimeout(note.timeoutId);
       }
       this.emitNoteOff(pitch, 0, 0, note.mpeChannel);
-      if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
+      // The shared channel outlives its notes by design, so it is not handed
+      // back — releasing it would let a chord take it mid-arpeggio.
+      if (note.mpeChannel && note.mpeChannel !== this.arpChannel) this.freeMpeChannel(note.mpeChannel);
       this.activeArpeggioNotes.delete(pitch);
     }
   }
@@ -2009,12 +2063,12 @@ export class OrchidEngine {
     return Math.max(1, Math.min(127, Math.round(vel)));
   }
 
-  private emitNoteOn(pitch: number, velocity: number, delayMs: number = 0, channel?: number, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false) {
+  private emitNoteOn(pitch: number, velocity: number, delayMs: number = 0, channel?: number, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false, isRaw: boolean = false) {
     // A glide still running on this channel belongs to the note being replaced;
     // letting it continue would bend the note starting here.
     this.cancelChannelGlide(channel);
     const finalVelocity = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
-    if (this.onOutputNote) this.onOutputNote({ pitch, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly });
+    if (this.onOutputNote) this.onOutputNote({ pitch, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw });
     
     // Reset expression and pitch bend on note on, in case channel was reused/glided
     if (this.params.mpeEnabled) {

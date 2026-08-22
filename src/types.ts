@@ -39,6 +39,12 @@ export interface OrchidParams {
   arpeggioNoteLengthMs: number; // how long a strum-pad note rings before release
   arpeggioPattern: number; // 0=Up, 1=Down, 2=Two up one down, 3=Alternate, 4=Thirds, 5=Pendulum, 6=Outside-in, 7=Random
   arpeggioTapToPlay: boolean; // sound a note when the pad is tapped, not only when swiped
+  // The three arpeggio routings are independent of each other: a note can be on
+  // its own channel and glide, or neither, and RAW overrides both by taking the
+  // note out of the modulation entirely.
+  arpeggioMpeChannels: boolean; // one MPE channel per arpeggio note
+  arpeggioGlide: boolean; // bend from the previous arpeggio note into the new one
+  arpeggioRaw: boolean; // no velocity modulation or vibrato, velocity only
 
   // Velocity envelope -> pitch bend and CC1, applied to the MIDI output only.
   velModEnabled: boolean;
@@ -52,6 +58,16 @@ export interface OrchidParams {
   velModCC1Amount: number; // -100..100 % of full scale at full velocity
   velModCC1Attack: number;
   velModCC1Release: number;
+  // CC74 is the one expression MPE defines per note, so it is what carries the
+  // per-voice modulation. It also sends outside MPE, on the master channel.
+  velModCC74Enabled: boolean;
+  velModCC74Anchor: number; // 0-127 at rest
+  velModCC74Amount: number; // -100..100 % of full scale at full velocity
+  velModCC74Attack: number;
+  velModCC74Release: number;
+  // With MPE on, each sounding voice runs its own velocity envelope from its
+  // own note's velocity, so a strummed chord modulates unevenly across it.
+  velModPerVoice: boolean;
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -107,6 +123,9 @@ export const defaultParams: OrchidParams = {
   arpeggioNoteLengthMs: 100,
   arpeggioPattern: 0,
   arpeggioTapToPlay: false,
+  arpeggioMpeChannels: true, // what the arpeggiator has always done under MPE
+  arpeggioGlide: false,
+  arpeggioRaw: false,
   velModEnabled: false,
   velModPitchEnabled: true,
   velModCC1Enabled: true,
@@ -118,6 +137,12 @@ export const defaultParams: OrchidParams = {
   velModCC1Amount: 0,
   velModCC1Attack: 0,
   velModCC1Release: 20,
+  velModCC74Enabled: true,
+  velModCC74Anchor: 0,
+  velModCC74Amount: 0,
+  velModCC74Attack: 0,
+  velModCC74Release: 20,
+  velModPerVoice: true,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,
@@ -144,4 +169,7 @@ export interface NoteEvent {
   ccValue?: number;
   isInternalSynthOnly?: boolean;
   isMidiOnly?: boolean;
+  // Sent without any velocity modulation or vibrato — the arpeggiator's RAW
+  // routing, where only the played velocity reaches the synth.
+  isRaw?: boolean;
 }

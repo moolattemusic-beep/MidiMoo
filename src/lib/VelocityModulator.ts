@@ -74,9 +74,27 @@ export function stageDurationMs(param: number): number {
   return Math.min(MAX_STAGE_MS, ticks * TICK_MS);
 }
 
+/**
+ * One sounding voice's share of the modulation. Under MPE each note gets its
+ * own, keyed by the channel it went out on, so a strummed chord modulates
+ * unevenly across its notes the way separate voices would.
+ */
+class Voice {
+  pitchEnv = new Envelope();
+  cc74Env = new Envelope();
+  velocity = 0;
+  sounding = 0;
+  lastSentPitch: number | null = null;
+  lastSentCC74: number | null = null;
+}
+
+// The key the single shared voice is filed under when notes are not being
+// tracked per channel, so one code path serves both arrangements.
+const GLOBAL_VOICE = 0;
+
 export class VelocityModulator {
   private params: OrchidParams;
-  private pitchEnv = new Envelope();
+  private voices: Map<number, Voice> = new Map();
   private cc1Env = new Envelope();
 
   private triggerVelocity = 0;
@@ -95,6 +113,7 @@ export class VelocityModulator {
   // Only send when the value actually changes, as the script does.
   private lastSentPitch: number | null = null;
   private lastSentCC1: number | null = null;
+  private lastSentCC74: number | null = null;
 
   // Set by the physical mod wheel, which acts as a live CC1 anchor. Null means
   // the wheel hasn't been touched, so the slider's anchor applies.
@@ -114,6 +133,12 @@ export class VelocityModulator {
   public onPitchOffset?: (semitones: number) => void;
   public onCC1?: (value: number) => void;
   public onCC80?: (value: number) => void;
+  public onCC74?: (value: number) => void;
+  // Per-channel outputs. Only used while notes are tracked per voice; the
+  // global pair above then carries just the vibrato, which is one shape across
+  // the whole instrument rather than anything a single note owns.
+  public onVoicePitchOffset?: (channel: number, semitones: number) => void;
+  public onVoiceCC74?: (channel: number, value: number) => void;
 
   constructor(params: OrchidParams) {
     this.params = params;
@@ -150,33 +175,96 @@ export class VelocityModulator {
     return this.wheelAnchor ?? this.params.velModCC1Anchor;
   }
 
-  noteOn(velocity: number) {
+  get cc74Anchor(): number {
+    return this.params.velModCC74Anchor ?? 0;
+  }
+
+  /**
+   * Whether this note is modulated on its own channel. Outside MPE there are no
+   * member channels to separate voices onto, so everything shares one envelope
+   * exactly as it always has.
+   */
+  private isPerVoice(channel?: number): boolean {
+    return (
+      channel !== undefined &&
+      channel > 0 &&
+      this.params.mpeEnabled === true &&
+      this.params.velModPerVoice !== false
+    );
+  }
+
+  private voice(key: number): Voice {
+    let v = this.voices.get(key);
+    if (!v) {
+      v = new Voice();
+      this.voices.set(key, v);
+    }
+    return v;
+  }
+
+  noteOn(velocity: number, channel?: number) {
     if (velocity <= 0) return;
     this.soundingNotes++;
     if (!this.params.velModEnabled) return;
 
     const now = Date.now();
     // Notes inside the threshold belong to the same chord and must not
-    // retrigger — the first note's velocity governs.
-    if (now - this.lastNoteTime > (this.params.velModChordThresholdMs ?? 80)) {
+    // retrigger — the first note's velocity governs. This still decides the
+    // shared layers, whether or not the voices are separated below.
+    const startsChord = now - this.lastNoteTime > (this.params.velModChordThresholdMs ?? 80);
+    if (startsChord) {
       this.triggerVelocity = velocity;
-      this.pitchEnv.trigger();
       this.cc1Env.trigger();
       // Vibrato starts over from silent and from zero deviation, so a new note
       // never begins part way through a swing.
       this.vibratoElapsed = 0;
       this.vibratoPhase = 0;
+    }
+
+    if (this.isPerVoice(channel)) {
+      // Every note triggers its own envelope from its own velocity — the chord
+      // threshold governs the shared layers, not this one.
+      const v = this.voice(channel!);
+      v.velocity = velocity;
+      v.sounding++;
+      v.pitchEnv.trigger();
+      v.cc74Env.trigger();
+      this.ensureRunning();
+    } else if (startsChord) {
+      const v = this.voice(GLOBAL_VOICE);
+      v.velocity = velocity;
+      v.pitchEnv.trigger();
+      v.cc74Env.trigger();
       this.ensureRunning();
     }
+
     this.lastNoteTime = now;
   }
 
-  noteOff() {
+  noteOff(channel?: number) {
     this.soundingNotes = Math.max(0, this.soundingNotes - 1);
+    if (channel === undefined) return;
+    const v = this.voices.get(channel);
+    if (v) v.sounding = Math.max(0, v.sounding - 1);
   }
 
   allNotesOff() {
     this.soundingNotes = 0;
+    for (const [key, v] of this.voices) {
+      if (key !== GLOBAL_VOICE) this.releaseVoice(key, v);
+    }
+  }
+
+  /**
+   * Hand a channel back to neutral. A freed channel is reused by the next note
+   * along, which would otherwise inherit whatever the last voice left on it.
+   */
+  private releaseVoice(key: number, v: Voice) {
+    if (v.lastSentPitch !== null && v.lastSentPitch !== 0) this.onVoicePitchOffset?.(key, 0);
+    if (v.lastSentCC74 !== null && v.lastSentCC74 !== this.cc74Anchor) {
+      this.onVoiceCC74?.(key, clamp127(this.cc74Anchor));
+    }
+    this.voices.delete(key);
   }
 
   private ensureRunning() {
@@ -191,10 +279,15 @@ export class VelocityModulator {
     this.timer = null;
   }
 
-  /** Return pitch and CC1 to their neutral values and stand down. */
+  /** Return every layer to its neutral value and stand down. */
   disable() {
     this.stop();
-    this.pitchEnv.reset();
+    // Every separated voice hands its channel back, or a disabled modulator
+    // would leave the offsets it had set sitting on those channels.
+    for (const [key, v] of [...this.voices]) {
+      if (key !== GLOBAL_VOICE) this.releaseVoice(key, v);
+    }
+    this.voices.clear();
     this.cc1Env.reset();
     this.triggerVelocity = 0;
     this.vibratoPhase = 0;
@@ -205,9 +298,24 @@ export class VelocityModulator {
     if (this.lastSentCC80 !== null && this.lastSentCC80 !== this.cc80Center) {
       this.onCC80?.(clamp127(this.cc80Center));
     }
+    if (this.lastSentCC74 !== null && this.lastSentCC74 !== this.cc74Anchor) {
+      this.onCC74?.(clamp127(this.cc74Anchor));
+    }
     this.lastSentPitch = null;
     this.lastSentCC1 = null;
+    this.lastSentCC74 = null;
     this.lastSentCC80 = null;
+  }
+
+  /**
+   * Sensitivity steepens the velocity response around mid velocity, so a narrow
+   * band of playing dynamics spans the full depth. It pivots rather than simply
+   * multiplying: a plain gain would push everything above the midpoint into the
+   * ceiling and flatten out exactly where you play.
+   */
+  private velocityFactor(velocity: number): number {
+    const sensitivity = Math.max(1, this.params.velModSensitivity ?? 1);
+    return Math.max(0, Math.min(1, 0.5 + ((velocity / 127) - 0.5) * sensitivity));
   }
 
   private tick() {
@@ -224,26 +332,71 @@ export class VelocityModulator {
     // narrow band of playing dynamics spans the full depth. It pivots rather
     // than simply multiplying: a plain gain would push everything above the
     // midpoint into the ceiling and flatten out exactly where you play.
-    const sensitivity = Math.max(1, this.params.velModSensitivity ?? 1);
-    const velFactor = Math.max(0, Math.min(1,
-      0.5 + ((this.triggerVelocity / 127) - 0.5) * sensitivity
-    ));
+    const velFactor = this.velocityFactor(this.triggerVelocity);
 
     const pitchOn = this.params.velModPitchEnabled !== false;
     const cc1On = this.params.velModCC1Enabled !== false;
-    const pitchMoving = this.pitchEnv.advance(dt, this.params.velModPitchAttack, this.params.velModPitchRelease);
+    const cc74On = this.params.velModCC74Enabled !== false;
     const cc1Moving = this.cc1Env.advance(dt, this.params.velModCC1Attack, this.params.velModCC1Release);
 
     const vibrato = this.advanceVibrato(dt);
 
-    // Pitch has no anchor: it rests at zero, and the velocity envelope and the
-    // vibrato are two layers summed into the one offset the MIDI layer adds on
-    // top of the glide engine's own bend.
-    const envPitch = pitchOn ? this.params.velModPitchAmount * velFactor * this.pitchEnv.value : 0;
-    const pitch = quantize(envPitch + vibrato.offset);
-    if (pitch !== this.lastSentPitch) {
-      this.lastSentPitch = pitch;
-      this.onPitchOffset?.(pitch);
+    let voicesMoving = false;
+    for (const [key, v] of [...this.voices]) {
+      const separate = key !== GLOBAL_VOICE;
+      // Each voice's own velocity when it has one; the chord's velocity is what
+      // the shared voice was triggered with.
+      const vFactor = this.velocityFactor(v.velocity);
+      const pitchMoving = v.pitchEnv.advance(dt, this.params.velModPitchAttack, this.params.velModPitchRelease);
+      const cc74Moving = v.cc74Env.advance(dt, this.params.velModCC74Attack, this.params.velModCC74Release);
+      if (pitchMoving || cc74Moving) voicesMoving = true;
+
+      // Pitch has no anchor: it rests at zero. Off on its own channel the
+      // velocity envelope travels alone, because the vibrato is applied once
+      // across the instrument rather than per voice; sharing one voice, the two
+      // layers sum into the single offset as they always have.
+      const envPitch = pitchOn ? this.params.velModPitchAmount * vFactor * v.pitchEnv.value : 0;
+      const pitch = quantize(separate ? envPitch : envPitch + vibrato.offset);
+      if (pitch !== v.lastSentPitch) {
+        v.lastSentPitch = pitch;
+        if (separate) {
+          this.onVoicePitchOffset?.(key, pitch);
+        } else {
+          // Mirrored onto the instrument-wide record, which is what standing
+          // down consults to decide whether pitch needs returning to neutral.
+          this.lastSentPitch = pitch;
+          this.onPitchOffset?.(pitch);
+        }
+      }
+
+      const cc74 = clamp127(Math.round(
+        this.cc74Anchor + (cc74On ? (this.params.velModCC74Amount / 100) * 127 * vFactor * v.cc74Env.value : 0)
+      ));
+      if (cc74On && cc74 !== v.lastSentCC74) {
+        v.lastSentCC74 = cc74;
+        if (separate) {
+          this.onVoiceCC74?.(key, cc74);
+        } else {
+          // Mirrored onto the instrument-wide record so standing down knows
+          // whether CC74 was ever moved off its resting value.
+          this.lastSentCC74 = cc74;
+          this.onCC74?.(cc74);
+        }
+      }
+
+      // A separated voice that has finished and been let go hands its channel
+      // back; the shared one stays, since it is not tied to a channel at all.
+      if (separate && !pitchMoving && !cc74Moving && v.sounding === 0) this.releaseVoice(key, v);
+    }
+
+    // With the voices separated the shared offset carries the vibrato alone, so
+    // it still reaches every channel without being counted twice.
+    if (this.voices.size === 0 || !this.voices.has(GLOBAL_VOICE)) {
+      const vibratoOnly = quantize(vibrato.offset);
+      if (vibratoOnly !== this.lastSentPitch) {
+        this.lastSentPitch = vibratoOnly;
+        this.onPitchOffset?.(vibratoOnly);
+      }
     }
 
     const cc1 = clamp127(
@@ -256,7 +409,7 @@ export class VelocityModulator {
 
     // Once everything has settled on its resting value there is nothing left to
     // compute; the next note or slider move starts the clock again.
-    if (!pitchMoving && !cc1Moving && !vibrato.active) this.stop();
+    if (!voicesMoving && !cc1Moving && !vibrato.active) this.stop();
   }
 
   /**
