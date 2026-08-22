@@ -1,4 +1,5 @@
 import { CustomSlider } from './CustomSlider';
+import { SectionIcon } from './SectionIcon';
 import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
@@ -83,6 +84,14 @@ const CollapsibleSection: React.FC<{
       >
         <p className="label-meta flex items-center gap-2">
           {isOpen && drillIn && <span className="text-[var(--accent)] text-[10px]">◀</span>}
+          {/* Only the top-level list is marked. The subsections sit inside an
+              already-identified section, where a second rank of icons would be
+              decoration rather than a way of finding anything. */}
+          {drillIn && (
+            <span className={isOpen ? 'text-[var(--accent)]' : 'opacity-70'}>
+              <SectionIcon title={title} />
+            </span>
+          )}
           {title}
         </p>
         <div className="flex items-center gap-3">
