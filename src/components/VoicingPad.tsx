@@ -60,7 +60,34 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
 
   return (
     <div className="module flex flex-col items-center">
-      <p className="label-meta self-start mb-6">VOICING DISK</p>
+      <p className="label-meta self-start mb-3">VOICING DISK</p>
+
+      {/* Dry to rich. Each quality takes its tensions in the order it wants
+          them, so one control walks a triad out to the sort of chord a harp or
+          a guitar is usually voiced with. */}
+      <div className="w-full mb-4">
+        <div className="flex justify-between items-center mb-1">
+          <span className="label-meta">COLOUR</span>
+          <span className="label-meta !text-[var(--accent)]">
+            {['DRY', '+7', '+9', '+13', '+11'][Math.max(0, Math.min(4, params.chordColor ?? 0))]}
+          </span>
+        </div>
+        <input
+          type="range" min={0} max={4} step={1}
+          value={params.chordColor ?? 0}
+          onChange={(e) => {
+            const next = { ...params, chordColor: parseInt(e.target.value, 10) };
+            setParams(next);
+            if (engine) engine.params = next;
+          }}
+          className="range-sm w-full accent-[var(--accent)]"
+        />
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+          MAJOR TAKES MAJ7, 9, 13 THEN #11. MINOR TAKES B7, 9, 11 THEN 13.
+          THE 11TH IS RAISED ON MAJOR AND DOMINANT, WHERE A NATURAL ONE WOULD
+          CLOUD THE THIRD, AND COMES LAST.
+        </p>
+      </div>
       
       <div 
         ref={containerRef}

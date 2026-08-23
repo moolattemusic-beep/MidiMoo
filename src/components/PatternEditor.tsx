@@ -17,7 +17,10 @@ const CATEGORIES: Array<{ key: PatternCategory; label: string }> = [
   { key: 'shapes', label: 'SHAPES' },
 ];
 
-const VOICES = 5;
+// Eight rungs rather than five. The chord still has as many notes as it has
+// tones; SPREAD repeats them upward so there is something for the upper rungs
+// to play.
+const VOICES = 8;
 const MIN_BPM = 40;
 const MAX_BPM = 240;
 
@@ -297,6 +300,19 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternVelocity ?? 100}</span>
           </div>
 
+          <div className="flex items-center gap-1" title="How many octaves of the chord the pattern can reach">
+            <span className="label-meta whitespace-nowrap">SPREAD</span>
+            {[1, 2, 3].map(n => (
+              <button
+                key={n}
+                onClick={() => update({ patternSpread: n })}
+                className={`analog-btn !text-[9px] !px-2 !py-[3px] ${(params.patternSpread ?? 1) === n ? 'active' : ''}`}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-2" title="Rotate which chord tone each voice plays, live">
             <span className="label-meta whitespace-nowrap">INVERSION</span>
             <input
@@ -403,7 +419,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
           but should not draw outside the grid. */}
       <div
         ref={gridRef}
-        className="relative w-full h-[120px] bg-[var(--surface-deep)] border border-white/10 rounded-sm touch-none select-none overflow-hidden"
+        className="relative w-full h-[184px] bg-[var(--surface-deep)] border border-white/10 rounded-sm touch-none select-none overflow-hidden"
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
@@ -497,7 +513,10 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
 
       <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
         VOICE 1 IS THE LOWEST NOTE OF WHATEVER CHORD IS PLAYING. A PATTERN NAMING MORE
-        VOICES THAN THE CHORD HAS WRAPS ROUND. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
+        SPREAD REPEATS THE CHORD'S TONES UPWARD, SO VOICE 4 ON A THREE-NOTE CHORD
+        BECOMES THE ROOT AN OCTAVE HIGHER — THE SAME NOTES, MORE RUNGS TO PLAY THEM
+        ON. AT SPREAD 1 A PATTERN NAMING MORE VOICES THAN THE CHORD HAS WRAPS ROUND
+        IN PLACE INSTEAD. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
         SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN; CMD-DRAG UP AND
         DOWN TRANSPOSES IT BY SEMITONES. RELEASE SETS HOW LONG EVERY NOTE RINGS AND

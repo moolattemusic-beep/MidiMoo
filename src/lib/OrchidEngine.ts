@@ -422,16 +422,21 @@ export class OrchidEngine {
       // Rotating past the top wraps round an octave up, which is what makes it
       // an inversion rather than a jump back to the bottom.
       const len = run.pitches.length;
-      // A pattern naming more voices than the chord has wraps round in place,
-      // as it always has — that wrap is about a chord being smaller than the
-      // pattern, not about pitch, and must not lift the note an octave.
-      const baseIndex = (event.voice - 1) % len;
-      // The inversion is the part that moves pitch: rotating past the top takes
-      // the note up an octave, which is what makes it an inversion rather than
-      // a jump back to the bottom.
-      const rotated = baseIndex + Math.round(this.params.patternInversion ?? 0);
+      // The chord's tones repeated upward: with a spread of one this is just the
+      // chord, and a pattern naming more voices than it has wraps round in
+      // place as it always did. Widen the spread and those extra voices climb
+      // instead — voice 4 on a triad becomes the root an octave up. The notes
+      // are the same ones the voicing chose; there are simply more rungs to
+      // play them on, which is how three pitches become a harp part.
+      const spread = Math.max(1, Math.min(3, Math.round(this.params.patternSpread ?? 1)));
+      const rungs = len * spread;
+      const rung = ((event.voice - 1) % rungs + rungs) % rungs;
+      const ladderOctaves = Math.floor(rung / len);
+      // The inversion rotates which tone a rung plays, and carries its own
+      // octave when it passes the top.
+      const rotated = (rung % len) + Math.round(this.params.patternInversion ?? 0);
       const index = ((rotated % len) + len) % len;
-      const wrapOctaves = Math.floor(rotated / len);
+      const wrapOctaves = ladderOctaves + Math.floor(rotated / len);
       const base = run.pitches[index];
       if (base === undefined) return;
       // An octave written into the event, so a pattern can drop its bass or
@@ -1420,7 +1425,37 @@ export class OrchidEngine {
       if (this.ext_9) intervals.push(14);
     }
 
-    return intervals;
+    return this.addColour(intervals, effectiveBaseType, isDominant);
+  }
+
+  /**
+   * Dry to rich. Each quality takes its tensions in the order it wants them, so
+   * turning one knob walks a plain triad out to the sort of chord these
+   * instruments are usually voiced with.
+   *
+   * The orders avoid the notes that fight the chord: a natural 11th sits a
+   * semitone above a major third and clouds it, so major and dominant take a
+   * raised 11th and take it last, while a minor chord has no such quarrel and
+   * takes its 11th early.
+   */
+  private addColour(intervals: number[], baseType: number, isDominant: boolean): number[] {
+    const colour = Math.max(0, Math.min(4, Math.round(this.params.chordColor ?? 0)));
+    if (colour === 0 || intervals.length === 0) return intervals;
+
+    let order: number[];
+    if (baseType === 1) order = [10, 14, 17, 21];          // minor: b7, 9, 11, 13
+    else if (isDominant) order = [10, 14, 21, 18];         // dominant: b7, 9, 13, #11
+    else if (baseType === 2) order = [10, 14, 21, 18];     // sus, which behaves like a dominant
+    else if (baseType === 3) order = [10, 14, 20, 17];     // diminished: b7, 9, b13, 11
+    else order = [11, 14, 21, 18];                          // major: maj7, 9, 13, #11
+
+    const out = [...intervals];
+    for (const tone of order.slice(0, colour)) {
+      // Never twice, and never a tone the chord already states in another
+      // octave — a written extension keeps its own place.
+      if (!out.some(i => i % 12 === tone % 12)) out.push(tone);
+    }
+    return out.sort((a, b) => a - b);
   }
 
   private getIntervalPriority(interval: number): number {
@@ -1480,6 +1515,9 @@ export class OrchidEngine {
     else if (density === 4) { maxNotes = 6; }
     
     let extensionBoost = 0;
+    // Colour is asked for as deliberately as a written extension, so it raises
+    // the note budget too rather than being thinned straight back out.
+    extensionBoost += Math.max(0, Math.min(4, Math.round(this.params.chordColor ?? 0)));
     if (this.ext_m7) extensionBoost++;
     if (this.ext_M7) extensionBoost++;
     if (this.ext_6) extensionBoost++;

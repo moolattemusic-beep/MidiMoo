@@ -110,6 +110,14 @@ export interface OrchidParams {
   // How the generator is steered.
   patternRandomDensity: number; // 0-100, how much of the grid is filled
   patternRandomOverlap: number; // 0-100, how often voices sound together
+  // How many octaves of the chord a pattern can reach. The voicing has one note
+  // per chord tone; this repeats those tones upward so a pattern has more rungs
+  // to climb than the chord has notes — which is what a harpist or guitarist
+  // does with a three-note chord.
+  patternSpread: number; // 1-3 octaves
+  // How much colour the chord carries, dry to rich. The tensions are added in
+  // the order each quality wants them.
+  chordColor: number; // 0-4
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -203,6 +211,8 @@ export const defaultParams: OrchidParams = {
   patternInversion: 0,
   patternRandomDensity: 45,
   patternRandomOverlap: 30,
+  patternSpread: 1,
+  chordColor: 0,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,
