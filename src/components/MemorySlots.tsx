@@ -139,9 +139,9 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
 
   return (
     <div className="module bg-[var(--surface-deep)] border border-white/10 p-4 rounded-sm flex flex-col gap-3">
-      <div className="flex items-center justify-between mb-1">
+      <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
         {!hideHeader && (
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
              {/* A hand-played voicing normally sits at the exact notes it was
                  played at. Following the register lets the same voicing be
                  tried an inversion or a register away without re-recording it. */}
@@ -187,7 +187,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                 />
              )}
              {isEditMode && pasteStatus && (
-                <span className="label-meta !text-[9px] !text-[var(--accent)] ml-2 max-w-[180px] truncate" title={pasteStatus}>
+                <span className="label-meta !text-[9px] !text-[var(--accent)] ml-2 whitespace-nowrap" title={pasteStatus}>
                    {pasteStatus}
                 </span>
              )}
@@ -285,7 +285,10 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
               
               {isEditMode && slot && (
                 <button 
-                  className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-black shadow-md border border-black z-10"
+                  // Inside the pad rather than hanging off it: at a negative
+                  // offset the badge of one row reached into the pad above it,
+                  // and the two collided in the gap between rows.
+                  className="absolute top-[3px] right-[3px] w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-black shadow-md border border-black z-10"
                   onClick={(e) => { e.stopPropagation(); onSaveSlot(i, null); }}
                   title="Clear slot"
                 >

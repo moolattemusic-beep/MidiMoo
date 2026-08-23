@@ -36,10 +36,13 @@ export interface PatternEvent {
   hold?: boolean;
 }
 
+export type PatternCategory = 'piano' | 'harp' | 'guitar' | 'shapes';
+
 export interface ChordPattern {
   name: string;
   lengthBeats: number;
   events: PatternEvent[];
+  category?: PatternCategory; // defaults to piano
 }
 
 const T = TICKS_PER_BEAT;
@@ -57,6 +60,56 @@ const ev = (voice: number, startBeats: number, lengthBeats: number, velocity: nu
 /** Several voices struck together — a block chord. */
 const stack = (voices: number[], startBeats: number, lengthBeats: number, velocity: number): PatternEvent[] =>
   voices.map(v => ev(v, startBeats, lengthBeats, velocity));
+
+/**
+ * A chord spread rather than struck: the notes arrive a few ticks apart instead
+ * of together. This is what separates a harp or a guitar from a keyboard, and
+ * what stops a written chord sounding like a machine hitting every string at
+ * once. A tick is a 96th of a beat, so a spread of four is about 25ms at a
+ * walking tempo — the speed a hand actually crosses the strings.
+ *
+ * The roll is bottom-up by default, which is how a harpist places the left hand
+ * fractionally before the right, and the notes are given slightly falling
+ * velocities so the bottom of the chord speaks first and loudest.
+ */
+const roll = (
+  voices: number[],
+  startBeats: number,
+  lengthBeats: number,
+  velocity: number,
+  spreadTicks = 4,
+  opts: { down?: boolean; ring?: boolean; octave?: number } = {}
+): PatternEvent[] => {
+  const order = opts.down ? [...voices].reverse() : voices;
+  return order.map((v, i) => ({
+    voice: v,
+    start: Math.max(0, Math.round(startBeats * T) + i * spreadTicks),
+    // Ringing notes keep sounding into what follows, the way a plucked string
+    // does; that overlap is most of why a harp sounds like a harp.
+    length: Math.max(1, Math.round(lengthBeats * T)),
+    velocity: Math.max(1, Math.min(127, velocity - i * 3)),
+    ...(opts.ring ? { hold: true } : {}),
+    ...(opts.octave ? { octave: opts.octave } : {}),
+  }));
+};
+
+/** A run of single notes, each left to ring into the next. */
+const run = (
+  voices: number[],
+  startBeats: number,
+  stepBeats: number,
+  ringBeats: number,
+  velocities: number[],
+  humanTicks = 0
+): PatternEvent[] =>
+  voices.map((v, i) => ({
+    voice: v,
+    // A tick or two either side of the grid. Perfectly placed notes are what
+    // make a written part sound typed rather than played.
+    start: Math.max(0, Math.round((startBeats + i * stepBeats) * T) + (humanTicks ? ((i * 5) % 3) - 1 : 0)),
+    length: Math.max(1, Math.round(ringBeats * T)),
+    velocity: velocities[i % velocities.length],
+  }));
 
 /** A voice left ringing rather than re-struck: the chord being held under a part. */
 const hold = (voice: number, startBeats: number, velocity: number, octave = 0): PatternEvent => ({
@@ -209,14 +262,234 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     ],
   },
 
+  // ---- Harp ---------------------------------------------------------------
+  // A harp has four fingers to a hand and no fifth, so its figures come in
+  // threes and fours rather than fives. Its strings ring until they are damped,
+  // which is why almost nothing here is short: the notes are meant to pile up
+  // into the chord rather than articulate it. Chords are spread from the bottom,
+  // the left hand placed a moment before the right.
+  {
+    name: 'HARP ROLL',
+    category: 'harp',
+    lengthBeats: 4,
+    events: [
+      ...roll([1, 2, 3, 4, 5], 0, 3.9, 104, 5),
+      ...roll([1, 2, 3, 4, 5], 2, 1.9, 88, 5),
+    ],
+  },
+  {
+    // Four-note groups, each note left ringing into the next: the harp's
+    // commonest accompaniment and the reason it sounds continuous rather than
+    // rhythmic.
+    name: 'HARP FOURS',
+    category: 'harp',
+    lengthBeats: 4,
+    events: [
+      ...run([1, 2, 3, 4], 0, 0.25, 1.6, [96, 78, 82, 86], 1),
+      ...run([1, 2, 3, 4], 1, 0.25, 1.6, [92, 76, 80, 84], 1),
+      ...run([2, 3, 4, 5], 2, 0.25, 1.6, [94, 78, 82, 88], 1),
+      ...run([2, 3, 4, 5], 3, 0.25, 1.4, [90, 76, 80, 86], 1),
+    ],
+  },
+  {
+    // Threes against a four-beat bar, so the figure turns over inside the bar
+    // rather than restating it.
+    name: 'HARP THREES',
+    category: 'harp',
+    lengthBeats: 4,
+    events: [
+      ...run([1, 3, 5], 0, 0.333, 1.4, [98, 80, 86], 1),
+      ...run([2, 4, 5], 1, 0.333, 1.4, [92, 78, 84], 1),
+      ...run([1, 3, 4], 2, 0.333, 1.4, [96, 80, 86], 1),
+      ...run([2, 4, 5], 3, 0.333, 1.2, [90, 78, 84], 1),
+    ],
+  },
+  {
+    // Up and back down without a seam, everything ringing: the figure under a
+    // great deal of harp writing.
+    name: 'HARP WAVE',
+    category: 'harp',
+    lengthBeats: 4,
+    events: run([1, 2, 3, 4, 5, 4, 3, 2, 1, 2, 3, 4, 5, 4, 3, 2], 0, 0.25, 1.8,
+      [98, 76, 80, 84, 90, 78, 76, 74], 1),
+  },
+  {
+    // Bisbigliando — "whispering". The same chord alternated softly between the
+    // hands, so it shimmers rather than repeats.
+    name: 'HARP WHISPER',
+    category: 'harp',
+    lengthBeats: 4,
+    events: Array.from({ length: 16 }, (_, i) =>
+      roll(i % 2 === 0 ? [1, 3] : [2, 4], i * 0.25, 1.2, i % 4 === 0 ? 74 : 62, 2)
+    ).flat(),
+  },
+  {
+    // Falling through the chord, each note still sounding: the gesture a harp
+    // makes at the end of a phrase.
+    name: 'HARP FALL',
+    category: 'harp',
+    lengthBeats: 4,
+    events: [
+      ...roll([1, 2, 3, 4, 5], 0, 3.9, 100, 4),
+      ...run([5, 4, 3, 2], 2, 0.25, 1.8, [88, 82, 78, 74], 1),
+      ...run([5, 4, 3], 3.25, 0.25, 0.8, [80, 76, 72], 1),
+    ],
+  },
+  {
+    // A hand crossing over: low, high, middle, high — wide and unhurried.
+    name: 'HARP CROSS',
+    category: 'harp',
+    lengthBeats: 4,
+    events: [
+      ...run([1], 0, 0.5, 2, [102], 0).map(e => ({ ...e, octave: -1 })),
+      ...run([5], 0.5, 0.5, 1.4, [86], 1).map(e => ({ ...e, octave: 1 })),
+      ...run([3], 1, 0.5, 1.4, [88], 1),
+      ...run([5], 1.5, 0.5, 1.4, [82], 1),
+      ...run([1], 2, 0.5, 2, [96], 0).map(e => ({ ...e, octave: -1 })),
+      ...run([4], 2.5, 0.5, 1.4, [84], 1),
+      ...run([3], 3, 0.5, 1.2, [86], 1),
+      ...run([5], 3.5, 0.5, 1, [80], 1),
+    ],
+  },
+  {
+    // The sweep. Fast, quiet at the start, opening out as it climbs.
+    name: 'HARP GLISS',
+    category: 'harp',
+    lengthBeats: 4,
+    events: [
+      ...roll([1, 2, 3, 4, 5], 0, 3.9, 96, 3),
+      ...run([1, 2, 3, 4, 5, 1, 2, 3, 4, 5], 2, 0.125, 1.6,
+        [64, 68, 72, 78, 84, 88, 92, 96, 100, 104], 1)
+        .map((e, i) => (i >= 5 ? { ...e, octave: 1 } : e)),
+    ],
+  },
+  {
+    // Almost still: a rolled chord left to ring, touched once in the middle.
+    name: 'HARP SLOW',
+    category: 'harp',
+    lengthBeats: 8,
+    events: [
+      ...roll([1, 2, 3, 4], 0, 8, 88, 6, { ring: true }),
+      ...run([5, 4, 5], 3, 0.5, 2.5, [80, 72, 76], 1),
+      ...run([3, 5], 6, 0.5, 1.8, [74, 78], 1),
+    ],
+  },
+  {
+    // Six-eight, rocking: the harp's lullaby figure.
+    name: 'HARP LULLABY',
+    category: 'harp',
+    lengthBeats: 6,
+    events: [
+      ...run([1, 3, 5], 0, 0.5, 2.4, [96, 78, 84], 1),
+      ...run([2, 4, 5], 1.5, 0.5, 2.4, [88, 76, 82], 1),
+      ...run([1, 3, 5], 3, 0.5, 2.4, [94, 78, 84], 1),
+      ...run([2, 4, 3], 4.5, 0.5, 1.4, [86, 76, 80], 1),
+    ],
+  },
+
+  // ---- Guitar -------------------------------------------------------------
+  // A guitar is struck across its strings rather than at them, so its chords
+  // are spread — down-strokes from the bass up, up-strokes from the top back
+  // down — and the strings keep ringing between strokes.
+  {
+    name: 'STRUM',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [
+      ...roll([1, 2, 3, 4, 5], 0, 1.4, 106, 4),
+      ...roll([1, 2, 3, 4, 5], 1, 0.6, 84, 3),
+      ...roll([5, 4, 3, 2], 1.5, 0.5, 76, 3, { down: false }),
+      ...roll([1, 2, 3, 4, 5], 2.5, 0.8, 96, 4),
+      ...roll([5, 4, 3, 2], 3, 0.5, 74, 3),
+      ...roll([1, 2, 3, 4, 5], 3.5, 0.6, 88, 4),
+    ],
+  },
+  {
+    // Thumb keeping the bass while the fingers pick between: the pattern under
+    // most fingerpicked songs.
+    name: 'TRAVIS',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [
+      ...[0, 1, 2, 3].map(b => ({ ...ev(1, b, 0.9, b % 2 === 0 ? 104 : 92), octave: -1 })),
+      ...run([3], 0.5, 0.5, 1, [82], 1),
+      ...run([5], 1.25, 0.5, 1, [86], 1),
+      ...run([4], 1.75, 0.5, 1, [78], 1),
+      ...run([3], 2.5, 0.5, 1, [84], 1),
+      ...run([5], 3.25, 0.5, 0.8, [88], 1),
+      ...run([4], 3.75, 0.5, 0.6, [76], 1),
+    ],
+  },
+  {
+    // p-i-m-a: the classical right hand, one note to a finger, all ringing.
+    name: 'PIMA',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [
+      ...run([1, 3, 4, 5], 0, 0.25, 1.8, [100, 78, 82, 88], 1),
+      ...run([1, 3, 4, 5], 1, 0.25, 1.8, [92, 76, 80, 86], 1),
+      ...run([2, 3, 4, 5], 2, 0.25, 1.8, [96, 78, 82, 88], 1),
+      ...run([2, 3, 4, 5], 3, 0.25, 1.4, [90, 76, 80, 84], 1),
+    ],
+  },
+  {
+    // Bass, then chord. The oldest accompaniment there is.
+    name: 'BOOM CHICK',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [
+      { ...ev(1, 0, 0.45, 106), octave: -1 },
+      ...roll([2, 3, 4, 5], 1, 0.5, 84, 3),
+      { ...ev(1, 2, 0.45, 98), octave: -1 },
+      ...roll([2, 3, 4, 5], 3, 0.5, 82, 3),
+    ],
+  },
+  {
+    // Flamenco: a fast flourish across the strings, then the chord left ringing.
+    name: 'RASGUEADO',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [
+      ...roll([1, 2, 3, 4, 5], 0, 1.8, 108, 2),
+      ...roll([5, 4, 3, 2, 1], 1, 0.5, 78, 2),
+      ...roll([1, 2, 3, 4, 5], 1.5, 1.4, 96, 2),
+      ...roll([1, 2, 3, 4, 5], 2.75, 0.4, 86, 2),
+      ...roll([5, 4, 3, 2, 1], 3.25, 0.4, 74, 2),
+      ...roll([1, 2, 3, 4, 5], 3.5, 0.5, 92, 2),
+    ],
+  },
+  {
+    // Slow and picked, one note a beat, everything left to ring.
+    name: 'PICKED BALLAD',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [
+      ...roll([1, 2, 3], 0, 4, 92, 5, { ring: true }),
+      ...run([5], 1, 0.5, 1.4, [86], 1),
+      ...run([4], 2, 0.5, 1.4, [80], 1),
+      ...run([5, 4], 3, 0.5, 1, [84, 76], 1),
+    ],
+  },
+  {
+    // Up-strokes only, cut short: the off-beat chop.
+    name: 'CHOP',
+    category: 'guitar',
+    lengthBeats: 4,
+    events: [0.5, 1.5, 2.5, 3.5].flatMap(b =>
+      roll([5, 4, 3, 2], b, 0.22, b === 0.5 ? 100 : 88, 2)
+    ),
+  },
+
   // ---- Constructed ------------------------------------------------------
   {
     name: 'UP',
+    category: 'shapes',
     lengthBeats: 2,
     events: [1, 2, 3, 4, 5, 4, 3, 2].map((v, i) => ev(v, i * 0.25, 0.22, i === 0 ? 104 : 84)),
   },
   {
     name: 'DOWN',
+    category: 'shapes',
     lengthBeats: 2,
     events: [5, 4, 3, 2, 1, 2, 3, 4].map((v, i) => ev(v, i * 0.25, 0.22, i === 0 ? 104 : 84)),
   },
@@ -224,6 +497,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // Odd against even: the pairs walk out of step with each other and only
     // meet again where the cycle closes.
     name: 'ROTATE',
+    category: 'shapes',
     lengthBeats: 4,
     events: [[1, 3], [2, 4], [3, 5], [4, 1], [5, 2], [1, 4], [2, 5], [3, 1]].flatMap(
       (pair, i) => stack(pair, i * 0.5, 0.45, i % 2 === 0 ? 96 : 80)
@@ -233,6 +507,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // Voice n sounds on step s when bit n of s is set, so the chord fills in and
     // empties out on a fixed count.
     name: 'BINARY',
+    category: 'shapes',
     lengthBeats: 4,
     events: Array.from({ length: 16 }, (_, step) =>
       [1, 2, 3, 4, 5].filter(v => (step >> (v - 1)) & 1).map(v => ev(v, step * 0.25, 0.22, 76 + (v * 6)))
@@ -240,6 +515,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
   },
   {
     name: 'TRESILLO',
+    category: 'shapes',
     lengthBeats: 4,
     events: euclid(3, 8).flatMap((hit, i) =>
       hit ? stack([1, 2, 3, 4, 5], i * 0.5, 0.45, i === 0 ? 108 : 90) : []
@@ -247,6 +523,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
   },
   {
     name: 'CINQUILLO',
+    category: 'shapes',
     lengthBeats: 4,
     events: euclid(5, 8).flatMap((hit, i) =>
       hit ? stack(i % 2 === 0 ? [1, 3, 5] : [2, 4], i * 0.5, 0.4, i === 0 ? 106 : 86) : []
@@ -256,6 +533,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // Each pass adds a voice and holds it, so the chord assembles itself over
     // the cycle rather than arriving whole.
     name: 'ADDITIVE',
+    category: 'shapes',
     lengthBeats: 4,
     events: [
       ...[1, 2, 3].map((v, i) => ev(v, i * 0.25, 0.9, 92)),
@@ -268,6 +546,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // Long overlapping entries, one voice per beat, none of them released until
     // the cycle turns over: the chord as a slow bloom.
     name: 'CASCADE',
+    category: 'shapes',
     lengthBeats: 4,
     events: [1, 2, 3, 4, 5].map((v, i) => ev(v, i * 0.75, 4 - (i * 0.75), 78 + i * 8)),
   },
@@ -348,6 +627,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
   {
     // Two chords a bar, both anticipated: a reggae-leaning skank on the off.
     name: 'SKANK',
+    category: 'guitar',
     lengthBeats: 4,
     events: [
       ...stack([2, 3, 4, 5], 0.5, 0.25, 96),
@@ -376,6 +656,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // Five hits spread over sixteen: the rhythm never lands where the last cycle
     // did until the whole thing comes round.
     name: 'EUCLID 5',
+    category: 'shapes',
     lengthBeats: 4,
     events: euclid(5, 16).flatMap((hit, i) =>
       hit ? stack([((i % 5) + 1)], i * 0.25, 0.24, i === 0 ? 106 : 84) : []
@@ -383,6 +664,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
   },
   {
     name: 'EUCLID 7',
+    category: 'shapes',
     lengthBeats: 4,
     events: euclid(7, 16).flatMap((hit, i) =>
       hit ? stack(i % 3 === 0 ? [1, 3] : [((i % 5) + 1)], i * 0.25, 0.24, i === 0 ? 104 : 82) : []
@@ -392,6 +674,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // Voices paired off in a widening span, so the chord opens out from the
     // middle to its edges and closes again.
     name: 'MIRROR',
+    category: 'shapes',
     lengthBeats: 4,
     events: [[3], [2, 4], [1, 5], [2, 4], [3], [2, 4], [1, 5], [2, 4]].flatMap(
       (group, i) => stack(group, i * 0.5, 0.45, i % 4 === 0 ? 100 : 82)
@@ -501,6 +784,7 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     // A three-step figure over a four-beat cycle, so it lands somewhere new each
     // bar and only comes home every third one.
     name: 'THREE OVER',
+    category: 'shapes',
     lengthBeats: 4,
     events: Array.from({ length: 6 }, (_, i) => {
       const voice = [1, 3, 5][i % 3];

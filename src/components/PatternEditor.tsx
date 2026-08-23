@@ -4,10 +4,18 @@ import { OrchidEngine } from '../lib/OrchidEngine';
 import {
   CHORD_PATTERNS,
   ChordPattern,
+  PatternCategory,
   PatternEvent,
   TICKS_PER_BEAT,
   randomPattern,
 } from '../lib/ChordPatterns';
+
+const CATEGORIES: Array<{ key: PatternCategory; label: string }> = [
+  { key: 'piano', label: 'PIANO' },
+  { key: 'harp', label: 'HARP' },
+  { key: 'guitar', label: 'GUITAR' },
+  { key: 'shapes', label: 'SHAPES' },
+];
 
 const VOICES = 5;
 const MIN_BPM = 40;
@@ -32,6 +40,8 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
   // playhead should show where the notes actually are, not where a second
   // timer thinks they should be.
   const [phase, setPhase] = useState<number | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  const [category, setCategory] = useState<PatternCategory>('piano');
   React.useEffect(() => {
     let raf = 0;
     const follow = () => {
@@ -175,9 +185,16 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             className={`toggle-switch sm ${params.patternEnabled ? 'on' : ''}`}
             onClick={() => update({ patternEnabled: !params.patternEnabled })}
           ></div>
-          <span className="label-meta !text-[var(--accent)] whitespace-nowrap">
-            {params.patternCustom ? 'EDITED' : pattern.name}
-          </span>
+          <button
+            onClick={() => {
+              setCategory((pattern.category ?? 'piano') as PatternCategory);
+              setBrowsing(true);
+            }}
+            className="analog-btn !text-[10px] !px-3 !py-[4px] min-w-[130px]"
+            title="Choose a pattern"
+          >
+            {params.patternCustom ? 'EDITED' : pattern.name} ▾
+          </button>
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
@@ -331,17 +348,54 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         </div>
       </div>
 
-      <div className="grid grid-cols-8 gap-1">
-        {CHORD_PATTERNS.map((p, i) => (
-          <button
-            key={p.name}
-            onClick={() => selectLibrary(i)}
-            className={`analog-btn !text-[8px] !px-1 !py-[4px] ${!params.patternCustom && (params.patternIndex ?? 0) === i ? 'active' : ''}`}
+      {browsing && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-6"
+          onClick={() => setBrowsing(false)}
+        >
+          <div
+            className="module w-[760px] max-w-full max-h-[80vh] flex flex-col gap-3 !bg-[var(--surface)]"
+            onClick={(e) => e.stopPropagation()}
           >
-            {p.name}
-          </button>
-        ))}
-      </div>
+            <div className="flex items-center justify-between">
+              <p className="label-meta">CHOOSE A PATTERN</p>
+              <button onClick={() => setBrowsing(false)} className="analog-btn !text-[9px] !px-2 !py-[3px]">CLOSE</button>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {CATEGORIES.map(c => (
+                <button
+                  key={c.key}
+                  onClick={() => setCategory(c.key)}
+                  className={`analog-btn !text-[10px] !px-3 !py-[5px] ${category === c.key ? 'active' : ''}`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-4 gap-1 overflow-y-auto settings-scroll pr-1">
+              {CHORD_PATTERNS.map((p, i) => ({ p, i }))
+                .filter(({ p }) => (p.category ?? 'piano') === category)
+                .map(({ p, i }) => (
+                  <button
+                    key={p.name}
+                    onClick={() => { selectLibrary(i); setBrowsing(false); }}
+                    className={`analog-btn !text-[9px] !px-1 !py-[7px] ${!params.patternCustom && (params.patternIndex ?? 0) === i ? 'active' : ''}`}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+            </div>
+
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+              HARP AND GUITAR PATTERNS SPREAD THEIR CHORDS RATHER THAN STRIKING THEM,
+              AND LEAVE THE NOTES RINGING INTO ONE ANOTHER, WHICH IS WHAT THOSE
+              INSTRUMENTS ACTUALLY DO. THEY WILL SOUND BEST WITH A LONG RELEASE.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* The roll. Voice 1 sits at the bottom, so the picture matches the chord:
           low notes low, high notes high. Clipped, because a note may run past
