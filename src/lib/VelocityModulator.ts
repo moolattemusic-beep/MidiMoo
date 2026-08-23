@@ -202,7 +202,7 @@ export class VelocityModulator {
     return v;
   }
 
-  noteOn(velocity: number, channel?: number) {
+  noteOn(velocity: number, channel?: number, chordStart?: boolean) {
     if (velocity <= 0) return;
     this.soundingNotes++;
     if (!this.params.velModEnabled) return;
@@ -211,7 +211,14 @@ export class VelocityModulator {
     // Notes inside the threshold belong to the same chord and must not
     // retrigger — the first note's velocity governs. This still decides the
     // shared layers, whether or not the voices are separated below.
-    const startsChord = now - this.lastNoteTime > (this.params.velModChordThresholdMs ?? 80);
+    //
+    // A pattern says so directly instead. Its notes are spread across a whole
+    // cycle, so every one of them would clear the threshold and re-zero the
+    // vibrato — which would never then get far enough to swell. The cycle
+    // turning over is the only chord start there is.
+    const startsChord = chordStart !== undefined
+      ? chordStart
+      : now - this.lastNoteTime > (this.params.velModChordThresholdMs ?? 80);
     if (startsChord) {
       this.triggerVelocity = velocity;
       this.cc1Env.trigger();

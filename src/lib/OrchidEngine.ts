@@ -1,4 +1,5 @@
 import { OrchidParams, NoteEvent } from '../types';
+import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
 
 // One voice in the Free MOO pool: a held MPE channel that is bent around
 // rather than retriggered.
@@ -11,6 +12,19 @@ interface MooVoice {
   released: boolean; // key lifted but still ringing under the sustain pedal
   isInternalSynthOnly: boolean;
   glideTimers: any[];
+}
+
+interface PatternRun {
+  pitches: number[];
+  bassPitch: number | null;
+  bassChannel?: number;
+  pending: { pitches: number[]; bassPitch: number | null } | null;
+  velocity: number;
+  cycleStartMs: number;
+  nextIdx: number;
+  channels: Map<number, number>;
+  sounding: Map<number, { pitch: number; channel?: number; offTimer: any }>;
+  timers: Set<any>;
 }
 
 export class OrchidEngine {
@@ -81,7 +95,222 @@ export class OrchidEngine {
     return mode;
   }
 
+  // --- Pattern transport --------------------------------------------------
+  // A pattern is the one thing in the engine that is not edge-triggered: a key
+  // press starts a clock that keeps placing notes until the key is let go.
+  //
+  // Events are scheduled a short way ahead rather than for the whole cycle. A
+  // message handed to the MIDI port with a future timestamp cannot be recalled,
+  // so a long lookahead would leave notes committed to a chord that has already
+  // changed — the same trap that made glides land on the wrong note. Sixty
+  // milliseconds is enough to keep the timing steady and short enough that a
+  // chord change is heard almost at once.
+  private patternRuns: Map<number, PatternRun> = new Map();
+  private patternClock: any = null;
+  private patternCache: { key: string; pattern: ChordPattern } | null = null;
+
+  /** The pattern in force: an edited one if there is one, else the library. */
+  public getActivePattern(): ChordPattern {
+    const custom = this.params.patternCustom;
+    const key = custom ?? `#${this.params.patternIndex}`;
+    if (this.patternCache && this.patternCache.key === key) return this.patternCache.pattern;
+
+    let pattern: ChordPattern;
+    if (custom) {
+      try {
+        pattern = JSON.parse(custom) as ChordPattern;
+      } catch {
+        pattern = CHORD_PATTERNS[0];
+      }
+    } else {
+      pattern = CHORD_PATTERNS[Math.max(0, Math.min(CHORD_PATTERNS.length - 1, this.params.patternIndex ?? 0))];
+    }
+    // Scheduling walks the events in time order, so they are sorted once here
+    // rather than on every tick.
+    pattern = { ...pattern, events: [...pattern.events].sort((a, b) => a.start - b.start) };
+    this.patternCache = { key, pattern };
+    return pattern;
+  }
+
+  private startPatternRun(key: number, pitches: number[], bassPitch: number | null, velocity: number) {
+    this.stopPatternRun(key);
+    if (pitches.length === 0) return;
+    const run: PatternRun = {
+      pitches: [...pitches].sort((a, b) => a - b),
+      bassPitch,
+      pending: null,
+      velocity,
+      // The clock starts under the finger rather than on a grid of its own, so
+      // a chord placed off the beat keeps the pattern where it was played.
+      cycleStartMs: Date.now(),
+      nextIdx: 0,
+      channels: new Map(),
+      sounding: new Map(),
+      timers: new Set(),
+    };
+    this.patternRuns.set(key, run);
+    if (bassPitch !== null) {
+      const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
+      run.bassChannel = channel;
+      this.emitNoteOn(bassPitch, velocity, 0, channel);
+    }
+    this.ensurePatternClock();
+    this.runPatternTick();
+  }
+
+  /**
+   * Hand the run a new voicing. Either it takes effect where the pattern
+   * already is, so a chord change does not interrupt the rhythm, or it waits
+   * for the cycle to come round.
+   */
+  private updatePatternRun(key: number, pitches: number[], bassPitch: number | null) {
+    const run = this.patternRuns.get(key);
+    if (!run) return;
+    const next = { pitches: [...pitches].sort((a, b) => a - b), bassPitch };
+    if ((this.params.patternChordChange ?? 0) === 1) run.pending = next;
+    else this.applyPatternVoicing(run, next);
+  }
+
+  private applyPatternVoicing(run: PatternRun, next: { pitches: number[]; bassPitch: number | null }) {
+    run.pitches = next.pitches;
+    if (next.bassPitch !== run.bassPitch) {
+      if (run.bassPitch !== null) this.emitNoteOff(run.bassPitch, 0, 0, run.bassChannel);
+      run.bassPitch = next.bassPitch;
+      if (run.bassPitch !== null) this.emitNoteOn(run.bassPitch, run.velocity, 0, run.bassChannel);
+    }
+  }
+
+  private stopPatternRun(key: number) {
+    const run = this.patternRuns.get(key);
+    if (!run) return;
+    // Anything already scheduled is cancelled, and anything already sounding is
+    // released here and now. A pattern that can leave a note on is worse than
+    // one that stops raggedly.
+    for (const t of run.timers) clearTimeout(t);
+    run.timers.clear();
+    for (const [, note] of run.sounding) {
+      if (note.offTimer) clearTimeout(note.offTimer);
+      this.emitNoteOff(note.pitch, 0, 0, note.channel);
+    }
+    run.sounding.clear();
+    for (const [, channel] of run.channels) this.freeMpeChannel(channel);
+    run.channels.clear();
+    if (run.bassPitch !== null) {
+      this.emitNoteOff(run.bassPitch, 0, 0, run.bassChannel);
+      if (run.bassChannel) this.freeMpeChannel(run.bassChannel);
+    }
+    this.patternRuns.delete(key);
+    if (this.patternRuns.size === 0) this.stopPatternClock();
+  }
+
+  public stopAllPatternRuns() {
+    for (const key of [...this.patternRuns.keys()]) this.stopPatternRun(key);
+  }
+
+  private ensurePatternClock() {
+    if (this.patternClock !== null) return;
+    this.patternClock = setInterval(() => this.runPatternTick(), 25);
+  }
+
+  private stopPatternClock() {
+    if (this.patternClock !== null) clearInterval(this.patternClock);
+    this.patternClock = null;
+  }
+
+  /**
+   * A voice keeps the same channel for as long as the chord is held. That caps
+   * a pattern at one channel per voice however dense it is, lets a retrigger
+   * reuse its own channel, and keeps each voice's expression on one channel
+   * instead of scattering it across the pool.
+   */
+  private patternChannelForVoice(run: PatternRun, voice: number): number | undefined {
+    if (!this.params.mpeEnabled) return undefined;
+    let channel = run.channels.get(voice);
+    if (channel === undefined) {
+      channel = this.allocateMpeChannel();
+      run.channels.set(voice, channel);
+    }
+    return channel;
+  }
+
+  private runPatternTick() {
+    if (!this.params.patternEnabled) {
+      this.stopAllPatternRuns();
+      return;
+    }
+    const pattern = this.getActivePattern();
+    const events = pattern.events;
+    if (events.length === 0) return;
+
+    const cycleMs = patternDurationMs(pattern, this.params.patternBpm ?? 100);
+    const msPerTick = cycleMs / Math.max(1, patternTicks(pattern));
+    const now = Date.now();
+    const horizon = now + 60;
+
+    for (const [, run] of this.patternRuns) {
+      // Guard against a runaway: at a very fast tempo a cycle could otherwise
+      // be scheduled many times over inside one tick.
+      let guard = 0;
+      while (guard++ < 256) {
+        if (run.nextIdx >= events.length) {
+          run.nextIdx = 0;
+          run.cycleStartMs += cycleMs;
+          if (run.pending) {
+            this.applyPatternVoicing(run, run.pending);
+            run.pending = null;
+          }
+          continue;
+        }
+        const event = events[run.nextIdx];
+        const at = run.cycleStartMs + event.start * msPerTick;
+        if (at > horizon) break;
+        const isCycleStart = run.nextIdx === 0;
+        this.schedulePatternEvent(run, event, Math.max(0, at - now), event.length * msPerTick, isCycleStart);
+        run.nextIdx++;
+      }
+    }
+  }
+
+  private schedulePatternEvent(run: PatternRun, event: PatternEvent, delayMs: number, lengthMs: number, isCycleStart: boolean) {
+    const fire = () => {
+      run.timers.delete(timer);
+      if (run.pitches.length === 0) return;
+      // A pattern may name more voices than the chord has. Wrapping keeps the
+      // rhythm whole where dropping the event would punch holes in it.
+      const index = (event.voice - 1) % run.pitches.length;
+      const pitch = run.pitches[index];
+      if (pitch === undefined || pitch < 0 || pitch > 127) return;
+      // The written velocity is an accent on what was played, not a replacement
+      // for it, so the pattern shapes the dynamics without flattening them.
+      const velocity = Math.max(1, Math.min(127, Math.round((run.velocity * event.velocity) / 127)));
+      const channel = this.patternChannelForVoice(run, event.voice);
+
+      // The same voice sounding again before it was released takes its own
+      // channel back, which means releasing the old note first.
+      const previous = run.sounding.get(event.voice);
+      if (previous) {
+        if (previous.offTimer) clearTimeout(previous.offTimer);
+        this.emitNoteOff(previous.pitch, 0, 0, previous.channel);
+        run.sounding.delete(event.voice);
+      }
+
+      this.emitNoteOn(pitch, velocity, 0, channel, false, false, false, isCycleStart);
+      const offTimer = setTimeout(() => {
+        const held = run.sounding.get(event.voice);
+        if (held && held.pitch === pitch) {
+          this.emitNoteOff(pitch, 0, 0, channel);
+          run.sounding.delete(event.voice);
+        }
+      }, Math.max(20, lengthMs));
+      run.sounding.set(event.voice, { pitch, channel, offTimer });
+    };
+
+    const timer = setTimeout(fire, delayMs);
+    run.timers.add(timer);
+  }
+
   private silenceMemory(pitch: number) {
+    this.stopPatternRun(pitch);
     const notes = this.activePitchesMemory[pitch];
     if (!notes) return;
     for (const note of notes) {
@@ -582,6 +811,7 @@ export class OrchidEngine {
 
 
   public panic() {
+    this.stopAllPatternRuns();
     this.cancelAllChannelGlides();
     // The arpeggio's own channel and glide origin are part of what panic is
     // for: a stuck arpeggio should come back on a clean channel.
@@ -1278,6 +1508,13 @@ export class OrchidEngine {
         newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
       }
       
+      // A running pattern is handed the new voicing rather than having notes
+      // diffed against it: the pattern decides when they sound, not this.
+      if (this.patternRuns.has(perfKey)) {
+        this.updatePatternRun(perfKey, newPitches, null);
+        continue;
+      }
+
       const oldPitches = memoryArray.filter(n => !n.isBass).map(n => n.pitch);
 
       // Turn on new ones
@@ -1468,6 +1705,9 @@ export class OrchidEngine {
         // Flush all physically released keys
         for (const pitch of this.physicallyReleasedKeys) {
           this.heldKeys.delete(pitch);
+          // The sustain pedal held the pattern on past the key; lifting it is
+          // where that run finally ends.
+          this.stopPatternRun(pitch);
           if (this.activePitchesMemory[pitch]) {
             const notesToKill = this.activePitchesMemory[pitch];
             for (const note of notesToKill) {
@@ -1686,6 +1926,9 @@ export class OrchidEngine {
         this.carryGlideNotes(pitch);
         this.checkAndClearLatches();
       } else {
+        // The pattern is what is sounding this key's notes, so letting go of
+        // the key has to stop its clock as well as its notes.
+        this.stopPatternRun(pitch);
         if (this.activePitchesMemory[pitch]) {
           const notesToKill = this.activePitchesMemory[pitch];
           for (const note of notesToKill) {
@@ -2041,6 +2284,15 @@ export class OrchidEngine {
       playedPitches[bassPitch] = true;
     }
 
+    // A pattern places the notes itself, so the strum — which is the same stage
+    // doing a simpler job — steps aside rather than fighting it for the timing.
+    if (this.params.patternEnabled) {
+      const patternPitches = finalPitches.filter(p => p >= 0 && p <= 127 && !playedPitches[p]);
+      this.startPatternRun(pitch, patternPitches, null, velocity);
+      this.updateStrumplatePitches();
+      return;
+    }
+
     for (let j = 0; j < finalPitches.length; j++) {
       const targetPitch = finalPitches[j];
       const delayForThisNote = (this.params.strumEngine === 1) ? (j * this.params.strumSpeedMs) : 0;
@@ -2094,12 +2346,12 @@ export class OrchidEngine {
     return Math.max(1, Math.min(127, Math.round(vel)));
   }
 
-  private emitNoteOn(pitch: number, velocity: number, delayMs: number = 0, channel?: number, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false, isRaw: boolean = false) {
+  private emitNoteOn(pitch: number, velocity: number, delayMs: number = 0, channel?: number, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false, isRaw: boolean = false, isCycleStart: boolean = false) {
     // A glide still running on this channel belongs to the note being replaced;
     // letting it continue would bend the note starting here.
     this.cancelChannelGlide(channel);
     const finalVelocity = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
-    if (this.onOutputNote) this.onOutputNote({ pitch, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw });
+    if (this.onOutputNote) this.onOutputNote({ pitch, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw, isCycleStart });
     
     // Reset expression and pitch bend on note on, in case channel was reused/glided
     if (this.params.mpeEnabled) {

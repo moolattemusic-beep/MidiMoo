@@ -3,6 +3,7 @@ import { OrchidEngine } from './lib/OrchidEngine';
 import { MidiDeviceManager } from './lib/MidiDeviceManager';
 import { SimpleSynth } from './lib/SimpleSynth';
 import { VelocityModulator } from './lib/VelocityModulator';
+import { PatternEditor } from './components/PatternEditor';
 import { OrchidParams, defaultParams, NoteEvent } from './types';
 import { ModifierPads } from './components/ModifierPads';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -451,7 +452,10 @@ function App() {
             if (event.isRaw) {
               if (!event.isOn) midiManager.clearChannelBendOffset(event.mpeChannel || 1);
             } else if (event.isOn && event.velocity > 0) {
-              velMod.noteOn(event.velocity, event.mpeChannel);
+              // A pattern marks its own cycle boundaries; outside one, the
+              // modulator falls back to judging chords by their timing.
+              velMod.noteOn(event.velocity, event.mpeChannel,
+                params.patternEnabled ? event.isCycleStart === true : undefined);
             } else {
               velMod.noteOff(event.mpeChannel);
             }
@@ -783,6 +787,12 @@ function App() {
           )}
         </section>
       </main>
+
+      {/* The pattern sits below the instrument: it acts on whatever the columns
+          above produce, whichever way the chord was played. */}
+      <div className="px-6 lg:px-8 pb-3 shrink-0">
+        <PatternEditor params={params} setParams={setParams} engine={engine} />
+      </div>
 
       {/* MIDI Monitor Overlay */}
       {showMidiMonitor && (

@@ -71,6 +71,18 @@ export interface OrchidParams {
   // A voicing saved by hand in free mode follows the register slider rather
   // than staying at the exact notes it was played at.
   memoryFollowRegister: boolean;
+  // Rhythmic pattern applied to a chord's voices. The clock is the app's own —
+  // a tempo typed in rather than taken from a host.
+  patternEnabled: boolean;
+  patternIndex: number;
+  patternBpm: number;
+  patternCustom: string | null; // an edited or generated pattern, as JSON
+  // 0 = the running pattern keeps its place and the notes become the new
+  // chord's, 1 = the change waits for the start of the next cycle.
+  patternChordChange: number;
+  // 0 = the lowest voice is the bass, 1 = the bass is independent of the
+  // pattern and sounds on the downbeat.
+  patternBassMode: number;
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -147,6 +159,12 @@ export const defaultParams: OrchidParams = {
   velModCC74Release: 20,
   velModPerVoice: true,
   memoryFollowRegister: true,
+  patternEnabled: false,
+  patternIndex: 0,
+  patternBpm: 100,
+  patternCustom: null,
+  patternChordChange: 0,
+  patternBassMode: 0,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,
@@ -176,4 +194,8 @@ export interface NoteEvent {
   // Sent without any velocity modulation or vibrato — the arpeggiator's RAW
   // routing, where only the played velocity reaches the synth.
   isRaw?: boolean;
+  // The first note of a pattern cycle. The shared modulation layers restart
+  // here and nowhere else, so vibrato swells once per cycle instead of being
+  // re-zeroed by every note in the rhythm.
+  isCycleStart?: boolean;
 }
