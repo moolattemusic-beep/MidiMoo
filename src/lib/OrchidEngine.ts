@@ -43,7 +43,7 @@ export class OrchidEngine {
 
 
   // Track the actual notes currently playing for a given physical input key
-  private activePitchesMemory: Record<number, Array<{ pitch: number, delayUsed: number, isBass: boolean, timeoutId?: any, mpeChannel?: number, mpeBasePitch?: number, mpeCurrentPitch?: number, mpeTargetPitch?: number, isInternalSynthOnly?: boolean }>> = {};
+  private activePitchesMemory: Record<number, Array<{ pitch: number, delayUsed: number, isBass: boolean, timeoutId?: any, mpeChannel?: number, mpeBasePitch?: number, mpeCurrentPitch?: number, mpeTargetPitch?: number, isInternalSynthOnly?: boolean, heldByPedal?: boolean }>> = {};
   private mpeChannelsAllocated: boolean[] = new Array(16).fill(false);
 
   /**
@@ -107,6 +107,9 @@ export class OrchidEngine {
   // chord change is heard almost at once.
   private patternRuns: Map<number, PatternRun> = new Map();
   private patternClock: any = null;
+  // Where the cycle currently in progress began. Shared by every run so a chord
+  // change joins the rhythm rather than restarting it.
+  private patternPhaseStart: number | null = null;
   private patternCache: { key: string; pattern: ChordPattern } | null = null;
 
   /** The pattern in force: an edited one if there is one, else the library. */
@@ -132,18 +135,47 @@ export class OrchidEngine {
     return pattern;
   }
 
+  /** Where the cycle has got to, 0 to 1, or null when nothing is running. */
+  public getPatternPhase(): number | null {
+    if (this.patternRuns.size === 0 || this.patternPhaseStart === null) return null;
+    const cycleMs = patternDurationMs(this.getActivePattern(), this.params.patternBpm ?? 100);
+    if (cycleMs <= 0) return null;
+    const elapsed = (Date.now() - this.patternPhaseStart) % cycleMs;
+    return Math.max(0, Math.min(1, elapsed / cycleMs));
+  }
+
   private startPatternRun(key: number, pitches: number[], bassPitch: number | null, velocity: number) {
     this.stopPatternRun(key);
     if (pitches.length === 0) return;
+    // The clock starts under the finger rather than on a grid of its own, so a
+    // chord placed off the beat keeps the pattern where it was played. Changing
+    // chord while one is already running is a different matter: the new chord
+    // joins the cycle already in progress instead of restarting it, so the
+    // rhythm carries across the change unbroken.
+    const now = Date.now();
+    const continuing = this.patternRuns.size > 0 && this.patternPhaseStart !== null;
+    const pattern = this.getActivePattern();
+    const cycleMs = patternDurationMs(pattern, this.params.patternBpm ?? 100);
+    let cycleStartMs = now;
+    let nextIdx = 0;
+    if (continuing) {
+      // Wind the shared phase forward to the cycle this moment falls in, then
+      // skip whatever has already gone by so the new chord does not replay it.
+      cycleStartMs = this.patternPhaseStart!;
+      while (cycleStartMs + cycleMs <= now) cycleStartMs += cycleMs;
+      const elapsedTicks = ((now - cycleStartMs) / cycleMs) * patternTicks(pattern);
+      while (nextIdx < pattern.events.length && pattern.events[nextIdx].start < elapsedTicks) nextIdx++;
+    } else {
+      this.patternPhaseStart = now;
+    }
+
     const run: PatternRun = {
       pitches: [...pitches].sort((a, b) => a - b),
       bassPitch,
       pending: null,
       velocity,
-      // The clock starts under the finger rather than on a grid of its own, so
-      // a chord placed off the beat keeps the pattern where it was played.
-      cycleStartMs: Date.now(),
-      nextIdx: 0,
+      cycleStartMs,
+      nextIdx,
       channels: new Map(),
       sounding: new Map(),
       timers: new Set(),
@@ -200,7 +232,11 @@ export class OrchidEngine {
       if (run.bassChannel) this.freeMpeChannel(run.bassChannel);
     }
     this.patternRuns.delete(key);
-    if (this.patternRuns.size === 0) this.stopPatternClock();
+    if (this.patternRuns.size === 0) {
+      this.stopPatternClock();
+      // Nothing is playing, so the next chord starts a cycle of its own again.
+      this.patternPhaseStart = null;
+    }
   }
 
   public stopAllPatternRuns() {
@@ -255,6 +291,7 @@ export class OrchidEngine {
         if (run.nextIdx >= events.length) {
           run.nextIdx = 0;
           run.cycleStartMs += cycleMs;
+          this.patternPhaseStart = run.cycleStartMs;
           if (run.pending) {
             this.applyPatternVoicing(run, run.pending);
             run.pending = null;
@@ -278,8 +315,12 @@ export class OrchidEngine {
       // A pattern may name more voices than the chord has. Wrapping keeps the
       // rhythm whole where dropping the event would punch holes in it.
       const index = (event.voice - 1) % run.pitches.length;
-      const pitch = run.pitches[index];
-      if (pitch === undefined || pitch < 0 || pitch > 127) return;
+      const base = run.pitches[index];
+      if (base === undefined) return;
+      // An octave written into the event, so a pattern can drop its bass or
+      // throw a voice up top without the voicing having to know.
+      const pitch = base + 12 * (event.octave ?? 0);
+      if (pitch < 0 || pitch > 127) return;
       // The written velocity is an accent on what was played, not a replacement
       // for it, so the pattern shapes the dynamics without flattening them.
       const velocity = Math.max(1, Math.min(127, Math.round((run.velocity * event.velocity) / 127)));
@@ -307,6 +348,45 @@ export class OrchidEngine {
 
     const timer = setTimeout(fire, delayMs);
     run.timers.add(timer);
+  }
+
+  /**
+   * Release everything the pedal is holding. Called when the pedal lifts, and
+   * when a new chord arrives over a held pedal so the two do not sound through
+   * each other.
+   */
+  private flushSustainedNotes() {
+    for (const pitch of this.physicallyReleasedKeys) {
+      this.heldKeys.delete(pitch);
+      // The pedal held the pattern on past the key; this is where that run ends.
+      this.stopPatternRun(pitch);
+      const notesToKill = this.activePitchesMemory[pitch];
+      if (notesToKill) {
+        for (const note of notesToKill) {
+          if (note.timeoutId) clearTimeout(note.timeoutId);
+          else this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
+          if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
+        }
+        delete this.activePitchesMemory[pitch];
+      }
+    }
+    this.physicallyReleasedKeys.clear();
+
+    // Notes the pedal was keeping under a still-held key: the stack the
+    // register slider built. Lifting the pedal is what ends those, leaving the
+    // voicing that is current still sounding.
+    for (const key in this.activePitchesMemory) {
+      const notes = this.activePitchesMemory[key];
+      if (!notes) continue;
+      for (let i = notes.length - 1; i >= 0; i--) {
+        const note = notes[i];
+        if (!note.heldByPedal) continue;
+        if (note.timeoutId) clearTimeout(note.timeoutId);
+        else this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
+        if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
+        notes.splice(i, 1);
+      }
+    }
   }
 
   private silenceMemory(pitch: number) {
@@ -1007,6 +1087,9 @@ export class OrchidEngine {
   public updateRegister(newStart: number) {
     this.params.chordRegisterStart = newStart;
     this.lastUpdateReason = 'chord';
+    // Silent: the slider is being set up for what comes next rather than
+    // played, so nothing sounding is disturbed and nothing new is announced.
+    if (this.params.registerSilent) return;
     this.retriggerHeldKeys(true);
   }
 
@@ -1525,9 +1608,14 @@ export class OrchidEngine {
         }
       }
 
-      // Turn off old ones that are no longer valid
+      // Turn off old ones that are no longer valid. Under the pedal they are
+      // kept instead: sliding the register then stacks each voicing on the last
+      // rather than replacing it, which is what makes an arpeggio out of the
+      // slider. They are released when the pedal lifts, along with everything
+      // else it is holding.
+      const holdUnderPedal = this.sustainPedalActive;
       for (const p of oldPitches) {
-        if (!newPitches.includes(p)) {
+        if (!newPitches.includes(p) && !holdUnderPedal) {
           const noteObj = memoryArray.find(n => n.pitch === p && !n.isBass);
           if (noteObj) {
             this.emitNoteOff(noteObj.mpeBasePitch ?? noteObj.pitch, 0, 0, noteObj.mpeChannel);
@@ -1702,26 +1790,7 @@ export class OrchidEngine {
           this.physicallyReleasedKeys.clear();
         }
 
-        // Flush all physically released keys
-        for (const pitch of this.physicallyReleasedKeys) {
-          this.heldKeys.delete(pitch);
-          // The sustain pedal held the pattern on past the key; lifting it is
-          // where that run finally ends.
-          this.stopPatternRun(pitch);
-          if (this.activePitchesMemory[pitch]) {
-            const notesToKill = this.activePitchesMemory[pitch];
-            for (const note of notesToKill) {
-              if (note.timeoutId) {
-                clearTimeout(note.timeoutId);
-              } else {
-                this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
-              }
-              if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
-            }
-            delete this.activePitchesMemory[pitch];
-          }
-        }
-        this.physicallyReleasedKeys.clear();
+        this.flushSustainedNotes();
         this.updateStrumplatePitches();
         this.checkAndClearLatches();
       }
@@ -1741,6 +1810,13 @@ export class OrchidEngine {
       isControlKey = false;
     }
     
+    // A chord played over a held pedal releases what the pedal was holding, so
+    // the two chords do not sound through each other. A slider retrigger is not
+    // a new chord and deliberately does not do this.
+    if (isOn && velocity > 0 && !isUpdate && !isControlKey && this.sustainPedalActive) {
+      this.flushSustainedNotes();
+    }
+
     if (isOn && velocity > 0 && !isUpdate && !isControlKey) {
        this.lastPerformanceKey = pitch;
        if (this.params.inversionRepeat > 0) {
@@ -2231,9 +2307,17 @@ export class OrchidEngine {
               newMemory.push(oldNote);
             }
           } else if (oldNote && newPitch === undefined) {
-            if (oldNote.timeoutId) clearTimeout(oldNote.timeoutId);
-            else this.emitNoteOff(oldNote.mpeBasePitch ?? oldNote.pitch, 0, 0, oldNote.mpeChannel, oldNote.isInternalSynthOnly);
-            if (oldNote.mpeChannel) this.freeMpeChannel(oldNote.mpeChannel);
+            // Under the pedal a voicing the slider has moved past is kept
+            // rather than dropped, so sliding stacks each one on the last into
+            // an arpeggio. It stays in memory and goes when the pedal lifts.
+            if (this.sustainPedalActive) {
+              oldNote.heldByPedal = true;
+              newMemory.push(oldNote);
+            } else {
+              if (oldNote.timeoutId) clearTimeout(oldNote.timeoutId);
+              else this.emitNoteOff(oldNote.mpeBasePitch ?? oldNote.pitch, 0, 0, oldNote.mpeChannel, oldNote.isInternalSynthOnly);
+              if (oldNote.mpeChannel) this.freeMpeChannel(oldNote.mpeChannel);
+            }
           } else if (!oldNote && newPitch !== undefined) {
             const channel = this.allocateMpeChannel();
             this.emitNoteOn(newPitch, velocity, 0, channel, suppressImmediatePlay);
@@ -2242,17 +2326,28 @@ export class OrchidEngine {
         }
       } else {
         for (const oldNote of oldChordNotes) {
-          if (!finalPitches.includes(oldNote.pitch)) {
+          const stillInChord = finalPitches.includes(oldNote.pitch);
+          if (stillInChord) {
+            oldNote.heldByPedal = false;
+            newMemory.push(oldNote);
+          } else if (this.sustainPedalActive) {
+            // The slider has moved past this note but the pedal is down, so it
+            // is kept and each voicing stacks on the last. Marked, because the
+            // pedal lifting is what ends it — the key is still held.
+            oldNote.heldByPedal = true;
+            newMemory.push(oldNote);
+          } else {
             if (oldNote.timeoutId) clearTimeout(oldNote.timeoutId);
             else this.emitNoteOff(oldNote.mpeBasePitch ?? oldNote.pitch, 0, 0, oldNote.mpeChannel, oldNote.isInternalSynthOnly);
             if (oldNote.mpeChannel) this.freeMpeChannel(oldNote.mpeChannel);
-          } else {
-            newMemory.push(oldNote);
           }
         }
 
         for (const newPitch of finalPitches) {
-          if (!oldChordPitches.includes(newPitch)) {
+          // A pitch the pedal is already holding is left alone rather than
+          // struck again, or sliding back over it would double the note.
+          const alreadySounding = newMemory.some(n => !n.isBass && n.pitch === newPitch);
+          if (!oldChordPitches.includes(newPitch) && !alreadySounding) {
             this.emitNoteOn(newPitch, velocity, 0, undefined, suppressImmediatePlay);
             newMemory.push({ pitch: newPitch, delayUsed: 0, isBass: false, isInternalSynthOnly: suppressImmediatePlay });
           }

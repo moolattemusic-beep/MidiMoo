@@ -23,6 +23,9 @@ export interface PatternEvent {
   start: number; // ticks from the start of the pattern
   length: number; // ticks
   velocity: number; // 1-127, scaling the played velocity
+  // Octaves away from where the voicing put this voice. Lets a pattern drop a
+  // bass an octave or throw a voice up top without the voicing knowing.
+  octave?: number;
 }
 
 export interface ChordPattern {
@@ -290,7 +293,13 @@ export function randomPattern(seed?: number): ChordPattern {
     while (chosen.size < count) chosen.add(1 + Math.floor(rnd() * 5));
 
     const length = pick([grid * 0.8, grid * 0.8, grid * 1.6, grid * 3]);
-    for (const v of chosen) events.push(ev(v, start, Math.min(length, lengthBeats - start), velocity));
+    for (const v of chosen) {
+      const event = ev(v, start, Math.min(length, lengthBeats - start), velocity);
+      // Occasionally, and only at the edges of the voicing, where an octave
+      // reads as reach rather than as a wrong note.
+      if (rnd() < 0.12) event.octave = v === 1 ? -1 : v >= 4 ? 1 : 0;
+      events.push(event);
+    }
   }
 
   if (events.length === 0) events.push(...stack([1, 2, 3], 0, 1, 100));

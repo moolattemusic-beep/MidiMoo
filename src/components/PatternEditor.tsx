@@ -27,6 +27,19 @@ type Drag =
 export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) => {
   const gridRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<Drag>(null);
+  // Read from the engine each frame rather than run a clock of its own: the
+  // playhead should show where the notes actually are, not where a second
+  // timer thinks they should be.
+  const [phase, setPhase] = useState<number | null>(null);
+  React.useEffect(() => {
+    let raf = 0;
+    const follow = () => {
+      setPhase(engine ? engine.getPatternPhase() : null);
+      raf = requestAnimationFrame(follow);
+    };
+    raf = requestAnimationFrame(follow);
+    return () => cancelAnimationFrame(raf);
+  }, [engine]);
 
   const pattern: ChordPattern = React.useMemo(() => {
     if (params.patternCustom) {
@@ -74,6 +87,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
   const onPointerDown = (e: React.PointerEvent, index: number, kind: 'move' | 'length') => {
     e.stopPropagation();
     e.preventDefault();
+    // Held modifiers move the note an octave instead of starting a drag, which
+    // keeps the vertical axis meaning "which voice" rather than "which pitch".
+    if (kind === 'move' && (e.shiftKey || e.altKey)) {
+      nudgeOctave(index, e.shiftKey ? 1 : -1);
+      return;
+    }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const event = pattern.events[index];
     setDrag(
@@ -112,6 +131,15 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
 
   const removeEvent = (index: number) => {
     writePattern({ ...pattern, events: pattern.events.filter((_, i) => i !== index) });
+  };
+
+  /** Step an event through octave down, home and up. */
+  const nudgeOctave = (index: number, delta: number) => {
+    const events = [...pattern.events];
+    const event = { ...events[index] };
+    event.octave = Math.max(-1, Math.min(1, (event.octave ?? 0) + delta));
+    events[index] = event;
+    writePattern({ ...pattern, events });
   };
 
   const beats = Math.max(1, Math.round(pattern.lengthBeats));
@@ -226,6 +254,13 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
           />
         ))}
 
+        {phase !== null && (
+          <div
+            className="absolute top-0 bottom-0 w-[2px] bg-white/80 pointer-events-none"
+            style={{ left: `${phase * 100}%`, boxShadow: '0 0 6px rgba(255,255,255,0.5)' }}
+          />
+        )}
+
         {pattern.events.map((event: PatternEvent, index: number) => {
           const left = (event.start / totalTicks) * 100;
           const width = Math.max(1.2, (event.length / totalTicks) * 100);
@@ -251,6 +286,11 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
                 background: `rgba(240, 160, 32, ${0.35 + (event.velocity / 127) * 0.65})`,
               }}
             >
+              {event.octave ? (
+                <span className="absolute left-[3px] top-0 bottom-0 flex items-center text-black/80 font-['Space_Mono'] text-[8px] leading-none pointer-events-none">
+                  {event.octave > 0 ? '+8' : '-8'}
+                </span>
+              ) : null}
               <div
                 onPointerDown={(e) => onPointerDown(e, index, 'length')}
                 className="absolute top-0 right-0 bottom-0 w-[6px] cursor-ew-resize"
@@ -264,6 +304,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         VOICE 1 IS THE LOWEST NOTE OF WHATEVER CHORD IS PLAYING. A PATTERN NAMING MORE
         VOICES THAN THE CHORD HAS WRAPS ROUND. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
+        SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN.
       </p>
     </div>
   );

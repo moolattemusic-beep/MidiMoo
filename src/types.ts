@@ -83,6 +83,9 @@ export interface OrchidParams {
   // 0 = the lowest voice is the bass, 1 = the bass is independent of the
   // pattern and sounds on the downbeat.
   patternBassMode: number;
+  // The register slider moves the next chord rather than the one sounding, so
+  // it can be set up in advance without announcing itself.
+  registerSilent: boolean;
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -165,6 +168,7 @@ export const defaultParams: OrchidParams = {
   patternCustom: null,
   patternChordChange: 0,
   patternBassMode: 0,
+  registerSilent: false,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,

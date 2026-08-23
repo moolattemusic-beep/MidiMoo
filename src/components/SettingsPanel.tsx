@@ -205,7 +205,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           </div>
         </div>
       </CollapsibleSection>
-      <CollapsibleSection title="Register Control">
+      <CollapsibleSection title="Register Control" extraHeader={<div
+            className={`toggle-switch sm ${params.registerSilent ? 'on' : ''}`}
+            title="Silent: the slider sets up the next chord instead of playing"
+            onClick={() => updateParam('registerSilent', !params.registerSilent)}
+          ></div>}>
+        <div className="flex justify-between items-center mb-3">
+          <span className="label-meta">SILENT</span>
+          <span className="label-meta !text-[var(--accent)]">{params.registerSilent ? 'ON' : 'OFF'}</span>
+        </div>
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-4 leading-relaxed">
+          SILENT: MOVING CHORD START MAKES NO SOUND — IT SETS THE REGISTER THE NEXT
+          CHORD WILL BE VOICED IN. OFF: IT RE-VOICES WHAT IS SOUNDING AS IT MOVES,
+          AND UNDER THE SUSTAIN PEDAL EACH VOICING IS KEPT, SO THE SLIDER STACKS
+          THEM INTO AN ARPEGGIO.
+        </p>
         <div className="mb-6 h-[50px]">
           <div className="fade-in">
             <div className="flex justify-between items-center mb-2">
