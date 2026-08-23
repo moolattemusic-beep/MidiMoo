@@ -119,6 +119,7 @@ export class OrchidEngine {
   // change joins the rhythm rather than restarting it.
   private patternPhaseStart: number | null = null;
   private pedalLiftTimer: any = null;
+  private patternGraceTimer: any = null;
   private patternCache: { key: string; pattern: ChordPattern } | null = null;
 
   /** The pattern in force: an edited one if there is one, else the library. */
@@ -149,8 +150,13 @@ export class OrchidEngine {
     if (this.patternRuns.size === 0 || this.patternPhaseStart === null) return null;
     const cycleMs = patternDurationMs(this.getActivePattern(), this.params.patternBpm ?? 100);
     if (cycleMs <= 0) return null;
-    const elapsed = (Date.now() - this.patternPhaseStart) % cycleMs;
-    return Math.max(0, Math.min(1, elapsed / cycleMs));
+    // The anchor is where the cycle first began and does not move, so the
+    // modulo alone says where in the cycle we are. Advancing it as each cycle
+    // was scheduled put it a cycle into the future — scheduling always runs
+    // ahead of the sound — and the phase then read as zero.
+    const cycleMs2 = cycleMs;
+    const elapsed = (((Date.now() - this.patternPhaseStart) % cycleMs2) + cycleMs2) % cycleMs2;
+    return Math.max(0, Math.min(1, elapsed / cycleMs2));
   }
 
   private startPatternRun(key: number, pitches: number[], bassPitch: number | null, velocity: number) {
@@ -181,7 +187,12 @@ export class OrchidEngine {
     // joins the cycle already in progress instead of restarting it, so the
     // rhythm carries across the change unbroken.
     const now = Date.now();
-    const continuing = this.patternRuns.size > 0 && this.patternPhaseStart !== null;
+    // Either something else is still playing, or the grace window is still open.
+    const continuing = this.patternPhaseStart !== null;
+    if (this.patternGraceTimer) {
+      clearTimeout(this.patternGraceTimer);
+      this.patternGraceTimer = null;
+    }
     const pattern = this.getActivePattern();
     const cycleMs = patternDurationMs(pattern, this.params.patternBpm ?? 100);
     let cycleStartMs = now;
@@ -276,8 +287,19 @@ export class OrchidEngine {
     this.patternRuns.delete(key);
     if (this.patternRuns.size === 0) {
       this.stopPatternClock();
-      // Nothing is playing, so the next chord starts a cycle of its own again.
-      this.patternPhaseStart = null;
+      // The cycle outlives the chord for a moment. A chord let go and replaced
+      // inside the grace window rejoins the cycle where it had got to, so
+      // chords need not be overlapped to keep the pattern running; leave it
+      // longer than that and the next chord starts a cycle of its own.
+      if (this.params.patternGraceEnabled !== false) {
+        if (this.patternGraceTimer) clearTimeout(this.patternGraceTimer);
+        this.patternGraceTimer = setTimeout(() => {
+          this.patternGraceTimer = null;
+          if (this.patternRuns.size === 0) this.patternPhaseStart = null;
+        }, Math.max(0, this.params.patternGraceMs ?? 350));
+      } else {
+        this.patternPhaseStart = null;
+      }
     }
   }
 
@@ -356,7 +378,6 @@ export class OrchidEngine {
         if (run.nextIdx >= events.length) {
           run.nextIdx = 0;
           run.cycleStartMs += cycleMs;
-          this.patternPhaseStart = run.cycleStartMs;
           if (run.pending) {
             this.applyPatternVoicing(run, run.pending);
             run.pending = null;
@@ -396,16 +417,36 @@ export class OrchidEngine {
       if (run.pitches.length === 0) return;
       // A pattern may name more voices than the chord has. Wrapping keeps the
       // rhythm whole where dropping the event would punch holes in it.
-      const index = (event.voice - 1) % run.pitches.length;
+      // Inversion rotates which chord tone this voice plays and is read here
+      // rather than stored, so moving the slider is heard on the next note.
+      // Rotating past the top wraps round an octave up, which is what makes it
+      // an inversion rather than a jump back to the bottom.
+      const len = run.pitches.length;
+      // A pattern naming more voices than the chord has wraps round in place,
+      // as it always has — that wrap is about a chord being smaller than the
+      // pattern, not about pitch, and must not lift the note an octave.
+      const baseIndex = (event.voice - 1) % len;
+      // The inversion is the part that moves pitch: rotating past the top takes
+      // the note up an octave, which is what makes it an inversion rather than
+      // a jump back to the bottom.
+      const rotated = baseIndex + Math.round(this.params.patternInversion ?? 0);
+      const index = ((rotated % len) + len) % len;
+      const wrapOctaves = Math.floor(rotated / len);
       const base = run.pitches[index];
       if (base === undefined) return;
       // An octave written into the event, so a pattern can drop its bass or
       // throw a voice up top without the voicing having to know.
-      const pitch = base + 12 * (event.octave ?? 0) + (event.semitones ?? 0);
+      const pitch = base + 12 * ((event.octave ?? 0) + wrapOctaves) + (event.semitones ?? 0);
       if (pitch < 0 || pitch > 127) return;
       // The written velocity is an accent on what was played, not a replacement
-      // for it, so the pattern shapes the dynamics without flattening them.
-      const velocity = Math.max(1, Math.min(127, Math.round((run.velocity * event.velocity) / 127)));
+      // for it, so the pattern shapes the dynamics without flattening them. On a
+      // fixed level the keys stop having a say and the accents ride on the
+      // level set instead, which is what makes the pattern play the same however
+      // the controller is weighted.
+      const source = this.params.patternFixedVelocity
+        ? Math.max(1, Math.min(127, this.params.patternVelocity ?? 100))
+        : run.velocity;
+      const velocity = Math.max(1, Math.min(127, Math.round((source * event.velocity) / 127)));
       const channel = this.patternChannelForVoice(run, event.voice);
 
       if (event.hold) {
@@ -991,6 +1032,8 @@ export class OrchidEngine {
 
   public panic() {
     if (this.pedalLiftTimer) { clearTimeout(this.pedalLiftTimer); this.pedalLiftTimer = null; }
+    if (this.patternGraceTimer) { clearTimeout(this.patternGraceTimer); this.patternGraceTimer = null; }
+    this.patternPhaseStart = null;
     this.stopAllPatternRuns();
     this.cancelAllChannelGlides();
     // The arpeggio's own channel and glide origin are part of what panic is

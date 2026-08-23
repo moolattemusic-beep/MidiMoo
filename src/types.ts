@@ -95,6 +95,21 @@ export interface OrchidParams {
   // On a chord change the pedal is lifted for a moment even if it is being
   // held, so the chord before does not sustain into the one after.
   patternPedalLift: boolean;
+  // The pattern plays at its own level rather than at whatever the keys were
+  // struck at, so a weighted or unweighted controller makes no difference.
+  patternFixedVelocity: boolean;
+  patternVelocity: number; // 1-127, the level a full-accent note plays at
+  // A chord let go and replaced within the grace window rejoins the cycle
+  // rather than starting a new one, so chords need not be overlapped to keep
+  // the pattern running.
+  patternGraceEnabled: boolean;
+  patternGraceMs: number;
+  // Rotates which chord tone each voice of the pattern plays, wrapping up an
+  // octave as it passes the top: the pattern's own inversion, live.
+  patternInversion: number;
+  // How the generator is steered.
+  patternRandomDensity: number; // 0-100, how much of the grid is filled
+  patternRandomOverlap: number; // 0-100, how often voices sound together
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -181,6 +196,13 @@ export const defaultParams: OrchidParams = {
   patternRelease: 100,
   patternGrid: 24,
   patternPedalLift: true,
+  patternFixedVelocity: false,
+  patternVelocity: 100,
+  patternGraceEnabled: true,
+  patternGraceMs: 350,
+  patternInversion: 0,
+  patternRandomDensity: 45,
+  patternRandomOverlap: 30,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,

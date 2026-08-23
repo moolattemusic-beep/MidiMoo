@@ -242,9 +242,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
           </div>
 
           <button
-            onClick={() => writePattern(randomPattern())}
+            onClick={() => writePattern(randomPattern({
+              density: params.patternRandomDensity ?? 45,
+              overlap: params.patternRandomOverlap ?? 30,
+            }))}
             className="analog-btn !text-[9px] !px-2 !py-[3px]"
-            title="Build a new pattern"
+            title="Build a new pattern with the density and overlap set below"
           >
             RANDOM
           </button>
@@ -257,6 +260,74 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               REVERT
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2" title="Play at a set level instead of at whatever the keys were struck at">
+            <span className="label-meta whitespace-nowrap">FIXED VEL</span>
+            <div
+              className={`toggle-switch sm ${params.patternFixedVelocity ? 'on' : ''}`}
+              onClick={() => update({ patternFixedVelocity: !params.patternFixedVelocity })}
+            ></div>
+            <input
+              type="range" min={1} max={127}
+              value={params.patternVelocity ?? 100}
+              onChange={(e) => update({ patternVelocity: parseInt(e.target.value, 10) })}
+              className={`range-sm w-20 accent-[var(--accent)] ${params.patternFixedVelocity ? '' : 'opacity-30'}`}
+            />
+            <span className="label-meta !text-[var(--accent)] w-6">{params.patternVelocity ?? 100}</span>
+          </div>
+
+          <div className="flex items-center gap-2" title="Rotate which chord tone each voice plays, live">
+            <span className="label-meta whitespace-nowrap">INVERSION</span>
+            <input
+              type="range" min={-4} max={4} step={1}
+              value={params.patternInversion ?? 0}
+              onChange={(e) => update({ patternInversion: parseInt(e.target.value, 10) })}
+              className="range-sm w-20 accent-[var(--accent)]"
+            />
+            <span className="label-meta !text-[var(--accent)] w-5">{params.patternInversion ?? 0}</span>
+          </div>
+
+          <div className="flex items-center gap-2" title="Keep the cycle running between chords, so they need not be overlapped">
+            <span className="label-meta whitespace-nowrap">GRACE</span>
+            <div
+              className={`toggle-switch sm ${params.patternGraceEnabled !== false ? 'on' : ''}`}
+              onClick={() => update({ patternGraceEnabled: !(params.patternGraceEnabled !== false) })}
+            ></div>
+            <input
+              type="range" min={0} max={1500} step={25}
+              value={params.patternGraceMs ?? 350}
+              onChange={(e) => update({ patternGraceMs: parseInt(e.target.value, 10) })}
+              className={`range-sm w-20 accent-[var(--accent)] ${params.patternGraceEnabled !== false ? '' : 'opacity-30'}`}
+            />
+            <span className="label-meta !text-[var(--accent)] w-10">{params.patternGraceMs ?? 350}MS</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2" title="How much of the grid a generated pattern fills">
+            <span className="label-meta whitespace-nowrap">DENSITY</span>
+            <input
+              type="range" min={0} max={100}
+              value={params.patternRandomDensity ?? 45}
+              onChange={(e) => update({ patternRandomDensity: parseInt(e.target.value, 10) })}
+              className="range-sm w-16 accent-[var(--accent)]"
+            />
+            <span className="label-meta !text-[var(--accent)] w-6">{params.patternRandomDensity ?? 45}</span>
+          </div>
+          <div className="flex items-center gap-2" title="How often a generated pattern sounds voices together rather than alone">
+            <span className="label-meta whitespace-nowrap">OVERLAP</span>
+            <input
+              type="range" min={0} max={100}
+              value={params.patternRandomOverlap ?? 30}
+              onChange={(e) => update({ patternRandomOverlap: parseInt(e.target.value, 10) })}
+              className="range-sm w-16 accent-[var(--accent)]"
+            />
+            <span className="label-meta !text-[var(--accent)] w-6">{params.patternRandomOverlap ?? 30}</span>
+          </div>
         </div>
       </div>
 
@@ -376,7 +447,11 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
         SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN; CMD-DRAG UP AND
         DOWN TRANSPOSES IT BY SEMITONES. RELEASE SETS HOW LONG EVERY NOTE RINGS AND
-        IS DELIBERATELY NOT DRAWN, SO THE EDITOR STAYS READABLE. DOUBLE-CLICK A NOTE TO HOLD IT: A HELD NOTE
+        IS DELIBERATELY NOT DRAWN, SO THE EDITOR STAYS READABLE.
+        FIXED VEL PLAYS AT A SET LEVEL WHATEVER THE KEYS WERE STRUCK AT, WITH THE
+        PATTERN'S OWN ACCENTS RIDING ON IT. INVERSION ROTATES WHICH CHORD TONE EACH
+        VOICE PLAYS AND WRAPS UP AN OCTAVE PAST THE TOP. GRACE KEEPS THE CYCLE
+        RUNNING BETWEEN CHORDS SO THEY NEED NOT BE OVERLAPPED. DOUBLE-CLICK A NOTE TO HOLD IT: A HELD NOTE
         RINGS ON INSTEAD OF BEING STRUCK AGAIN EACH CYCLE, SO THE REST OF THE PATTERN
         MOVES OVER A CHORD THAT STAYS DOWN.
         CHANGE: NEXT NOTE SWAPS THE CHORD ON THE VERY NEXT NOTE THE PATTERN PLAYS —

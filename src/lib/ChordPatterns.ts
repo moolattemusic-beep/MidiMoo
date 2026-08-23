@@ -516,8 +516,19 @@ export const CHORD_PATTERNS: ChordPattern[] = [
  * has: a grid to land on, a bass that mostly keeps the downbeat, a leaning
  * towards fewer voices off the beat, and accents on the beat.
  */
-export function randomPattern(seed?: number): ChordPattern {
-  let s = seed ?? Math.floor(Math.random() * 1e9);
+export interface RandomOptions {
+  seed?: number;
+  /** 0-100: how much of the grid is filled. */
+  density?: number;
+  /** 0-100: how often voices sound together rather than alone. */
+  overlap?: number;
+}
+
+export function randomPattern(opts: RandomOptions | number = {}): ChordPattern {
+  const o: RandomOptions = typeof opts === 'number' ? { seed: opts } : opts;
+  let s = o.seed ?? Math.floor(Math.random() * 1e9);
+  const density = Math.max(0, Math.min(100, o.density ?? 45)) / 100;
+  const overlap = Math.max(0, Math.min(100, o.overlap ?? 30)) / 100;
   const rnd = () => {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
@@ -531,18 +542,21 @@ export function randomPattern(seed?: number): ChordPattern {
 
   for (let i = 0; i < steps; i++) {
     const onBeat = (i * grid) % 1 === 0;
-    // Downbeats earn their hit; the spaces between are thinned out, which is
-    // what keeps a random rhythm from turning into a wall.
-    const chance = i === 0 ? 1 : onBeat ? 0.55 : 0.3;
+    // Density sets the general fill; the beat still earns more than the spaces
+    // between, which is what keeps a random rhythm from turning into a wall.
+    const chance = i === 0 ? 1 : Math.min(1, density * (onBeat ? 1.5 : 0.85));
     if (rnd() > chance) continue;
 
     const start = i * grid;
     const velocity = Math.round((onBeat ? 88 : 72) + rnd() * 30);
-    // Fewer voices off the beat, so the strong positions stay the full ones.
-    const count = onBeat ? 1 + Math.floor(rnd() * 4) : 1 + Math.floor(rnd() * 2);
+    // Overlap decides how readily voices stack. At zero the pattern is a single
+    // line; at full it leans on block chords.
+    const maxVoices = 1 + Math.round(overlap * 4);
+    const count = rnd() < overlap ? 1 + Math.floor(rnd() * maxVoices) : 1;
     const chosen = new Set<number>();
     if (i === 0) chosen.add(1);
-    while (chosen.size < count) chosen.add(1 + Math.floor(rnd() * 5));
+    let guard = 0;
+    while (chosen.size < Math.min(5, count) && guard++ < 24) chosen.add(1 + Math.floor(rnd() * 5));
 
     const length = pick([grid * 0.8, grid * 0.8, grid * 1.6, grid * 3]);
     for (const v of chosen) {
