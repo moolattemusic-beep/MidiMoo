@@ -146,6 +146,13 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     writePattern({ ...pattern, events: pattern.events.filter((_, i) => i !== index) });
   };
 
+  /** A held note rings on instead of being re-struck each cycle. */
+  const toggleHold = (index: number) => {
+    const events = [...pattern.events];
+    events[index] = { ...events[index], hold: !events[index].hold };
+    writePattern({ ...pattern, events });
+  };
+
   /** Step an event through octave down, home and up. */
   const nudgeOctave = (index: number, delta: number) => {
     const events = [...pattern.events];
@@ -283,20 +290,30 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             <div
               key={index}
               onPointerDown={(e) => onPointerDown(e, index, 'move')}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                toggleHold(index);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 removeEvent(index);
               }}
-              title="Drag to move, drag the right edge to lengthen, right-click to remove"
+              title="Drag to move, drag the right edge to lengthen, double-click to hold, right-click to remove"
               className="absolute rounded-[2px] border border-black/40 cursor-grab active:cursor-grabbing"
               style={{
                 left: `${left}%`,
-                width: `${width}%`,
+                // A held note runs to the end of the cycle, because that is
+                // what it does: it is still sounding when the cycle comes round.
+                width: event.hold ? `${Math.max(1.2, 100 - left)}%` : `${width}%`,
                 top: `calc(${top}% + 3px)`,
                 height: `calc(${100 / VOICES}% - 6px)`,
                 // Louder events read as more solid, so the accents in a pattern
-                // are visible at a glance rather than only audible.
-                background: `rgba(240, 160, 32, ${0.35 + (event.velocity / 127) * 0.65})`,
+                // are visible at a glance rather than only audible. A held note
+                // is drawn open, since it is sustaining rather than striking.
+                background: event.hold
+                  ? 'repeating-linear-gradient(90deg, rgba(240,160,32,0.5) 0 6px, rgba(240,160,32,0.22) 6px 12px)'
+                  : `rgba(240, 160, 32, ${0.35 + (event.velocity / 127) * 0.65})`,
+                borderStyle: event.hold ? 'dashed' : 'solid',
               }}
             >
               {(event.octave || event.semitones) ? (
@@ -321,7 +338,9 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         VOICES THAN THE CHORD HAS WRAPS ROUND. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
         SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN; CMD-DRAG UP AND
-        DOWN TRANSPOSES IT BY SEMITONES.
+        DOWN TRANSPOSES IT BY SEMITONES. DOUBLE-CLICK A NOTE TO HOLD IT: A HELD NOTE
+        RINGS ON INSTEAD OF BEING STRUCK AGAIN EACH CYCLE, SO THE REST OF THE PATTERN
+        MOVES OVER A CHORD THAT STAYS DOWN.
         CHANGE: NEXT NOTE SWAPS THE CHORD ON THE VERY NEXT NOTE THE PATTERN PLAYS —
         NEXT BAR HOLDS IT BACK UNTIL THE CYCLE STARTS AGAIN, SO THE CHANGE ALWAYS
         LANDS ON THE DOWNBEAT.

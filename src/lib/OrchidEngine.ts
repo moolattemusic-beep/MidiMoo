@@ -28,6 +28,10 @@ interface PatternRun {
   nextIdx: number;
   channels: Map<number, number>;
   sounding: Map<number, { pitch: number; channel?: number; offTimer: any }>;
+  // Notes that ring on rather than being re-struck: keyed by the event that
+  // started them, so a pattern can hold several at once.
+  holds: Map<string, { pitch: number; channel?: number }>;
+  holdsStale: boolean;
   timers: Set<any>;
 }
 
@@ -201,6 +205,8 @@ export class OrchidEngine {
       nextIdx,
       channels: new Map(),
       sounding: new Map(),
+      holds: new Map(),
+      holdsStale: false,
       timers: new Set(),
     };
     this.patternRuns.set(key, run);
@@ -239,6 +245,10 @@ export class OrchidEngine {
       run.nextBass = next.bassPitch;
       run.bassOwed = true;
     }
+    // Held notes are not cut off here. They keep ringing under the change and
+    // are exchanged for the new chord's where the pattern next reaches them,
+    // which is what carries a sustained part across a chord change.
+    run.holdsStale = true;
   }
 
   private stopPatternRun(key: number) {
@@ -254,6 +264,8 @@ export class OrchidEngine {
       this.emitNoteOff(note.pitch, 0, 0, note.channel);
     }
     run.sounding.clear();
+    for (const [, held] of run.holds) this.emitNoteOff(held.pitch, 0, 0, held.channel);
+    run.holds.clear();
     for (const [, channel] of run.channels) this.freeMpeChannel(channel);
     run.channels.clear();
     if (run.bassPitch !== null) {
@@ -368,6 +380,23 @@ export class OrchidEngine {
       // for it, so the pattern shapes the dynamics without flattening them.
       const velocity = Math.max(1, Math.min(127, Math.round((run.velocity * event.velocity) / 127)));
       const channel = this.patternChannelForVoice(run, event.voice);
+
+      if (event.hold) {
+        const holdKey = `${event.voice}:${event.start}`;
+        const current = run.holds.get(holdKey);
+        // Already ringing at the right pitch: leave it alone. Re-striking is
+        // precisely what a held note must not do.
+        if (current && current.pitch === pitch && !run.holdsStale) return;
+        if (current) this.emitNoteOff(current.pitch, 0, 0, current.channel);
+        this.emitNoteOn(pitch, velocity, 0, channel, false, false, false, isCycleStart);
+        run.holds.set(holdKey, { pitch, channel });
+        // Once every hold has caught up with the new voicing they are current
+        // again, and the next cycle leaves them be.
+        if (run.holdsStale && [...run.holds.values()].every(h => run.pitches.includes(h.pitch - 12 * (event.octave ?? 0) - (event.semitones ?? 0)))) {
+          run.holdsStale = false;
+        }
+        return;
+      }
 
       // The same voice sounding again before it was released takes its own
       // channel back, which means releasing the old note first.

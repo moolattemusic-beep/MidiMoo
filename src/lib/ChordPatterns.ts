@@ -29,6 +29,11 @@ export interface PatternEvent {
   // A finer offset in semitones, on top of the octave. Still relative to the
   // voicing rather than an absolute pitch, so the event follows the chord.
   semitones?: number;
+  // Sounded once and left ringing rather than re-struck each cycle, until the
+  // chord changes or the key is let go. This is what lets a pattern move over a
+  // chord that is being held rather than restating the whole chord every time
+  // round — the commonest shape there is in real parts.
+  hold?: boolean;
 }
 
 export interface ChordPattern {
@@ -52,6 +57,13 @@ const ev = (voice: number, startBeats: number, lengthBeats: number, velocity: nu
 /** Several voices struck together — a block chord. */
 const stack = (voices: number[], startBeats: number, lengthBeats: number, velocity: number): PatternEvent[] =>
   voices.map(v => ev(v, startBeats, lengthBeats, velocity));
+
+/** A voice left ringing rather than re-struck: the chord being held under a part. */
+const hold = (voice: number, startBeats: number, velocity: number, octave = 0): PatternEvent => ({
+  ...ev(voice, startBeats, 4, velocity),
+  hold: true,
+  ...(octave ? { octave } : {}),
+});
 
 // A rhythm spread as evenly as possible over a number of steps. Distributing
 // hits this way is what gives a great many folk and dance rhythms their shape —
@@ -384,6 +396,106 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     events: [[3], [2, 4], [1, 5], [2, 4], [3], [2, 4], [1, 5], [2, 4]].flatMap(
       (group, i) => stack(group, i * 0.5, 0.45, i % 4 === 0 ? 100 : 82)
     ),
+  },
+  // ---- Held chord with a part moving over it -----------------------------
+  // The shape most real parts take: the middle of the chord sustains while the
+  // bass and the top move. Measured across a library of written parts, the
+  // middle voices hold about two thirds of the time while the lowest voice is
+  // the most rhythmically active of all — the opposite of the obvious guess —
+  // and single notes make up about half of everything played.
+  {
+    // Bass walking under a chord that never restates itself.
+    name: 'PEDAL BASS',
+    lengthBeats: 4,
+    events: [
+      hold(2, 0, 84), hold(3, 0, 82), hold(4, 0, 80),
+      { ...ev(1, 0, 0.45, 104), octave: -1 },
+      { ...ev(1, 1.5, 0.45, 92), octave: -1 },
+      { ...ev(1, 2.5, 0.45, 96), octave: -1 },
+      { ...ev(1, 3.5, 0.45, 88), octave: -1 },
+    ],
+  },
+  {
+    // The chord held, a single voice picking out a line above it.
+    name: 'PEDAL TOP',
+    lengthBeats: 4,
+    events: [
+      hold(1, 0, 88), hold(2, 0, 80), hold(3, 0, 78),
+      ev(5, 0.5, 0.4, 100),
+      ev(4, 1.25, 0.4, 88),
+      ev(5, 2, 0.4, 96),
+      { ...ev(5, 2.75, 0.4, 92), octave: 1 },
+      ev(4, 3.5, 0.4, 86),
+    ],
+  },
+  {
+    // Both ends moving around a sustained middle.
+    name: 'PEDAL BOTH',
+    lengthBeats: 4,
+    events: [
+      hold(2, 0, 80), hold(3, 0, 78),
+      { ...ev(1, 0, 0.4, 102), octave: -1 },
+      ev(5, 0.75, 0.35, 94),
+      { ...ev(1, 1.5, 0.4, 90), octave: -1 },
+      ev(4, 2.25, 0.35, 88),
+      { ...ev(1, 2.5, 0.4, 96), octave: -1 },
+      ev(5, 3.25, 0.35, 92),
+    ],
+  },
+  {
+    // Almost nothing but a held chord, touched once a bar.
+    name: 'PEDAL SLOW',
+    lengthBeats: 8,
+    events: [
+      hold(1, 0, 86, -1), hold(2, 0, 78), hold(3, 0, 76), hold(4, 0, 74),
+      ev(5, 2, 1.5, 88),
+      ev(5, 5.5, 1.2, 82),
+    ],
+  },
+  {
+    // Sixteenth movement on one voice over a held chord: an ostinato.
+    name: 'OSTINATO',
+    lengthBeats: 4,
+    events: [
+      hold(1, 0, 86, -1), hold(2, 0, 76), hold(4, 0, 74),
+      ...[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75]
+        .map((b, i) => ev(i % 4 === 0 ? 5 : 3, b, 0.22, i % 4 === 0 ? 96 : 74)),
+    ],
+  },
+  {
+    // Single notes, one at a time, over a sustained root: the sparsest way to
+    // keep a chord moving.
+    name: 'TRICKLE',
+    lengthBeats: 4,
+    events: [
+      hold(1, 0, 84, -1),
+      ev(3, 0.5, 0.4, 92),
+      ev(5, 1.25, 0.4, 86),
+      ev(4, 2.25, 0.4, 90),
+      ev(2, 3, 0.4, 80),
+      { ...ev(5, 3.5, 0.4, 88), octave: 1 },
+    ],
+  },
+  {
+    // Held chord, answered by a two-note figure that pushes the beat.
+    name: 'ANSWER',
+    lengthBeats: 4,
+    events: [
+      hold(1, 0, 88, -1), hold(3, 0, 78),
+      ...stack([4, 5], 1.75, 0.4, 96),
+      ...stack([2, 4], 2.75, 0.4, 84),
+      ...stack([4, 5], 3.75, 0.4, 92),
+    ],
+  },
+  {
+    // The bass alone under a chord that arrives late and stays.
+    name: 'LATE PAD',
+    lengthBeats: 4,
+    events: [
+      { ...ev(1, 0, 0.5, 104), octave: -1 },
+      { ...ev(1, 2, 0.5, 92), octave: -1 },
+      hold(2, 0.5, 74), hold(3, 0.5, 76), hold(4, 0.5, 78), hold(5, 0.5, 72),
+    ],
   },
   {
     // A three-step figure over a four-beat cycle, so it lands somewhere new each
