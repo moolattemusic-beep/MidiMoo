@@ -1885,7 +1885,16 @@ export class OrchidEngine {
     // A chord played over a held pedal releases what the pedal was holding, so
     // the two chords do not sound through each other. A slider retrigger is not
     // a new chord and deliberately does not do this.
-    if (isOn && velocity > 0 && !isUpdate && !isControlKey && this.sustainPedalActive) {
+    //
+    // Glide is the exception, and it has to be: with glide on there is no
+    // overlap to prevent, because the chord under the pedal is not left ringing
+    // beneath the new one — it is bent into it. Releasing it here would leave
+    // the glide nothing to move from, and the chord would be struck afresh
+    // instead of gliding.
+    // Any MPE mode, legato included: under the pedal the previous chord is still
+    // sounding, which is exactly the condition legato glides from.
+    const glideWillCarry = this.params.mpeEnabled;
+    if (isOn && velocity > 0 && !isUpdate && !isControlKey && this.sustainPedalActive && !glideWillCarry) {
       this.flushSustainedNotes();
     }
 
