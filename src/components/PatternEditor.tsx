@@ -22,6 +22,7 @@ interface Props {
 type Drag =
   | { kind: 'move'; index: number; grabTicks: number; startVoice: number }
   | { kind: 'length'; index: number }
+  | { kind: 'transpose'; index: number; grabY: number; startSemitones: number }
   | null;
 
 export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) => {
@@ -95,6 +96,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     }
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     const event = pattern.events[index];
+    // Command turns the vertical drag into pitch instead of voice, so a single
+    // note can be moved off the chord without leaving the voice it belongs to.
+    if (kind === 'move' && (e.metaKey || e.ctrlKey)) {
+      setDrag({ kind: 'transpose', index, grabY: e.clientY, startSemitones: event.semitones ?? 0 });
+      return;
+    }
     setDrag(
       kind === 'move'
         ? { kind, index, grabTicks: ticksFromClientX(e.clientX) - event.start, startVoice: event.voice }
@@ -110,6 +117,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     if (drag.kind === 'move') {
       event.start = Math.max(0, Math.min(totalTicks - 1, snap(ticksFromClientX(e.clientX) - drag.grabTicks)));
       event.voice = voiceFromClientY(e.clientY);
+    } else if (drag.kind === 'transpose') {
+      // Up is up: dragging away from the screen's top raises the note. Eight
+      // pixels a semitone is fine enough to land on one and coarse enough not
+      // to skid past it.
+      const steps = Math.round((drag.grabY - e.clientY) / 8);
+      event.semitones = Math.max(-24, Math.min(24, drag.startSemitones + steps));
     } else {
       event.length = Math.max(TICKS_PER_BEAT / 8, snap(ticksFromClientX(e.clientX) - event.start));
     }
@@ -176,13 +189,13 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
 
           <div className="flex items-center gap-1">
             <span className="label-meta whitespace-nowrap">CHANGE</span>
-            {['NOW', 'BAR'].map((label, i) => (
+            {['NEXT NOTE', 'NEXT BAR'].map((label, i) => (
               <button
                 key={label}
                 onClick={() => update({ patternChordChange: i })}
                 title={i === 0
-                  ? 'A new chord takes effect where the pattern already is'
-                  : 'A new chord waits for the cycle to come round'}
+                  ? 'A new chord is heard on the very next note the pattern plays'
+                  : 'A new chord is held back until the cycle starts again'}
                 className={`analog-btn !text-[9px] !px-2 !py-[3px] ${(params.patternChordChange ?? 0) === i ? 'active' : ''}`}
               >
                 {label}
@@ -209,7 +222,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         </div>
       </div>
 
-      <div className="grid grid-cols-10 gap-1">
+      <div className="grid grid-cols-8 gap-1">
         {CHORD_PATTERNS.map((p, i) => (
           <button
             key={p.name}
@@ -286,9 +299,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
                 background: `rgba(240, 160, 32, ${0.35 + (event.velocity / 127) * 0.65})`,
               }}
             >
-              {event.octave ? (
+              {(event.octave || event.semitones) ? (
                 <span className="absolute left-[3px] top-0 bottom-0 flex items-center text-black/80 font-['Space_Mono'] text-[8px] leading-none pointer-events-none">
-                  {event.octave > 0 ? '+8' : '-8'}
+                  {(() => {
+                    const total = 12 * (event.octave ?? 0) + (event.semitones ?? 0);
+                    return total > 0 ? `+${total}` : `${total}`;
+                  })()}
                 </span>
               ) : null}
               <div
@@ -304,7 +320,11 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         VOICE 1 IS THE LOWEST NOTE OF WHATEVER CHORD IS PLAYING. A PATTERN NAMING MORE
         VOICES THAN THE CHORD HAS WRAPS ROUND. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
-        SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN.
+        SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN; CMD-DRAG UP AND
+        DOWN TRANSPOSES IT BY SEMITONES.
+        CHANGE: NEXT NOTE SWAPS THE CHORD ON THE VERY NEXT NOTE THE PATTERN PLAYS —
+        NEXT BAR HOLDS IT BACK UNTIL THE CYCLE STARTS AGAIN, SO THE CHANGE ALWAYS
+        LANDS ON THE DOWNBEAT.
       </p>
     </div>
   );

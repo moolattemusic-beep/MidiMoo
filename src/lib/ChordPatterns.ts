@@ -26,6 +26,9 @@ export interface PatternEvent {
   // Octaves away from where the voicing put this voice. Lets a pattern drop a
   // bass an octave or throw a voice up top without the voicing knowing.
   octave?: number;
+  // A finer offset in semitones, on top of the octave. Still relative to the
+  // voicing rather than an absolute pitch, so the event follows the chord.
+  semitones?: number;
 }
 
 export interface ChordPattern {
@@ -255,6 +258,143 @@ export const CHORD_PATTERNS: ChordPattern[] = [
     name: 'CASCADE',
     lengthBeats: 4,
     events: [1, 2, 3, 4, 5].map((v, i) => ev(v, i * 0.75, 4 - (i * 0.75), 78 + i * 8)),
+  },
+
+  // ---- More played styles ------------------------------------------------
+  {
+    // Bass and chord alternating on and off the beat, the left hand of a stride
+    // piano.
+    name: 'STRIDE',
+    lengthBeats: 4,
+    events: [
+      { ...ev(1, 0, 0.4, 108), octave: -1 },
+      ...stack([2, 3, 4], 0.5, 0.4, 84),
+      ev(1, 1, 0.4, 96),
+      ...stack([2, 3, 4], 1.5, 0.4, 80),
+      { ...ev(1, 2, 0.4, 104), octave: -1 },
+      ...stack([2, 3, 4], 2.5, 0.4, 84),
+      ev(1, 3, 0.4, 96),
+      ...stack([3, 4, 5], 3.5, 0.4, 88),
+    ],
+  },
+  {
+    // Every eighth, the chord answering itself: the engine room of a great deal
+    // of rock and gospel piano.
+    name: 'DRIVE',
+    lengthBeats: 4,
+    events: Array.from({ length: 8 }, (_, i) =>
+      stack(i % 2 === 0 ? [1, 2, 3] : [3, 4, 5], i * 0.5, 0.4, i % 2 === 0 ? 100 : 82)
+    ).flat(),
+  },
+  {
+    // The bass walking in quarters while the chord answers off the beat.
+    name: 'WALKING',
+    lengthBeats: 4,
+    events: [
+      ...[0, 1, 2, 3].map(b => ({ ...ev(1, b, 0.85, b === 0 ? 104 : 92), octave: -1 })),
+      ...stack([3, 4], 0.5, 0.4, 78),
+      ...stack([2, 5], 1.5, 0.4, 74),
+      ...stack([3, 4], 2.5, 0.4, 78),
+      ...stack([2, 3, 5], 3.5, 0.4, 84),
+    ],
+  },
+  {
+    // Long chord under a bass that moves once in the middle: the plainest useful
+    // accompaniment there is.
+    name: 'HYMN',
+    lengthBeats: 4,
+    events: [
+      { ...ev(1, 0, 1.9, 100), octave: -1 },
+      ...stack([2, 3, 4, 5], 0, 3.9, 82),
+      { ...ev(1, 2, 1.9, 92), octave: -1 },
+    ],
+  },
+  {
+    // Sixteenths on one voice with the chord punctuating: a shuffle feel.
+    name: 'SHUFFLE',
+    lengthBeats: 4,
+    events: [0, 1, 2, 3].flatMap(b => [
+      ev(1, b, 0.3, b === 0 ? 104 : 92),
+      ev(3, b + 0.66, 0.28, 78),
+      ...(b % 2 === 1 ? stack([2, 4, 5], b + 0.33, 0.28, 84) : []),
+    ]),
+  },
+  {
+    // The chord held while a single voice moves above it, a countermelody
+    // rather than a rhythm.
+    name: 'COUNTER',
+    lengthBeats: 4,
+    events: [
+      ...stack([1, 2, 3], 0, 3.9, 84),
+      ev(5, 0.5, 0.45, 96),
+      { ...ev(4, 1.25, 0.45, 88), semitones: 2 },
+      ev(5, 2, 0.45, 94),
+      { ...ev(5, 2.75, 0.45, 90), octave: 1 },
+      ev(4, 3.5, 0.45, 86),
+    ],
+  },
+  {
+    // Two chords a bar, both anticipated: a reggae-leaning skank on the off.
+    name: 'SKANK',
+    lengthBeats: 4,
+    events: [
+      ...stack([2, 3, 4, 5], 0.5, 0.25, 96),
+      ...stack([2, 3, 4, 5], 1.5, 0.25, 88),
+      ...stack([2, 3, 4, 5], 2.5, 0.25, 96),
+      ...stack([2, 3, 4, 5], 3.5, 0.25, 88),
+      { ...ev(1, 0, 0.9, 104), octave: -1 },
+      { ...ev(1, 2, 0.9, 98), octave: -1 },
+    ],
+  },
+  {
+    // Slow, wide and unhurried: two entries a bar with everything ringing.
+    name: 'AMBIENT',
+    lengthBeats: 8,
+    events: [
+      { ...ev(1, 0, 7.8, 76), octave: -1 },
+      ...stack([2, 3], 0.5, 7, 68),
+      { ...ev(4, 2, 5.5, 74), octave: 1 },
+      { ...ev(5, 4, 3.8, 80), octave: 1 },
+      ev(3, 6, 1.8, 66),
+    ],
+  },
+
+  // ---- More constructed --------------------------------------------------
+  {
+    // Five hits spread over sixteen: the rhythm never lands where the last cycle
+    // did until the whole thing comes round.
+    name: 'EUCLID 5',
+    lengthBeats: 4,
+    events: euclid(5, 16).flatMap((hit, i) =>
+      hit ? stack([((i % 5) + 1)], i * 0.25, 0.24, i === 0 ? 106 : 84) : []
+    ),
+  },
+  {
+    name: 'EUCLID 7',
+    lengthBeats: 4,
+    events: euclid(7, 16).flatMap((hit, i) =>
+      hit ? stack(i % 3 === 0 ? [1, 3] : [((i % 5) + 1)], i * 0.25, 0.24, i === 0 ? 104 : 82) : []
+    ),
+  },
+  {
+    // Voices paired off in a widening span, so the chord opens out from the
+    // middle to its edges and closes again.
+    name: 'MIRROR',
+    lengthBeats: 4,
+    events: [[3], [2, 4], [1, 5], [2, 4], [3], [2, 4], [1, 5], [2, 4]].flatMap(
+      (group, i) => stack(group, i * 0.5, 0.45, i % 4 === 0 ? 100 : 82)
+    ),
+  },
+  {
+    // A three-step figure over a four-beat cycle, so it lands somewhere new each
+    // bar and only comes home every third one.
+    name: 'THREE OVER',
+    lengthBeats: 4,
+    events: Array.from({ length: 6 }, (_, i) => {
+      const voice = [1, 3, 5][i % 3];
+      const event = ev(voice, i * 0.666, 0.6, i % 3 === 0 ? 102 : 82);
+      return i % 3 === 2 ? { ...event, octave: 1 } : event;
+    }),
   },
 ];
 

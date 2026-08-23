@@ -18,6 +18,10 @@ interface PatternRun {
   pitches: number[];
   bassPitch: number | null;
   bassChannel?: number;
+  // A bass the run has been handed but not yet sounded; it waits for the next
+  // note so it arrives with the rhythm.
+  nextBass?: number | null;
+  bassOwed?: boolean;
   pending: { pitches: number[]; bassPitch: number | null } | null;
   velocity: number;
   cycleStartMs: number;
@@ -145,8 +149,27 @@ export class OrchidEngine {
   }
 
   private startPatternRun(key: number, pitches: number[], bassPitch: number | null, velocity: number) {
-    this.stopPatternRun(key);
-    if (pitches.length === 0) return;
+    if (pitches.length === 0) {
+      this.stopPatternRun(key);
+      return;
+    }
+
+    // A chord arriving over one already playing takes the running cycle over
+    // rather than starting a second one beside it. Two runs would both keep
+    // firing, which is the two chords sounding through each other; handing the
+    // cycle across means the notes simply become the new chord's at the next
+    // note the pattern reaches.
+    const existingKey = this.patternRuns.size > 0 ? [...this.patternRuns.keys()][0] : null;
+    if (existingKey !== null) {
+      const run = this.patternRuns.get(existingKey)!;
+      if (existingKey !== key) {
+        this.patternRuns.delete(existingKey);
+        this.patternRuns.set(key, run);
+      }
+      run.velocity = velocity;
+      this.handPatternVoicing(run, { pitches: [...pitches].sort((a, b) => a - b), bassPitch });
+      return;
+    }
     // The clock starts under the finger rather than on a grid of its own, so a
     // chord placed off the beat keeps the pattern where it was played. Changing
     // chord while one is already running is a different matter: the new chord
@@ -182,9 +205,10 @@ export class OrchidEngine {
     };
     this.patternRuns.set(key, run);
     if (bassPitch !== null) {
-      const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
-      run.bassChannel = channel;
-      this.emitNoteOn(bassPitch, velocity, 0, channel);
+      run.bassChannel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
+      run.bassPitch = null;
+      run.nextBass = bassPitch;
+      run.bassOwed = true;
     }
     this.ensurePatternClock();
     this.runPatternTick();
@@ -198,17 +222,22 @@ export class OrchidEngine {
   private updatePatternRun(key: number, pitches: number[], bassPitch: number | null) {
     const run = this.patternRuns.get(key);
     if (!run) return;
-    const next = { pitches: [...pitches].sort((a, b) => a - b), bassPitch };
+    this.handPatternVoicing(run, { pitches: [...pitches].sort((a, b) => a - b), bassPitch });
+  }
+
+  private handPatternVoicing(run: PatternRun, next: { pitches: number[]; bassPitch: number | null }) {
     if ((this.params.patternChordChange ?? 0) === 1) run.pending = next;
     else this.applyPatternVoicing(run, next);
   }
 
   private applyPatternVoicing(run: PatternRun, next: { pitches: number[]; bassPitch: number | null }) {
     run.pitches = next.pitches;
+    // The bass is not struck here. It is marked as owed and sounded by the next
+    // note the pattern reaches, so it lands with the rhythm rather than the
+    // moment a key happened to go down.
     if (next.bassPitch !== run.bassPitch) {
-      if (run.bassPitch !== null) this.emitNoteOff(run.bassPitch, 0, 0, run.bassChannel);
-      run.bassPitch = next.bassPitch;
-      if (run.bassPitch !== null) this.emitNoteOn(run.bassPitch, run.velocity, 0, run.bassChannel);
+      run.nextBass = next.bassPitch;
+      run.bassOwed = true;
     }
   }
 
@@ -311,6 +340,20 @@ export class OrchidEngine {
   private schedulePatternEvent(run: PatternRun, event: PatternEvent, delayMs: number, lengthMs: number, isCycleStart: boolean) {
     const fire = () => {
       run.timers.delete(timer);
+
+      // Whatever bass is owed is settled here, on a note rather than on a key
+      // press: the old one goes as the new one arrives, so the two roots never
+      // sound across each other.
+      if (run.bassOwed) {
+        run.bassOwed = false;
+        if (run.bassPitch !== null) this.emitNoteOff(run.bassPitch, 0, 0, run.bassChannel);
+        run.bassPitch = run.nextBass ?? null;
+        if (run.bassPitch !== null) {
+          if (run.bassChannel === undefined && this.params.mpeEnabled) run.bassChannel = this.allocateMpeChannel();
+          this.emitNoteOn(run.bassPitch, run.velocity, 0, run.bassChannel);
+        }
+      }
+
       if (run.pitches.length === 0) return;
       // A pattern may name more voices than the chord has. Wrapping keeps the
       // rhythm whole where dropping the event would punch holes in it.
@@ -319,7 +362,7 @@ export class OrchidEngine {
       if (base === undefined) return;
       // An octave written into the event, so a pattern can drop its bass or
       // throw a voice up top without the voicing having to know.
-      const pitch = base + 12 * (event.octave ?? 0);
+      const pitch = base + 12 * (event.octave ?? 0) + (event.semitones ?? 0);
       if (pitch < 0 || pitch > 127) return;
       // The written velocity is an accent on what was played, not a replacement
       // for it, so the pattern shapes the dynamics without flattening them.
@@ -2204,6 +2247,19 @@ export class OrchidEngine {
 
     const suppressImmediatePlay = this.params.omnichordMode && !forcePlay;
 
+    // A pattern owns the timing, so an update hands it the new voicing rather
+    // than diffing notes into the output: the notes it is already playing keep
+    // their place in the cycle and simply become the new chord's. Diffing here
+    // would sound the new voicing immediately alongside the one the pattern is
+    // still working through.
+    if (isUpdate && this.params.patternEnabled && this.patternRuns.has(pitch)) {
+      const patternPitches = finalPitches.filter(p => p >= 0 && p <= 127);
+      const runBass = (!skipBass && bassSetting > 0 && bassPitch >= 0 && bassPitch <= 127) ? bassPitch : null;
+      this.updatePatternRun(pitch, patternPitches, runBass);
+      this.updateStrumplatePitches();
+      return;
+    }
+
     if (isUpdate || performGlideFromPrevious) {
       const oldMemory = this.activePitchesMemory[pitch] || [];
       const newMemory: Array<any> = [];
@@ -2372,7 +2428,11 @@ export class OrchidEngine {
       }
     }
 
-    if (!skipBass && bassSetting > 0 && bassPitch >= 0 && bassPitch <= 127) {
+    // With a pattern running the bass belongs to it: sounding it here would put
+    // the new chord's root over the old chord's notes, which is the overlap you
+    // hear when changing chord. The run picks it up at its next note instead.
+    const patternOwnsBass = this.params.patternEnabled;
+    if (!skipBass && !patternOwnsBass && bassSetting > 0 && bassPitch >= 0 && bassPitch <= 127) {
       const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
       this.emitNoteOn(bassPitch, velocity, 0, channel, suppressImmediatePlay);
       this.activePitchesMemory[pitch].push({ pitch: bassPitch, delayUsed: 0, isBass: true, mpeChannel: channel, mpeBasePitch: bassPitch, mpeCurrentPitch: bassPitch, isInternalSynthOnly: suppressImmediatePlay });
@@ -2383,7 +2443,8 @@ export class OrchidEngine {
     // doing a simpler job — steps aside rather than fighting it for the timing.
     if (this.params.patternEnabled) {
       const patternPitches = finalPitches.filter(p => p >= 0 && p <= 127 && !playedPitches[p]);
-      this.startPatternRun(pitch, patternPitches, null, velocity);
+      const runBass = (!skipBass && bassSetting > 0 && bassPitch >= 0 && bassPitch <= 127) ? bassPitch : null;
+      this.startPatternRun(pitch, patternPitches, runBass, velocity);
       this.updateStrumplatePitches();
       return;
     }
