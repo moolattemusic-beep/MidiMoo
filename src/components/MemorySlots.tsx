@@ -237,6 +237,13 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                      return;
                   }
                   e.preventDefault();
+                  // Capture the pointer so the release is delivered here even if
+                  // it happens off the pad or outside the window. Without it a
+                  // press that ends elsewhere never sends its note-off, and the
+                  // key stays held for good — which among other things stops a
+                  // free edit ever finishing, since it waits for every key to be
+                  // let go.
+                  try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not fatal */ }
                   if (engine && slot) {
                     engine.setModifiers(slot.baseType, slot.ext_m7, slot.ext_M7, slot.ext_6, slot.ext_9);
                     engine.handleMidi(slot.rootPitch, memoryVelocity, true, false, false, false, true, slot.customVoicing, slot.chordIntervals);
@@ -254,6 +261,16 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   }
                 }}
                 onPointerLeave={(e) => {
+                  if (isEditMode) return;
+                  e.preventDefault();
+                  if (engine && slot) {
+                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                    onStopSlot(i);
+                  }
+                }}
+                onPointerCancel={(e) => {
+                  // A cancelled gesture would otherwise leave the chord sounding
+                  // and the key held.
                   if (isEditMode) return;
                   e.preventDefault();
                   if (engine && slot) {

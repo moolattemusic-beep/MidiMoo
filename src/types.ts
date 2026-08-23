@@ -86,6 +86,15 @@ export interface OrchidParams {
   // The register slider moves the next chord rather than the one sounding, so
   // it can be set up in advance without announcing itself.
   registerSilent: boolean;
+  // How long pattern notes are held, as a percentage of their written length.
+  // Kept off the editor on purpose: it is one feel control for the whole
+  // pattern, and drawing it would clutter the notes being edited.
+  patternRelease: number;
+  // Snap and grid for the editor, in ticks.
+  patternGrid: number;
+  // On a chord change the pedal is lifted for a moment even if it is being
+  // held, so the chord before does not sustain into the one after.
+  patternPedalLift: boolean;
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -169,6 +178,9 @@ export const defaultParams: OrchidParams = {
   patternChordChange: 0,
   patternBassMode: 0,
   registerSilent: false,
+  patternRelease: 100,
+  patternGrid: 24,
+  patternPedalLift: true,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,

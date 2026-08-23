@@ -118,6 +118,7 @@ export class OrchidEngine {
   // Where the cycle currently in progress began. Shared by every run so a chord
   // change joins the rhythm rather than restarting it.
   private patternPhaseStart: number | null = null;
+  private pedalLiftTimer: any = null;
   private patternCache: { key: string; pattern: ChordPattern } | null = null;
 
   /** The pattern in force: an edited one if there is one, else the library. */
@@ -280,6 +281,29 @@ export class OrchidEngine {
     }
   }
 
+  /**
+   * Lift the pedal for a moment even though it is being held, so the chord
+   * before does not sustain into the one after. The pedal is forwarded to the
+   * synth, so the synth has to be told as well as our own memory of what is
+   * sounding — dropping only our notes would leave the synth holding them.
+   */
+  private momentaryPedalLift(ms: number = 20) {
+    if (!this.sustainPedalActive || this.pedalLiftTimer) return;
+    this.emitCC(64, 0);
+    this.flushSustainedNotes();
+    this.pedalLiftTimer = setTimeout(() => {
+      this.pedalLiftTimer = null;
+      // Only put it back down if it is still being held.
+      if (this.sustainPedalActive) this.emitCC(64, 127);
+    }, ms);
+  }
+
+  private emitCC(cc: number, value: number, channel: number = 1) {
+    if (this.onOutputNote) {
+      this.onOutputNote({ pitch: 0, velocity: 0, isOn: false, isCC: true, ccNumber: cc, ccValue: value, mpeChannel: channel });
+    }
+  }
+
   public stopAllPatternRuns() {
     for (const key of [...this.patternRuns.keys()]) this.stopPatternRun(key);
   }
@@ -343,7 +367,10 @@ export class OrchidEngine {
         const at = run.cycleStartMs + event.start * msPerTick;
         if (at > horizon) break;
         const isCycleStart = run.nextIdx === 0;
-        this.schedulePatternEvent(run, event, Math.max(0, at - now), event.length * msPerTick, isCycleStart);
+        // The written length is what the editor shows; how long it actually
+        // rings is one control for the whole pattern, applied here.
+        const release = Math.max(5, Math.min(400, this.params.patternRelease ?? 100)) / 100;
+        this.schedulePatternEvent(run, event, Math.max(0, at - now), event.length * msPerTick * release, isCycleStart);
         run.nextIdx++;
       }
     }
@@ -963,6 +990,7 @@ export class OrchidEngine {
 
 
   public panic() {
+    if (this.pedalLiftTimer) { clearTimeout(this.pedalLiftTimer); this.pedalLiftTimer = null; }
     this.stopAllPatternRuns();
     this.cancelAllChannelGlides();
     // The arpeggio's own channel and glide origin are part of what panic is
@@ -1894,8 +1922,16 @@ export class OrchidEngine {
     // Any MPE mode, legato included: under the pedal the previous chord is still
     // sounding, which is exactly the condition legato glides from.
     const glideWillCarry = this.params.mpeEnabled;
-    if (isOn && velocity > 0 && !isUpdate && !isControlKey && this.sustainPedalActive && !glideWillCarry) {
-      this.flushSustainedNotes();
+    if (isOn && velocity > 0 && !isUpdate && !isControlKey && this.sustainPedalActive) {
+      if (this.params.patternEnabled && this.params.patternPedalLift !== false) {
+        // A pattern restates the chord constantly, so anything the pedal is
+        // still holding from the chord before piles up underneath it. The lift
+        // is momentary and isUpdate is excluded, so re-voicing the same chord
+        // with the register slider does not interrupt the sustain.
+        this.momentaryPedalLift(20);
+      } else if (!glideWillCarry) {
+        this.flushSustainedNotes();
+      }
     }
 
     if (isOn && velocity > 0 && !isUpdate && !isControlKey) {

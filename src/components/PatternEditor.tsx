@@ -81,9 +81,11 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     return VOICES - Math.floor(ratio * VOICES);
   };
 
-  // A sixteenth is the finest useful placement here, and snapping is what makes
-  // dragging by hand produce something playable rather than approximately right.
-  const snap = (ticks: number) => Math.round(ticks / (TICKS_PER_BEAT / 4)) * (TICKS_PER_BEAT / 4);
+  // Snapping is what makes dragging by hand produce something playable rather
+  // than approximately right. The step is the grid the player has chosen, so
+  // triplets land on triplets.
+  const gridTicks = Math.max(1, params.patternGrid ?? TICKS_PER_BEAT / 4);
+  const snap = (ticks: number) => Math.round(ticks / gridTicks) * gridTicks;
 
   const onPointerDown = (e: React.PointerEvent, index: number, kind: 'move' | 'length') => {
     e.stopPropagation();
@@ -124,7 +126,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
       const steps = Math.round((drag.grabY - e.clientY) / 8);
       event.semitones = Math.max(-24, Math.min(24, drag.startSemitones + steps));
     } else {
-      event.length = Math.max(TICKS_PER_BEAT / 8, snap(ticksFromClientX(e.clientX) - event.start));
+      event.length = Math.max(gridTicks, snap(ticksFromClientX(e.clientX) - event.start));
     }
     events[drag.index] = event;
     writePattern({ ...pattern, events });
@@ -138,7 +140,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     const voice = voiceFromClientY(e.clientY);
     writePattern({
       ...pattern,
-      events: [...pattern.events, { voice, start, length: TICKS_PER_BEAT / 2, velocity: 96 }],
+      events: [...pattern.events, { voice, start, length: gridTicks, velocity: 96 }],
     });
   };
 
@@ -210,6 +212,35 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             ))}
           </div>
 
+          <div className="flex items-center gap-2">
+            <span className="label-meta whitespace-nowrap">RELEASE</span>
+            <input
+              type="range"
+              min={10}
+              max={400}
+              step={5}
+              value={params.patternRelease ?? 100}
+              onChange={(e) => update({ patternRelease: parseInt(e.target.value, 10) })}
+              title="How long the pattern's notes ring, as a percentage of their written length"
+              className="range-sm w-20 accent-[var(--accent)]"
+            />
+            <span className="label-meta !text-[var(--accent)] w-9">{params.patternRelease ?? 100}%</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <span className="label-meta whitespace-nowrap">GRID</span>
+            {([['1/4', TICKS_PER_BEAT], ['1/8', TICKS_PER_BEAT / 2], ['1/8T', TICKS_PER_BEAT / 3],
+               ['1/16', TICKS_PER_BEAT / 4], ['1/16T', TICKS_PER_BEAT / 6], ['1/32', TICKS_PER_BEAT / 8]] as const).map(([label, ticks]) => (
+              <button
+                key={label}
+                onClick={() => update({ patternGrid: ticks })}
+                className={`analog-btn !text-[9px] !px-1.5 !py-[3px] ${gridTicks === ticks ? 'active' : ''}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <button
             onClick={() => writePattern(randomPattern())}
             className="analog-btn !text-[9px] !px-2 !py-[3px]"
@@ -263,16 +294,22 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
           </div>
         ))}
 
-        {Array.from({ length: beats * 4 + 1 }, (_, i) => (
-          <div
-            key={`g${i}`}
-            className="absolute top-0 bottom-0 border-l"
-            style={{
-              left: `${(i / (beats * 4)) * 100}%`,
-              borderColor: i % 4 === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)',
-            }}
-          />
-        ))}
+        {(() => {
+          const lines = Math.min(200, Math.round(totalTicks / gridTicks));
+          const perBeat = TICKS_PER_BEAT / gridTicks;
+          return Array.from({ length: lines + 1 }, (_, i) => (
+            <div
+              key={`g${i}`}
+              className="absolute top-0 bottom-0 border-l"
+              style={{
+                left: `${(i / lines) * 100}%`,
+                // The beat is drawn stronger than its subdivisions, so the bar
+                // stays readable however fine the grid gets.
+                borderColor: i % perBeat === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.05)',
+              }}
+            />
+          ));
+        })()}
 
         {phase !== null && (
           <div
@@ -338,7 +375,8 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         VOICES THAN THE CHORD HAS WRAPS ROUND. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
         SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN; CMD-DRAG UP AND
-        DOWN TRANSPOSES IT BY SEMITONES. DOUBLE-CLICK A NOTE TO HOLD IT: A HELD NOTE
+        DOWN TRANSPOSES IT BY SEMITONES. RELEASE SETS HOW LONG EVERY NOTE RINGS AND
+        IS DELIBERATELY NOT DRAWN, SO THE EDITOR STAYS READABLE. DOUBLE-CLICK A NOTE TO HOLD IT: A HELD NOTE
         RINGS ON INSTEAD OF BEING STRUCK AGAIN EACH CYCLE, SO THE REST OF THE PATTERN
         MOVES OVER A CHORD THAT STAYS DOWN.
         CHANGE: NEXT NOTE SWAPS THE CHORD ON THE VERY NEXT NOTE THE PATTERN PLAYS —
