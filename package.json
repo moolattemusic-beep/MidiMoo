@@ -11,7 +11,8 @@
     "clean": "rm -rf dist server.js release",
     "lint": "tsc --noEmit",
     "electron:dev": "concurrently -k -n VITE,ELECTRON -c blue,yellow \"npm run dev\" \"wait-on tcp:3000 && electron .\"",
-    "electron:build": "npm run build && electron-builder --mac"
+    "electron:build": "npm run build && electron-builder --mac",
+    "test": "node test/run.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
