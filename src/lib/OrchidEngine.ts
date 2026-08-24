@@ -1618,11 +1618,12 @@ export class OrchidEngine {
    */
   private reRegisterVoicing(voicing: number[]): number[] {
     const start = this.params.chordRegisterStart;
-    return voicing.map(note => {
+    const moved = voicing.map(note => {
       let n = note;
       while (n < start) n += 12;
       return n > 127 ? note : n;
     });
+    return this.applyInversion(moved);
   }
 
   /**
@@ -1675,10 +1676,43 @@ export class OrchidEngine {
     // A smaller chord than the shape offers is thinned from the top, which
     // keeps the bass and the note that gives the chord its quality.
     if (noteLimit !== undefined && pitches.length > noteLimit) {
-      return pitches.slice(0, Math.max(1, noteLimit));
+      return this.applyInversion(pitches.slice(0, Math.max(1, noteLimit)));
     }
     const cap = Math.max(1, Math.min(8, Math.round(this.params.chordMaxNotes ?? 6)));
-    return pitches.length > cap ? pitches.slice(0, cap) : pitches;
+    return this.applyInversion(pitches.length > cap ? pitches.slice(0, cap) : pitches);
+  }
+
+  /**
+   * Turn a chord over: the bottom note up an octave, or the top note down one,
+   * as many times as asked.
+   *
+   * It works on the notes rather than on the intervals they were built from,
+   * because done there it was undone immediately — the folding that follows
+   * pulls anything above the range back down an octave, which is exactly the
+   * note the inversion had just lifted.
+   *
+   * Every path that produces a chord passes through here: built chords, the
+   * played-voicing library, and a voicing saved by hand on a memory pad. It
+   * lived in the chord builder alone before, so inverting did nothing at all to
+   * a memory pad or to a library voicing — which is most of what gets played.
+   */
+  private applyInversion(pitches: number[]): number[] {
+    const inv = Math.round(this.params.chordInversion ?? 0);
+    if (inv === 0 || pitches.length === 0) return pitches;
+    const out = [...pitches].sort((a, b) => a - b);
+    for (let i = 0; i < Math.abs(inv); i++) {
+      if (inv > 0) {
+        const lifted = out.shift()! + 12;
+        if (lifted > 127) { out.unshift(lifted - 12); break; }
+        out.push(lifted);
+      } else {
+        const dropped = out.pop()! - 12;
+        if (dropped < 0) { out.push(dropped + 12); break; }
+        out.unshift(dropped);
+      }
+      out.sort((a, b) => a - b);
+    }
+    return out;
   }
 
   private calculateFoldedPitches(rootPitch: number, intervals: number[], keepAllTones = false, noteLimit?: number): number[] {
@@ -1728,28 +1762,7 @@ export class OrchidEngine {
       finalPitches.push(pitch);
     }
     
-    // Inversion is applied here, to the notes themselves, and not to the
-    // intervals above. Done there it was undone immediately: the folding that
-    // follows pulls anything above the range back down an octave, which is
-    // exactly the note the inversion had just lifted, so the chord collapsed
-    // back into one register however far the control was turned.
-    finalPitches.sort((a, b) => a - b);
-    const inv = Math.round(this.params.chordInversion ?? 0);
-    for (let i = 0; i < Math.abs(inv); i++) {
-      if (finalPitches.length === 0) break;
-      if (inv > 0) {
-        const lifted = finalPitches.shift()! + 12;
-        if (lifted > 127) { finalPitches.unshift(lifted - 12); break; }
-        finalPitches.push(lifted);
-      } else {
-        const dropped = finalPitches.pop()! - 12;
-        if (dropped < 0) { finalPitches.push(dropped + 12); break; }
-        finalPitches.unshift(dropped);
-      }
-      finalPitches.sort((a, b) => a - b);
-    }
-
-    return finalPitches;
+    return this.applyInversion(finalPitches);
   }
 
   public getArpeggioPitches(): number[] {
@@ -1972,7 +1985,7 @@ export class OrchidEngine {
       if (heldVoicing && heldVoicing.length > 0) {
         newPitches = this.params.memoryFollowRegister !== false
           ? this.reRegisterVoicing(heldVoicing)
-          : [...heldVoicing];
+          : this.applyInversion([...heldVoicing]);
       } else {
         const newIntervals = pasted ?? this.getIntervalsForState(perfKey);
         newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
@@ -2549,7 +2562,7 @@ export class OrchidEngine {
     if (customVoicing && customVoicing.length > 0) {
       finalPitches = this.params.memoryFollowRegister !== false
         ? this.reRegisterVoicing(customVoicing)
-        : [...customVoicing];
+        : this.applyInversion([...customVoicing]);
     } else if (intervals.length === 0) {
       finalPitches = [pitch];
       isSingleNote = true;

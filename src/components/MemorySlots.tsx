@@ -90,6 +90,56 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
+  const [editorText, setEditorText] = useState<string | null>(null);
+
+  /**
+   * Open the pads as text. What is shown is what is on them — a chord saved by
+   * hand has no symbol to show, so it is written as the notes it holds, and
+   * those come back unchanged if that line is left alone.
+   */
+  const openEditor = () => {
+    setEditorText(slots.map(slot => {
+      if (!slot) return '-';
+      if (slot.symbol) return slot.symbol;
+      if (slot.customVoicing?.length) return `[${slot.customVoicing.join('.')}]`;
+      return '-';
+    }).join(' '));
+  };
+
+  const applyEditor = (text: string) => {
+    const tokens = text.trim().split(/\s+/).filter(Boolean);
+    const next: MemorySlot[] = Array(8).fill(null);
+    const unreadable: string[] = [];
+
+    tokens.slice(0, 8).forEach((token, i) => {
+      if (token === '-') return;
+      // A voicing written as its notes goes back exactly as it was.
+      const notes = token.match(/^\[([\d.]+)\]$/);
+      if (notes) {
+        const list = notes[1].split('.').map(Number).filter(n => n >= 0 && n <= 127);
+        if (list.length) {
+          next[i] = {
+            rootPitch: list[0] % 12, baseType: 0,
+            ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
+            customVoicing: list.sort((a, b) => a - b),
+          };
+          return;
+        }
+      }
+      const { chords, rejected } = parseProgression(token);
+      if (chords.length === 0) { unreadable.push(...(rejected.length ? rejected : [token])); return; }
+      const c = chords[0];
+      next[i] = {
+        rootPitch: 60 + c.root, baseType: -1,
+        ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
+        symbol: c.symbol, chordIntervals: c.intervals,
+      };
+    });
+
+    onUpdateSlots(next);
+    setPasteStatus(unreadable.length ? `UNREADABLE: ${unreadable.slice(0, 3).join(' ')}` : null);
+    setEditorText(null);
+  };
 
   /**
    * Move every saved chord by the same interval. The notes are rewritten rather
@@ -198,6 +248,42 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
 
   return (
     <div className="module bg-[var(--surface-deep)] border border-white/10 p-4 rounded-sm flex flex-col gap-3">
+      {editorText !== null && (
+        <div
+          className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-6"
+          onClick={() => setEditorText(null)}
+        >
+          <div
+            className="module w-[620px] max-w-full flex flex-col gap-3 !bg-[var(--surface)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="label-meta">MEMORY PADS AS TEXT</p>
+            <textarea
+              autoFocus
+              value={editorText}
+              onChange={(e) => setEditorText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) applyEditor(editorText);
+                if (e.key === 'Escape') setEditorText(null);
+              }}
+              spellCheck={false}
+              rows={3}
+              className="w-full bg-black text-[var(--accent)] border border-[#444] px-2 py-2 font-['Space_Mono'] text-[12px] rounded-sm outline-none resize-none"
+            />
+            <div className="flex items-center justify-between">
+              <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+                ONE CHORD TO A PAD, SEPARATED BY SPACES — Cmaj7 Dm7 G7(b9). A DASH LEAVES
+                A PAD EMPTY. A VOICING SAVED BY HAND HAS NO NAME TO SHOW, SO IT APPEARS AS
+                ITS NOTES IN BRACKETS AND COMES BACK UNCHANGED IF LEFT ALONE.
+              </p>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => setEditorText(null)} className="analog-btn !text-[9px] !px-2 !py-[3px]">CANCEL</button>
+                <button onClick={() => applyEditor(editorText)} className="analog-btn active !text-[9px] !px-3 !py-[3px]">APPLY</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
         {!hideHeader && (
           <div className="flex items-center gap-4 flex-wrap">
@@ -220,6 +306,14 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   className="range-sm w-16 accent-[var(--accent)]"
                 />
              </div>
+             <button
+                onClick={openEditor}
+                className="analog-btn !py-1 !px-2 !text-[9px]"
+                title="Type the pads out as text"
+             >
+                EDIT TEXT
+             </button>
+
              <div className="flex items-center gap-1" title="Move every saved chord">
                 <span className="label-meta !text-[9px] whitespace-nowrap">TRANSPOSE</span>
                 {([['-12', -12], ['-1', -1], ['+1', 1], ['+12', 12]] as const).map(([label, by]) => (
