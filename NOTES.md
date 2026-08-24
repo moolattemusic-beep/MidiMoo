@@ -66,6 +66,15 @@ utility — so a sized slider is only ever as narrow as its row squeezes it. In 
 row with space to spare it stretches and pushes everything after it onto a line
 of its own. Widths on sliders are marked important (`!w-16`) for this reason.
 
+**A note-off belongs to the last chord holding the note.** Two chords sharing a
+tone each sound it, and with MPE off they share a channel — so releasing the
+first used to send a note-off that took the note out of the second, which is
+what made the memory pads feel monophonic. `releaseNote` asks whether any other
+key still sounding holds that same note on that same channel, and leaves the
+note-off to whichever lets go last. Counting note-ons instead does not work: the
+engine re-states a chord's notes on every retrigger (dragging the register
+slider does it dozens of times), so a count runs away and the note never stops.
+
 **The bass meets a pattern one of two ways.** In OWN — the default, and what the
 instrument has always done — it sounds by itself at the top of each cycle with
 the figure above it. In IN FIGURE it joins the figure as its lowest voice, so a
@@ -97,6 +106,11 @@ back to being built.
 - `vite`, `@vitejs/plugin-react` and `@tailwindcss/vite` sit in `dependencies`
   rather than `devDependencies`, so the build tooling ships inside the app and
   takes it to about 133MB.
+- Two memory pads built on the *same root* are still monophonic against each
+  other: the engine keys a held chord by its performance key, which for a pad is
+  its root pitch, so the second press takes the first one's slot. Pads on
+  different roots overlap correctly. Fixing it means giving a held chord an
+  identity separate from its root.
 - `voicingRange` no longer has a control. It still sets the window the chord
   builder folds into, so it is a constant rather than dead — but nothing can
   change it.

@@ -646,13 +646,41 @@ export class OrchidEngine {
     }
   }
 
+  /**
+   * Whether some other key still sounding is holding this same note on this
+   * same channel. Its note-off would cut that chord short, so it is left for
+   * whichever key lets go last.
+   *
+   * With MPE every note has a channel to itself, so this can never be true and
+   * nothing changes — which is why the pads only ever did this with MPE off.
+   */
+  private heldByAnotherKey(pitch: number, channel: number | undefined, exceptKey: number): boolean {
+    for (const keyStr in this.activePitchesMemory) {
+      const key = parseInt(keyStr);
+      if (key === exceptKey) continue;
+      for (const other of this.activePitchesMemory[key] ?? []) {
+        // A note still waiting on a strum delay is not sounding yet.
+        if (other.timeoutId) continue;
+        if ((other.mpeBasePitch ?? other.pitch) === pitch && other.mpeChannel === channel) return true;
+      }
+    }
+    return false;
+  }
+
+  /** The note-off a key owes for one of its notes, unless another key needs it. */
+  private releaseNote(note: any, exceptKey: number) {
+    if (note.timeoutId) { clearTimeout(note.timeoutId); return; }
+    const pitch = note.mpeBasePitch ?? note.pitch;
+    if (this.heldByAnotherKey(pitch, note.mpeChannel, exceptKey)) return;
+    this.emitNoteOff(pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
+  }
+
   private silenceMemory(pitch: number) {
     this.releasePatternRun(pitch);
     const notes = this.activePitchesMemory[pitch];
     if (!notes) return;
     for (const note of notes) {
-      if (note.timeoutId) clearTimeout(note.timeoutId);
-      else this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
+      this.releaseNote(note, pitch);
       if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
     }
     delete this.activePitchesMemory[pitch];
@@ -2487,11 +2515,7 @@ export class OrchidEngine {
         if (this.activePitchesMemory[pitch]) {
           const notesToKill = this.activePitchesMemory[pitch];
           for (const note of notesToKill) {
-            if (note.timeoutId) {
-              clearTimeout(note.timeoutId);
-            } else {
-              this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
-            }
+            this.releaseNote(note, pitch);
             if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
           }
           delete this.activePitchesMemory[pitch];
@@ -2581,11 +2605,7 @@ export class OrchidEngine {
       if (this.activePitchesMemory[pitch]) {
         const notesToKill = this.activePitchesMemory[pitch];
         for (const note of notesToKill) {
-          if (note.timeoutId) {
-            clearTimeout(note.timeoutId);
-          } else {
-            this.emitNoteOff(note.mpeBasePitch ?? note.pitch, 0, 0, note.mpeChannel, note.isInternalSynthOnly);
-          }
+          this.releaseNote(note, pitch);
           if (note.mpeChannel) this.freeMpeChannel(note.mpeChannel);
         }
       }

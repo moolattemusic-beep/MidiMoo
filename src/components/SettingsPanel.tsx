@@ -575,7 +575,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 onChange={(v) => updateParam(key, v)} />
             </div>
           ))}
+          <button
+            onClick={() => engine?.wiggleCC(1)}
+            className="analog-btn w-full !py-2 mb-2"
+            title="Send CC1 back and forth so the plugin can learn it"
+          >
+            SEND CC1 FOR MAPPING
+          </button>
           <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+            HIT LEARN IN YOUR SYNTH, PRESS THE BUTTON, THEN SET AMOUNT.
             MOVING THE PHYSICAL MOD WHEEL TAKES OVER THE ANCHOR.
             MOVING THIS SLIDER TAKES IT BACK.
           </p>
@@ -600,9 +608,18 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 onChange={(v) => updateParam(key, v)} />
             </div>
           ))}
+          <button
+            onClick={() => engine?.wiggleCC(74)}
+            className="analog-btn w-full !py-2 mb-2"
+            title="Send CC74 back and forth so the plugin can learn it"
+          >
+            SEND CC74 FOR MAPPING
+          </button>
           <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
             CC74 IS THE ONE EXPRESSION MPE DEFINES PER NOTE, SO IT IS WHAT CARRIES
             THE PER-VOICE MODULATION. WITH MPE OFF IT GOES OUT ON THE MASTER CHANNEL.
+            THE MAPPING SWEEP ALWAYS GOES OUT ON THE MASTER, WHICH IS WHERE A
+            PLUGIN LISTENS WHEN IT IS LEARNING.
           </p>
         </CollapsibleSection>
 

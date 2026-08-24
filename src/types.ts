@@ -81,6 +81,7 @@ export interface OrchidParams {
   // 0 = the lowest voice is the bass, 1 = the bass is independent of the
   // pattern and sounds on the downbeat.
   patternBassMode: number;
+  memoryMomentary: boolean;
   // The register slider moves the next chord rather than the one sounding, so
   // it can be set up in advance without announcing itself.
   registerSilent: boolean;
@@ -229,6 +230,7 @@ export const defaultParams: OrchidParams = {
   patternCustom: null,
   patternChordChange: 0,
   patternBassMode: 0,
+  memoryMomentary: true,
   registerSilent: false,
   patternRelease: 100,
   patternGrid: 24,

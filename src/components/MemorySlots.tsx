@@ -36,7 +36,7 @@ export type MemorySlot = {
 interface MemorySlotsProps {
   engine: OrchidEngine | null;
   slots: MemorySlot[];
-  playingSlotIndex: number | null;
+  playingSlotIndices: number[];
   onPlaySlot: (index: number) => void;
   onStopSlot: (index: number) => void;
   onSaveSlot: (index: number, chord: MemorySlot | null) => void;
@@ -55,6 +55,8 @@ interface MemorySlotsProps {
   onArmSlot: (index: number) => void;
   followRegister: boolean;
   onToggleFollowRegister: () => void;
+  momentary: boolean;
+  onToggleMomentary: () => void;
 }
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -86,7 +88,7 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
   return `${note} ${base}${exts}`;
 }
 
-export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister }: MemorySlotsProps) {
+export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
@@ -297,6 +299,13 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   onClick={onToggleFollowRegister}
                 ></div>
              </div>
+             <div className="flex items-center gap-2" title="On, a pad sounds for as long as it is held. Off, a pad latches: press to start it, press again to stop it">
+                <span className="label-meta !text-[9px] whitespace-nowrap">MOMENTARY</span>
+                <div
+                  className={`toggle-switch sm ${momentary ? 'on' : ''}`}
+                  onClick={onToggleMomentary}
+                ></div>
+             </div>
              <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[#888]">VEL</span>
                 <input 
@@ -391,7 +400,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
       </div>
       <div className="grid grid-cols-4 gap-2">
         {slots.map((slot, i) => {
-          const isPlaying = playingSlotIndex === i;
+          const isPlaying = playingSlotIndices.includes(i);
           return (
             <div 
               key={i} 
@@ -423,6 +432,11 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   // let go.
                   try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not fatal */ }
                   if (engine && slot) {
+                    if (!momentary && isPlaying) {
+                      engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                      onStopSlot(i);
+                      return;
+                    }
                     engine.setModifiers(slot.baseType, slot.ext_m7, slot.ext_M7, slot.ext_6, slot.ext_9);
                     engine.handleMidi(slot.rootPitch, memoryVelocity, true, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                     onPlaySlot(i);
@@ -431,7 +445,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   }
                 }}
                 onPointerUp={(e) => {
-                  if (isEditMode) return;
+                  if (isEditMode || !momentary) return;
                   e.preventDefault();
                   if (engine && slot) {
                     engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
@@ -439,7 +453,7 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   }
                 }}
                 onPointerLeave={(e) => {
-                  if (isEditMode) return;
+                  if (isEditMode || !momentary) return;
                   e.preventDefault();
                   if (engine && slot) {
                     engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
@@ -448,8 +462,8 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                 }}
                 onPointerCancel={(e) => {
                   // A cancelled gesture would otherwise leave the chord sounding
-                  // and the key held.
-                  if (isEditMode) return;
+                  // and the key held. A latched pad is meant to stay sounding. A latched pad is meant to stay sounding.
+                  if (isEditMode || !momentary) return;
                   e.preventDefault();
                   if (engine && slot) {
                     engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);

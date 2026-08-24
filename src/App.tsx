@@ -91,7 +91,8 @@ function App() {
   }, [nudgeScale]);
   
   const [memorySlots, setMemorySlots] = useState<MemorySlot[]>(Array(8).fill(null));
-  const [playingSlotIndex, setPlayingSlotIndex] = useState<number | null>(null);
+  // Several pads can sound at once, so this is every pad currently lit.
+  const [playingSlotIndices, setPlayingSlotIndices] = useState<number[]>([]);
   const [lastPlayedChord, setLastPlayedChord] = useState<MemorySlot | null>(null);
   const [isChordEditMode, setIsChordEditMode] = useState(false);
   const [activeEditSlotIndex, setActiveEditSlotIndex] = useState<number | null>(null);
@@ -133,12 +134,12 @@ function App() {
   }, []);
   
   const memorySlotsRef = useRef(memorySlots);
-    const playingSlotIndexRef = useRef(playingSlotIndex);
+    const playingSlotIndicesRef = useRef(playingSlotIndices);
   const paramsRef = useRef(params);
 
 
   useEffect(() => { memorySlotsRef.current = memorySlots; }, [memorySlots]);
-    useEffect(() => { playingSlotIndexRef.current = playingSlotIndex; }, [playingSlotIndex]);
+    useEffect(() => { playingSlotIndicesRef.current = playingSlotIndices; }, [playingSlotIndices]);
   useEffect(() => { paramsRef.current = params; }, [params]);
 
   // State to force re-renders from engine
@@ -208,7 +209,12 @@ function App() {
           if (slot) {
             const vel = paramsRef.current.memoryVelocity || 100;
             if (isOn && velocity > 0) {
-              setPlayingSlotIndex(slotIndex);
+              if (!paramsRef.current.memoryMomentary && playingSlotIndicesRef.current.includes(slotIndex)) {
+                setPlayingSlotIndices(prev => prev.filter(x => x !== slotIndex));
+                newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                return;
+              }
+              setPlayingSlotIndices(prev => prev.includes(slotIndex) ? prev : [...prev, slotIndex]);
               newEngine.manualBaseType = slot.baseType;
               newEngine.ext_m7 = slot.ext_m7;
               newEngine.ext_M7 = slot.ext_M7;
@@ -216,10 +222,8 @@ function App() {
               newEngine.ext_9 = slot.ext_9;
               newEngine.notifyState();
               newEngine.handleMidi(slot.rootPitch, vel, true, false, false, false, true, slot.customVoicing, slot.chordIntervals);
-            } else {
-              if (playingSlotIndexRef.current === slotIndex) {
-                setPlayingSlotIndex(null);
-              }
+            } else if (paramsRef.current.memoryMomentary) {
+              setPlayingSlotIndices(prev => prev.filter(x => x !== slotIndex));
               newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
             }
           } else if (isOn && velocity > 0) {
@@ -499,15 +503,15 @@ function App() {
           setParams={setParams}
           engineState={engineState}
           memorySlots={memorySlots}
-                    playingSlotIndex={playingSlotIndex}
+                    playingSlotIndices={playingSlotIndices}
                     activeNotes={physicallyHeldNotes}
           onClose={() => setShowMobileView(false)}
           onPlaySlot={(index) => {
-            setPlayingSlotIndex(index);
+            setPlayingSlotIndices(prev => prev.includes(index) ? prev : [...prev, index]);
             setLastPlayedChord(memorySlots[index]);
           }}
           onStopSlot={(index) => {
-            setPlayingSlotIndex(prev => prev === index ? null : prev);
+            setPlayingSlotIndices(prev => prev.filter(x => x !== index));
           }}
           onSaveSlot={(index, chord) => {
             setMemorySlots(prev => {
@@ -702,14 +706,16 @@ function App() {
             <MemorySlots 
               engine={engine}
               slots={memorySlots}
-              playingSlotIndex={playingSlotIndex}
+              playingSlotIndices={playingSlotIndices}
               onPlaySlot={(index) => {
-                setPlayingSlotIndex(index);
+                setPlayingSlotIndices(prev => prev.includes(index) ? prev : [...prev, index]);
                 setLastPlayedChord(memorySlots[index]);
               }}
               onStopSlot={(index) => {
-                setPlayingSlotIndex(prev => prev === index ? null : prev);
+                setPlayingSlotIndices(prev => prev.filter(x => x !== index));
               }}
+              momentary={params.memoryMomentary !== false}
+              onToggleMomentary={() => setParams({ ...params, memoryMomentary: params.memoryMomentary === false })}
               memoryVelocity={params.memoryVelocity}
               onMemoryVelocityChange={(vel) => setParams(prev => ({ ...prev, memoryVelocity: vel }))}
               followRegister={params.memoryFollowRegister !== false}

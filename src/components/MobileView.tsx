@@ -13,7 +13,7 @@ interface MobileViewProps {
   setParams: (p: OrchidParams) => void;
   engineState: any;
   memorySlots: MemorySlot[];
-  playingSlotIndex: number | null;
+  playingSlotIndices: number[];
   activeNotes: number[];
   onClose: () => void;
   onPlaySlot: (index: number) => void;
@@ -30,7 +30,7 @@ export function MobileView({
   setParams,
   engineState,
   memorySlots,
-  playingSlotIndex,
+  playingSlotIndices,
   activeNotes,
   onClose,
   onPlaySlot,
@@ -66,7 +66,7 @@ export function MobileView({
           <MemorySlots 
             engine={engine}
             slots={memorySlots}
-            playingSlotIndex={playingSlotIndex}
+            playingSlotIndices={playingSlotIndices}
             hideHeader={true}
             onPlaySlot={onPlaySlot}
             onStopSlot={onStopSlot}
@@ -80,6 +80,8 @@ export function MobileView({
             memoryVelocity={params.memoryVelocity || 100}
             followRegister={params.memoryFollowRegister !== false}
             onToggleFollowRegister={() => setParams({ ...params, memoryFollowRegister: !params.memoryFollowRegister })}
+            momentary={params.memoryMomentary !== false}
+            onToggleMomentary={() => setParams({ ...params, memoryMomentary: params.memoryMomentary === false })}
             onMemoryVelocityChange={() => {}}
             isFreeEditMode={false}
             onToggleFreeEditMode={() => {}}
