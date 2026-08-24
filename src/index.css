@@ -145,6 +145,11 @@ input[type="range"]::-moz-range-thumb {
 .toggle-switch {
   width: 48px;
   height: 24px;
+  /* The knob is placed at a fixed distance from the left, so the track must
+     keep its width. Left to shrink in a tight flex row it narrows while the
+     knob stays put, and the knob ends up outside the switch. */
+  flex: none;
+  box-sizing: border-box;
   background: #111;
   border-radius: 12px;
   position: relative;

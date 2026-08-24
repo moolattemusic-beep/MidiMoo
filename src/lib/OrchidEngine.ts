@@ -120,6 +120,11 @@ export class OrchidEngine {
   private patternPhaseStart: number | null = null;
   private pedalLiftTimer: any = null;
   private patternGraceTimer: any = null;
+  // The pitch classes the last chord took as colour rather than as chord tones.
+  // The arpeggio leaves them out: a chord carrying every tension is a scale, and
+  // arpeggiating a scale is what made the pad sound like it was running
+  // chromatically rather than over the chord.
+  private colourClasses: Set<number> = new Set();
   private patternCache: { key: string; pattern: ChordPattern } | null = null;
 
   /** The pattern in force: an edited one if there is one, else the library. */
@@ -1554,6 +1559,7 @@ export class OrchidEngine {
     }
 
     const out = [...intervals];
+    this.colourClasses.clear();
     for (const tone of order.slice(0, colour)) {
       const pc = tone % 12;
       // Never twice, and never a tone the chord already states in another
@@ -1564,6 +1570,7 @@ export class OrchidEngine {
       if ((pc === 11 && flatSeventh) || (pc === 10 && pcs.has(11))) continue;
       if ((pc === 1 || pc === 3) && pcs.has(2)) continue;
       out.push(tone);
+      this.colourClasses.add(pc);
     }
     return out.sort((a, b) => a - b);
   }
@@ -1692,9 +1699,27 @@ export class OrchidEngine {
           }
         }
       }
+      // A pattern holds the chord itself rather than leaving it in memory, so
+      // without this the pad has nothing to play over and falls silent the
+      // moment a pattern is switched on.
+      const run = this.patternRuns.get(pitch);
+      if (run) {
+        for (const p of run.pitches) {
+          pitchClasses.push(p % 12);
+          hasNotes = true;
+        }
+      }
     }
-    
+
     if (!hasNotes) return [];
+
+    // Colour belongs to the chord being held, not to the line running over it.
+    // Dropped only while something is left to play, so a chord that is nothing
+    // but colour still gives the pad somewhere to go.
+    if (this.colourClasses.size > 0) {
+      const core = pitchClasses.filter(pc => !this.colourClasses.has(pc));
+      if (core.length > 0) pitchClasses = core;
+    }
     
     pitchClasses = Array.from(new Set(pitchClasses)).sort((a, b) => a - b);
     
