@@ -128,6 +128,11 @@ export interface OrchidParams {
   // taken off written progressions, rather than by stacking thirds and dropping
   // one of them.
   voicingPlayed: boolean;
+  // The range everything leaving the app has to fit in. A note outside it is
+  // moved by whole octaves until it fits, so nothing is lost and nothing sounds
+  // in a register the part was never meant to reach.
+  outputRangeLow: number;
+  outputRangeHigh: number;
   // How far MODIFY moves the pattern it is given.
   patternModifyAmount: number; // 0-100
   // Half and double time. The tempo stays as typed; this is how fast the
@@ -243,6 +248,8 @@ export const defaultParams: OrchidParams = {
   // Off until it is chosen: it changes how every chord is voiced, and that is
   // the player's call rather than a default.
   voicingPlayed: false,
+  outputRangeLow: 24,
+  outputRangeHigh: 96,
   patternModifyAmount: 25,
   patternRate: 1,
   patternChordLayer: false,

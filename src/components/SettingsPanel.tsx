@@ -40,6 +40,11 @@ const sliderToVdep = (pos: number) => {
 };
 
 // Attack/Release use the Logic script's curve; show the time it works out to.
+/** A MIDI note as a player would name it, so a range reads as pitches. */
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const noteName = (n: number): string =>
+  `${NOTE_NAMES[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`;
+
 const fmtStage = (p: number) => {
   const ms = stageDurationMs(p);
   if (ms <= 0) return 'INSTANT';
@@ -140,7 +145,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         engine.updateRegister(value);
       } else if (key === 'chordInversion') {
         engine.updateInversion(value);
-      } else if (key === 'registerMode' || key === 'chordMaxNotes' || key === 'chordColor' || key === 'voicingRange') {
+      } else if (key === 'registerMode' || key === 'chordMaxNotes' || key === 'chordColor' || key === 'outputRangeLow' || key === 'outputRangeHigh') {
         engine.params = newParams;
         engine.retriggerHeldKeys(true);
       } else if (key === 'mpeEnabled' || key === 'mpeGlideMode' || key === 'keyboardMapping') {
@@ -215,15 +220,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           <span className="label-meta !text-[var(--accent)]">{params.registerSilent ? 'ON' : 'OFF'}</span>
         </div>
         <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-4 leading-relaxed">
-          SILENT: MOVING CHORD START MAKES NO SOUND — IT SETS THE REGISTER THE NEXT
-          CHORD WILL BE VOICED IN. OFF: IT RE-VOICES WHAT IS SOUNDING AS IT MOVES,
-          AND UNDER THE SUSTAIN PEDAL EACH VOICING IS KEPT, SO THE SLIDER STACKS
-          THEM INTO AN ARPEGGIO.
+          REGISTER MOVES THE CHORD AND INVERTS IT AS IT GOES: NOTES THAT FALL BELOW
+          IT ARE LIFTED AN OCTAVE, SO SLIDING WALKS THROUGH THE INVERSIONS AND ON
+          INTO THE NEXT REGISTER. SILENT: MOVING IT MAKES NO SOUND, IT ONLY SETS
+          WHERE THE NEXT CHORD IS VOICED. OFF: IT RE-VOICES WHAT IS SOUNDING, AND
+          UNDER THE SUSTAIN PEDAL EACH VOICING IS KEPT, SO IT STACKS THEM INTO AN
+          ARPEGGIO.
         </p>
         <div className="mb-6 h-[50px]">
           <div className="fade-in">
             <div className="flex justify-between items-center mb-2">
-              <span className="label-meta">CHORD START</span>
+              <span className="label-meta">REGISTER</span>
               <span className="label-meta !text-[var(--accent)]">{params.chordRegisterStart}</span>
             </div>
             <CustomSlider
@@ -232,22 +239,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
               step={1}
               value={params.chordRegisterStart}
               onChange={(val) => updateParam('chordRegisterStart', val)}
-            />
-          </div>
-        </div>
-
-        <div className="mb-6 h-[50px]">
-          <div className="fade-in">
-            <div className="flex justify-between items-center mb-2">
-              <span className="label-meta">INVERSION</span>
-              <span className="label-meta !text-[var(--accent)]">{params.chordInversion}</span>
-            </div>
-            <CustomSlider
-              min={0}
-              max={16}
-              step={1}
-              value={params.chordInversion}
-              onChange={(val) => updateParam('chordInversion', val)}
             />
           </div>
         </div>
@@ -269,20 +260,40 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         </div>
 
         
-        <div className="mb-6 h-[50px]">
-          <div className="fade-in">
-            <div className="flex justify-between items-center mb-2">
-              <span className="label-meta">VOICING RANGE</span>
-              <span className="label-meta !text-[var(--accent)]">{params.voicingRange}</span>
-            </div>
-            <CustomSlider
-              min={12}
-              max={36}
-              step={1}
-              value={params.voicingRange}
-              onChange={(val) => updateParam('voicingRange', val)}
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-2">
+            <span className="label-meta">RANGE</span>
+            <span className="label-meta !text-[var(--accent)]">
+              {noteName(params.outputRangeLow ?? 24)} – {noteName(params.outputRangeHigh ?? 96)}
+            </span>
+          </div>
+          {/* Two handles on one line: everything the app sends is moved by
+              octaves until it sits between them, so no part strays into a
+              register it was never meant to reach. */}
+          <div className="relative h-[26px]">
+            <input
+              type="range" min={0} max={127}
+              value={params.outputRangeLow ?? 24}
+              onChange={(e) => {
+                const v = Math.min(parseInt(e.target.value, 10), (params.outputRangeHigh ?? 96) - 12);
+                updateParam('outputRangeLow', v);
+              }}
+              className="range-sm w-full absolute inset-0 accent-[var(--accent)]"
+            />
+            <input
+              type="range" min={0} max={127}
+              value={params.outputRangeHigh ?? 96}
+              onChange={(e) => {
+                const v = Math.max(parseInt(e.target.value, 10), (params.outputRangeLow ?? 24) + 12);
+                updateParam('outputRangeHigh', v);
+              }}
+              className="range-sm w-full absolute inset-0 accent-[var(--accent)] pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto"
             />
           </div>
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
+            EVERYTHING LEAVING THE APP IS MOVED BY WHOLE OCTAVES UNTIL IT FITS BETWEEN
+            THESE, SO A NOTE KEEPS ITS NAME AND ONLY CHANGES REGISTER.
+          </p>
         </div>
 
         <p className="label-meta mb-2">AUTO BASS</p>

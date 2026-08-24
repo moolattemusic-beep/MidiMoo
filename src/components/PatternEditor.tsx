@@ -45,6 +45,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
   // timer thinks they should be.
   const [phase, setPhase] = useState<number | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  // Folded away, the section keeps only its header — the pattern goes on
+  // playing, it is simply out of the way when the hands are elsewhere.
+  const [open, setOpen] = useState<boolean>(
+    () => localStorage.getItem('orchid-pattern-open') !== 'false'
+  );
+  React.useEffect(() => { localStorage.setItem('orchid-pattern-open', String(open)); }, [open]);
   // Every edit pushes what it replaced, so one control walks back through all of
   // them — dragging, holding, generating, modifying and choosing alike.
   const undoStack = useRef<Array<{ custom: string | null; index: number }>>([]);
@@ -228,7 +234,14 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     <div className="module flex flex-col gap-2 shrink-0">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
-          <p className="label-meta">PATTERN</p>
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="label-meta flex items-center gap-2 cursor-pointer select-none hover:text-[var(--ink)]"
+            title={open ? 'Fold the pattern section away' : 'Show the pattern section'}
+          >
+            <span className="text-[var(--accent)] text-[10px]">{open ? '▼' : '▶'}</span>
+            PATTERN
+          </button>
           <div
             className={`toggle-switch sm ${params.patternEnabled ? 'on' : ''}`}
             onClick={() => update({ patternEnabled: !params.patternEnabled })}
@@ -352,6 +365,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         </div>
       </div>
 
+      {open && (<>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2" title="Play at a set level instead of at whatever the keys were struck at">
@@ -662,6 +676,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         NEXT BAR HOLDS IT BACK UNTIL THE CYCLE STARTS AGAIN, SO THE CHANGE ALWAYS
         LANDS ON THE DOWNBEAT.
       </p>
+      </>)}
     </div>
   );
 };

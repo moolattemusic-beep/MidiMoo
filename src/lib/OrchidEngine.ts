@@ -127,6 +127,8 @@ export class OrchidEngine {
   // arpeggiating a scale is what made the pad sound like it was running
   // chromatically rather than over the chord.
   private colourClasses: Set<number> = new Set();
+  // The chord the strum pad falls back on when nothing is being held.
+  private lastArpClasses: number[] = [];
   private patternCache: { key: string; pattern: ChordPattern } | null = null;
 
   /** The pattern in force: an edited one if there is one, else the library. */
@@ -1140,6 +1142,7 @@ export class OrchidEngine {
       this.arpChannel = null;
     }
     this.lastArpeggioPitch = null;
+    this.lastArpClasses = [];
     for (const timeoutId of this.glideCarryKeys.values()) {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -1734,7 +1737,10 @@ export class OrchidEngine {
 
     // Extract exact pitch classes from currently playing memory (mirrors Strumplate logic)
     let hasNotes = false;
-    for (const [pitch, _] of this.heldKeys.entries()) {
+    // Keys still down, and keys the pedal is holding on past their release —
+    // both are sounding, so both are something to arpeggiate over.
+    const sounding = new Set<number>([...this.heldKeys.keys(), ...this.physicallyReleasedKeys]);
+    for (const pitch of sounding) {
       const memory = this.activePitchesMemory[pitch];
       if (memory) {
         for (const note of memory) {
@@ -1756,7 +1762,20 @@ export class OrchidEngine {
       }
     }
 
-    if (!hasNotes) return [];
+    if (!hasNotes) {
+      // The pad keeps playing over the chord last chosen, so a figure can be
+      // played without holding the chord down throughout.
+      //
+      // Free mode is the exception, and has to be: there the keys are the notes
+      // rather than a chord to look up, so a remembered chord would be a chord
+      // that is no longer being played. There the pad follows what is sounding
+      // and falls silent with it.
+      const freeMode = this.params.keyboardMapping === 3;
+      if (freeMode || this.lastArpClasses.length === 0) return [];
+      pitchClasses = [...this.lastArpClasses];
+    } else {
+      this.lastArpClasses = [...new Set(pitchClasses)];
+    }
 
     // Colour belongs to the chord being held, not to the line running over it.
     // Dropped only while something is left to play, so a chord that is nothing
@@ -1998,6 +2017,15 @@ export class OrchidEngine {
     for (const p of sortedPitches) {
       this.strumplatePitches.push({ pitch: p, sourceKey: uniquePitches.get(p)! });
     }
+
+    // The chord the strum pad falls back on is recorded here rather than when
+    // the pad happens to ask: this runs whenever a chord settles, so what is
+    // remembered is the last chord played and not the last one looked at.
+    const classes = new Set(sortedPitches.map(p => ((p % 12) + 12) % 12));
+    for (const [, run] of this.patternRuns) {
+      for (const p of run.pitches) classes.add(((p % 12) + 12) % 12);
+    }
+    if (classes.size > 0) this.lastArpClasses = [...classes].sort((a, b) => a - b);
   }
 
   private handleStrumplate(value: number) {
@@ -2829,7 +2857,7 @@ export class OrchidEngine {
     // letting it continue would bend the note starting here.
     this.cancelChannelGlide(channel);
     const finalVelocity = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
-    if (this.onOutputNote) this.onOutputNote({ pitch, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw, isCycleStart });
+    if (this.onOutputNote) this.onOutputNote({ pitch: this.foldToRange(pitch), velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw, isCycleStart });
     
     // Reset expression and pitch bend on note on, in case channel was reused/glided
     if (this.params.mpeEnabled) {
@@ -2840,13 +2868,33 @@ export class OrchidEngine {
     }
   }
 
+  /**
+   * Move a note by whole octaves until it sits inside the range, so nothing
+   * leaves the app in a register the part was never meant to reach.
+   *
+   * It has to be a pure function of the pitch: the same note is folded on its
+   * way in and on its way out, and if the two ever disagreed the note would
+   * never be released. Octaves rather than clamping, so the note keeps its name.
+   */
+  public foldToRange(pitch: number): number {
+    const low = Math.max(0, Math.min(127, Math.round(this.params.outputRangeLow ?? 0)));
+    const high = Math.max(0, Math.min(127, Math.round(this.params.outputRangeHigh ?? 127)));
+    if (high - low < 12) return pitch; // too narrow to fold into; leave it alone
+    let p = pitch;
+    while (p < low) p += 12;
+    while (p > high) p -= 12;
+    // A note that cannot be made to fit is left where it was rather than pushed
+    // outside the other end.
+    return p >= low && p <= high ? p : pitch;
+  }
+
   private emitNoteOff(pitch: number, velocity: number = 0, delayMs: number = 0, channel: number = 1, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false) {
     // The note is ending; its glide must not outlive it and bend the next one.
     this.cancelChannelGlide(channel);
     if (isInternalSynthOnly && !this.params.omnichordSynthMonitor) {
       return; // Fully silent
     }
-    if (this.onOutputNote) this.onOutputNote({ pitch, velocity, isOn: false, delayMs, mpeChannel: channel, isInternalSynthOnly, isMidiOnly });
+    if (this.onOutputNote) this.onOutputNote({ pitch: this.foldToRange(pitch), velocity, isOn: false, delayMs, mpeChannel: channel, isInternalSynthOnly, isMidiOnly });
   }
 
   /**
