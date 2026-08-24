@@ -145,7 +145,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         engine.updateRegister(value);
       } else if (key === 'chordInversion') {
         engine.updateInversion(value);
-      } else if (key === 'registerMode' || key === 'chordMaxNotes' || key === 'chordColor' || key === 'outputRangeLow' || key === 'outputRangeHigh') {
+      } else if (key === 'outputRangeLow' || key === 'outputRangeHigh') {
+        // The range is a setting rather than something played: it takes effect
+        // on what comes next and never re-sounds what is already held.
+        engine.params = newParams;
+      } else if (key === 'registerMode' || key === 'chordMaxNotes' || key === 'chordColor') {
         engine.params = newParams;
         engine.retriggerHeldKeys(true);
       } else if (key === 'mpeEnabled' || key === 'mpeGlideMode' || key === 'keyboardMapping') {
@@ -210,14 +214,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           </div>
         </div>
       </CollapsibleSection>
-      <CollapsibleSection title="Register Control" extraHeader={<div
-            className={`toggle-switch sm ${params.registerSilent ? 'on' : ''}`}
-            title="Silent: the slider sets up the next chord instead of playing"
-            onClick={() => updateParam('registerSilent', !params.registerSilent)}
-          ></div>}>
+      <CollapsibleSection title="Register Control">
         <div className="flex justify-between items-center mb-3">
           <span className="label-meta">SILENT</span>
-          <span className="label-meta !text-[var(--accent)]">{params.registerSilent ? 'ON' : 'OFF'}</span>
+          <div
+            className={`toggle-switch sm ${params.registerSilent ? 'on' : ''}`}
+            title="Silent: moving REGISTER sets up the next chord instead of playing"
+            onClick={() => updateParam('registerSilent', !params.registerSilent)}
+          ></div>
         </div>
         <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-4 leading-relaxed">
           REGISTER MOVES THE CHORD AND INVERTS IT AS IT GOES: NOTES THAT FALL BELOW
@@ -240,6 +244,34 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
               value={params.chordRegisterStart}
               onChange={(val) => updateParam('chordRegisterStart', val)}
             />
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center mb-6">
+          <span className="label-meta">INVERSION</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => updateParam('chordInversion', Math.max(-8, (params.chordInversion ?? 0) - 1))}
+              className="analog-btn !text-[11px] !px-3 !py-[3px]"
+              title="Take the top note down an octave"
+            >
+              −
+            </button>
+            <span className="label-meta !text-[var(--accent)] w-6 text-center">{params.chordInversion ?? 0}</span>
+            <button
+              onClick={() => updateParam('chordInversion', Math.min(8, (params.chordInversion ?? 0) + 1))}
+              className="analog-btn !text-[11px] !px-3 !py-[3px]"
+              title="Take the bottom note up an octave"
+            >
+              +
+            </button>
+            <button
+              onClick={() => updateParam('chordInversion', 0)}
+              className="analog-btn !text-[9px] !px-2 !py-[3px] ml-1"
+              title="Back to root position"
+            >
+              0
+            </button>
           </div>
         </div>
 

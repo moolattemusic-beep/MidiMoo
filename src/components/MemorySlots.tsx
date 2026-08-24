@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
+import { randomPreset } from '../lib/ChordPresets';
 import { parseProgression } from '../lib/ChordSymbol';
 
 export type MemorySlot = {
@@ -73,6 +74,31 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
 export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
+  const [presetTitle, setPresetTitle] = useState<string | null>(null);
+
+  /**
+   * Fill the pads from one of the bundled progressions. The chords are kept as
+   * the notes they were written with rather than as a name, so what lands on the
+   * pad is the voicing itself — which is the whole reason for taking them from
+   * played progressions in the first place. With FOLLOW REG on they still move
+   * with the register slider.
+   */
+  const loadPreset = () => {
+    const preset = randomPreset(presetTitle ?? undefined);
+    setPresetTitle(preset.title);
+    const next: MemorySlot[] = slots.map((_, i) => {
+      const chord = preset.chords[i];
+      if (!chord) return null;
+      return {
+        rootPitch: chord.notes[0] % 12,
+        baseType: 0,
+        ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
+        customVoicing: [...chord.notes],
+        symbol: chord.symbol,
+      };
+    });
+    onUpdateSlots(next);
+  };
   // Reading the clipboard needs the document focused and the permission
   // granted; when that fails there has to be somewhere to paste by hand
   // rather than a dead end.
@@ -161,6 +187,18 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   className="range-sm w-16 accent-[var(--accent)]"
                 />
              </div>
+             <button
+                onClick={loadPreset}
+                className="analog-btn !py-1 !px-2 !text-[9px]"
+                title="Fill the pads with the chords of a randomly chosen progression"
+             >
+                PRESET
+             </button>
+             {presetTitle && (
+                <span className="label-meta !text-[9px] !text-[var(--accent)] whitespace-nowrap" title={presetTitle}>
+                   {presetTitle.length > 28 ? presetTitle.slice(0, 28) + '…' : presetTitle}
+                </span>
+             )}
              {isEditMode && (
                 <button
                    onClick={pasteProgression}
