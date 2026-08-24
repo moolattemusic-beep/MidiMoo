@@ -1,0 +1,17 @@
+[
+  "handleMidi",
+  "setModifiers",
+  "setBaseType",
+  "releaseBaseType",
+  "toggleExtension",
+  "releaseExtension",
+  "handleArpeggioNoteOn",
+  "emitControlChange",
+  "updateInversion",
+  "panic",
+  "setParams",
+  "playSlot",
+  "stopSlot",
+  "saveSlot",
+  "updateSlots"
+]

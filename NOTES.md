@@ -98,6 +98,22 @@ back to being built.
   played: figures in threes and fours (four fingers, no fifth), notes left
   ringing, and no two notes ever struck at the same instant.
 
+**The remote is a view, not a second instrument.** The engine and Web MIDI live
+in the renderer, which is sandboxed and cannot listen on a socket, so main hosts
+the server and relays. Nothing about the instrument moved into it: a phone sends
+commands and draws the state it is sent. `RemoteEngine` wears the same shape as
+`OrchidEngine` so `MobileView` renders unchanged on both.
+
+**A phone that vanishes is owed note-offs.** Wi-Fi dropping does not close a
+socket, so silence is what counts as gone — a heartbeat every two seconds, five
+seconds of it means the phone is away. `HeldGestures` records what each phone
+pressed and says the opposite when it goes. Without that a phone going out of
+range mid-chord leaves it sounding for good.
+
+**The socket only reaches a listed command.** `electron/remote-commands.json` is
+required by main and imported by the renderer, so the boundary cannot drift. It
+is on the local network: anything not on that list is somebody else's idea.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long
@@ -111,6 +127,11 @@ back to being built.
   its root pitch, so the second press takes the first one's slot. Pads on
   different roots overlap correctly. Fixing it means giving a held chord an
   identity separate from its root.
+- The remote is served over plain HTTP, so `navigator.wakeLock` is unavailable
+  and the screen is held awake with a silent looping video instead. HTTPS with a
+  self-signed certificate would fix it properly.
+- The phone loads the three typefaces from Google Fonts, so it wants internet
+  even though nothing else does.
 - `voicingRange` no longer has a control. It still sets the window the chord
   builder folds into, so it is a constant rather than dead — but nothing can
   change it.

@@ -23,6 +23,9 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // The phone loads from Vite in development, so this has to answer on the
+      // network rather than only on localhost.
+      host: true,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

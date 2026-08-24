@@ -1,5 +1,7 @@
-const { app, BrowserWindow, session, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, ipcMain, session, powerSaveBlocker } = require('electron');
 const path = require('node:path');
+const { createRemoteServer, lanAddress } = require('./remote-server.cjs');
+const ALLOWED_COMMANDS = require('./remote-commands.json');
 
 const isDev = !app.isPackaged;
 const DEV_SERVER_URL = 'http://localhost:3000';
@@ -20,9 +22,67 @@ const DEV_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
 // breakpoint and stack, and the chord pads drop to two-across once their column
 // gets under 300px. This is the narrowest round width that clears both, so the
 // arrangement holds and the zoom stays as close to 1 as it can.
+// The phone remote. Off until asked for: the instrument should not be listening
+// on the network every time it is opened.
+const REMOTE_PORT = 7331;
+let remote = null;
+let remoteStatus = { running: false, url: null, devUrl: null, clients: 0 };
+
 const DESIGN_WIDTH = 1400;
 const DESIGN_HEIGHT = 1050;
 const ASPECT_RATIO = DESIGN_WIDTH / DESIGN_HEIGHT;
+
+/** Send to the instrument window, which is the only one there is. */
+function toRenderer(channel, payload) {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+async function startRemote() {
+  if (remote) return remoteStatus;
+  remote = createRemoteServer({
+    port: REMOTE_PORT,
+    // The same built bundle the desktop window loads. Inside the packaged app
+    // it lives in the asar, which reads like any other directory.
+    distDir: path.join(__dirname, '..', 'dist'),
+    // In development the phone loads from Vite instead, so a change shows up
+    // on the phone without rebuilding. The socket is on this port either way.
+    devUrl: isDev ? `http://${lanAddress()}:3000/?remote=1` : null,
+    isAllowed: (fn) => ALLOWED_COMMANDS.includes(fn),
+    onCommand: (fn, args) => toRenderer('remote:command', { fn, args }),
+    onClientGone: (releases) => toRenderer('remote:client-gone', releases),
+    onWantsSnapshot: () => toRenderer('remote:wants-snapshot', null),
+    onStatus: (status) => { remoteStatus = status; toRenderer('remote:status', status); },
+  });
+  try {
+    remoteStatus = await remote.start();
+  } catch (error) {
+    remote = null;
+    remoteStatus = {
+      running: false, url: null, devUrl: null, clients: 0,
+      error: error && error.code === 'EADDRINUSE'
+        ? `Port ${REMOTE_PORT} is already in use`
+        : String((error && error.message) || error),
+    };
+  }
+  return remoteStatus;
+}
+
+function registerRemoteHandlers() {
+  ipcMain.handle('remote:start', () => startRemote());
+
+  ipcMain.handle('remote:stop', async () => {
+    if (remote) { await remote.stop(); remote = null; }
+    remoteStatus = { running: false, url: null, devUrl: null, clients: 0 };
+    return remoteStatus;
+  });
+
+  ipcMain.handle('remote:status', () => remoteStatus);
+
+  ipcMain.on('remote:publish', (_event, message) => {
+    if (remote) remote.broadcast(message);
+  });
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -38,6 +98,7 @@ function createWindow() {
     backgroundColor: '#1a1a1a',
     ...(isDev ? { icon: DEV_ICON_PATH } : {}),
     webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -113,6 +174,7 @@ app.whenReady().then(() => {
     callback(false);
   });
 
+  registerRemoteHandlers();
   createWindow();
 
   app.on('activate', () => {
@@ -125,6 +187,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  // Close the port rather than leaving it held by a process on its way out.
+  if (remote) { remote.stop(); remote = null; }
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
     powerSaveBlocker.stop(powerSaveBlockerId);
   }

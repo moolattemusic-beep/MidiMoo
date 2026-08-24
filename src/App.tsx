@@ -13,6 +13,8 @@ import { ArpeggioXYPad } from './components/ArpeggioXYPad';
 import { MemorySlots, MemorySlot } from './components/MemorySlots';
 import { PerformanceKeyboard } from './components/PerformanceKeyboard';
 import { MobileView } from './components/MobileView';
+import { RemotePanel } from './components/RemotePanel';
+import { remoteHostAvailable, useRemoteHost } from './lib/useRemoteHost';
 import { CollapsiblePanel } from './components/CollapsiblePanel';
 
 // Continuous controllers a player expects to reach every sounding voice: mod
@@ -439,6 +441,23 @@ function App() {
     resendMpeConfig();
   }, [engine, synth, midiManager, velMod, resendMpeConfig]);
 
+  // The phone remote. It runs commands from a phone against this engine and
+  // pushes back whatever changed; nothing about the instrument moves into it.
+  const remote = useRemoteHost({
+    engine,
+    params,
+    setParams,
+    engineState,
+    memorySlots,
+    setMemorySlots,
+    playingSlotIndices,
+    setPlayingSlotIndices,
+    activeNotes: physicallyHeldNotes,
+    lastPlayedChord,
+    setLastPlayedChord,
+    onPanic: panicAll,
+  });
+
   useEffect(() => {
     if (engine) {
       engine.onOutputNote = (event: NoteEvent) => {
@@ -616,6 +635,9 @@ function App() {
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="1"></rect><line x1="7" y1="6" x2="7" y2="13"></line><line x1="12" y1="6" x2="12" y2="13"></line><line x1="17" y1="6" x2="17" y2="13"></line></svg>
             </button>
+            {remoteHostAvailable() && (
+              <RemotePanel status={remote.status} onStart={remote.start} onStop={remote.stop} />
+            )}
             <button
               onClick={() => setShowMobileView(true)}
               className="analog-btn w-8 h-8 flex items-center justify-center bg-[var(--accent)] text-black"

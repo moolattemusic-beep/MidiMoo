@@ -22,6 +22,10 @@ interface MobileViewProps {
   onUpdateSlots: (slots: MemorySlot[]) => void;
   lastPlayedChord: MemorySlot | null;
   onPanic?: () => void;
+  /** Anything the surrounding app wants in the header — the remote puts its link state here. */
+  headerExtra?: React.ReactNode;
+  /** The remote has nothing to close back to, so it hides the X. */
+  hideClose?: boolean;
 }
 
 export function MobileView({
@@ -38,13 +42,16 @@ export function MobileView({
   onSaveSlot,
   onUpdateSlots,
   lastPlayedChord,
-  onPanic
+  onPanic,
+  headerExtra,
+  hideClose
 }: MobileViewProps) {
   return (
     <div className="fixed inset-0 bg-[#000] z-50 flex flex-col overflow-hidden text-white font-['Space_Mono']">
       <div className="flex justify-between items-center p-2 bg-[var(--wood)] border-b-2 border-black shrink-0">
         <span className="font-bold tracking-widest uppercase text-black text-sm">MOBILE PERFORMANCE</span>
         <div className="flex items-center gap-2">
+          {headerExtra}
           {onPanic && (
             <button 
               onClick={onPanic}
@@ -53,9 +60,11 @@ export function MobileView({
               PANIC
             </button>
           )}
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-black text-[var(--accent)] border border-black rounded-sm">
-            X
-          </button>
+          {!hideClose && (
+            <button onClick={onClose} className="w-8 h-8 flex items-center justify-center bg-black text-[var(--accent)] border border-black rounded-sm">
+              X
+            </button>
+          )}
         </div>
       </div>
       
@@ -133,7 +142,6 @@ export function MobileView({
             engine={engine} 
             params={params} 
             activeNotes={activeNotes} 
-            numKeysOverride={13} 
           />
         </div>
         
