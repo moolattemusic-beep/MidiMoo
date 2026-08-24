@@ -127,11 +127,24 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
           />
         </svg>
 
-        <div className="absolute top-[10%] left-1/2 -translate-x-1/2 label-meta pointer-events-none">CLOSED</div>
-        <div className="absolute top-[50%] right-[10%] -translate-y-1/2 label-meta pointer-events-none">DROP 2</div>
-        <div className="absolute bottom-[20%] right-[20%] label-meta pointer-events-none">DROP 3</div>
-        <div className="absolute bottom-[20%] left-[20%] label-meta pointer-events-none">DROP 4</div>
-        <div className="absolute top-[50%] left-[10%] -translate-y-1/2 label-meta pointer-events-none">OPEN</div>
+        {params.voicingPlayed ? (
+          <>
+            {/* Two plain choices rather than five named drop voicings: how far
+                the chord reaches, and how usual a way of playing it this is. */}
+            <div className="absolute top-[8%] left-1/2 -translate-x-1/2 label-meta pointer-events-none">USUAL</div>
+            <div className="absolute bottom-[8%] left-1/2 -translate-x-1/2 label-meta pointer-events-none">UNUSUAL</div>
+            <div className="absolute top-[50%] left-[6%] -translate-y-1/2 label-meta pointer-events-none">CLOSE</div>
+            <div className="absolute top-[50%] right-[6%] -translate-y-1/2 label-meta pointer-events-none">WIDE</div>
+          </>
+        ) : (
+          <>
+            <div className="absolute top-[10%] left-1/2 -translate-x-1/2 label-meta pointer-events-none">CLOSED</div>
+            <div className="absolute top-[50%] right-[10%] -translate-y-1/2 label-meta pointer-events-none">DROP 2</div>
+            <div className="absolute bottom-[20%] right-[20%] label-meta pointer-events-none">DROP 3</div>
+            <div className="absolute bottom-[20%] left-[20%] label-meta pointer-events-none">DROP 4</div>
+            <div className="absolute top-[50%] left-[10%] -translate-y-1/2 label-meta pointer-events-none">OPEN</div>
+          </>
+        )}
 
         {/* Draggable Thumb */}
         <div 
@@ -140,7 +153,25 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
         />
       </div>
       
-      <p className="label-meta mt-6 mb-6 text-center text-[0.5rem]">GENERATE PROBABILITY SECTOR</p>
+      <div className="flex items-center justify-between w-full mt-4 mb-3">
+        <span className="label-meta">PLAYED VOICINGS</span>
+        <div
+          className={`toggle-switch sm ${params.voicingPlayed ? 'on' : ''}`}
+          title="Voice chords from shapes taken off written progressions, rather than by stacking thirds"
+          onClick={() => {
+            const next = { ...params, voicingPlayed: !params.voicingPlayed };
+            setParams(next);
+            if (engine) { engine.params = next; engine.retriggerHeldKeys(true); }
+          }}
+        ></div>
+      </div>
+      <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+        PLAYED VOICINGS COME FROM A LIBRARY OF SHAPES LIFTED OFF WRITTEN PROGRESSIONS.
+        THEY REACH ABOUT TWO OCTAVES, OFTEN PUT THE SEVENTH BELOW THE THIRD, AND MAY
+        NOT START ON THE ROOT. LEFT TO RIGHT IS HOW FAR THE CHORD REACHES; TOP TO
+        BOTTOM IS HOW USUAL A WAY OF PLAYING IT THIS IS. SWITCHED OFF, THE DISK GOES
+        BACK TO THE DROP VOICINGS.
+      </p>
     </div>
   );
 }

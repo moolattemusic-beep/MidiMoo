@@ -193,3 +193,74 @@ export function voicingFor(quality: VoicingQuality, noteCount: number, index = 0
 /** How wide a voicing reaches, in semitones. */
 export const voicingSpread = (v: Voicing): number =>
   v.intervals[v.intervals.length - 1] - v.intervals[0];
+
+/**
+ * The quality a set of pitch classes should be voiced as. Distinguishes a plain
+ * triad from a seventh chord, because they are voiced differently: a seventh is
+ * usually spread with the seventh low, a triad is not.
+ */
+export function voicingQualityOf(pitchClasses: Set<number>): VoicingQuality {
+  const min3 = pitchClasses.has(3);
+  const maj3 = pitchClasses.has(4);
+  const flat5 = pitchClasses.has(6);
+  const b7 = pitchClasses.has(10);
+  const maj7 = pitchClasses.has(11);
+  const dim7 = pitchClasses.has(9);
+
+  if (!min3 && !maj3) return 'sus';
+  if (min3 && flat5) return b7 ? 'halfdim' : (dim7 ? 'dim' : 'halfdim');
+  if (maj3 && b7) return 'dom';
+  if (maj3 && maj7) return 'maj7';
+  if (min3 && b7) return 'min7';
+  if (min3) return 'min';
+  return maj7 ? 'maj7' : 'maj';
+}
+
+/**
+ * Choose a voicing for a chord.
+ *
+ * Coverage comes first: a shape that states every note the chord asks for beats
+ * a wider or more unusual one that leaves a note out, so an extension the player
+ * chose is not quietly dropped for the sake of a nicer shape.
+ *
+ * Among the shapes that cover it, the two axes decide. Spread runs from the
+ * closest voicing to the widest; character runs from the way the chord is most
+ * often played to the least. That is a more direct pair of choices than naming
+ * drop voicings, and it is what the source library actually varies.
+ */
+export function chooseVoicing(
+  quality: VoicingQuality,
+  required: Set<number>,
+  noteCount: number,
+  spread01: number,
+  character01: number
+): Voicing | null {
+  const all = voicingsFor(quality);
+  if (all.length === 0) return null;
+
+  const covers = (v: Voicing) => {
+    const pcs = new Set(v.intervals.map(i => ((i % 12) + 12) % 12));
+    let missing = 0;
+    for (const pc of required) if (!pcs.has(pc)) missing++;
+    return missing;
+  };
+
+  const best = Math.min(...all.map(covers));
+  let pool = all.filter(v => covers(v) === best);
+
+  // Prefer the size asked for, but never at the cost of coverage.
+  const sized = pool.filter(v => v.intervals.length === noteCount);
+  if (sized.length) pool = sized;
+
+  // Spread picks a band of the range; character picks within it.
+  const bySpread = [...pool].sort((a, b) => voicingSpread(a) - voicingSpread(b));
+  const x = Math.max(0, Math.min(1, spread01));
+  const band = Math.max(1, Math.round(bySpread.length * 0.45));
+  const centre = Math.round(x * (bySpread.length - 1));
+  const from = Math.max(0, Math.min(bySpread.length - band, centre - Math.floor(band / 2)));
+  const window = bySpread.slice(from, from + band);
+
+  const byWeight = window.sort((a, b) => b.weight - a.weight);
+  const y = Math.max(0, Math.min(1, character01));
+  return byWeight[Math.round(y * (byWeight.length - 1))] ?? byWeight[0];
+}

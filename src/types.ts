@@ -124,6 +124,10 @@ export interface OrchidParams {
   // Which tensions each quality of chord may take, as JSON. Null means the
   // ordinary set for each.
   chordColorMatrix: string | null;
+  // Voice chords the way they are actually played, from the library of shapes
+  // taken off written progressions, rather than by stacking thirds and dropping
+  // one of them.
+  voicingPlayed: boolean;
   // How far MODIFY moves the pattern it is given.
   patternModifyAmount: number; // 0-100
   // Half and double time. The tempo stays as typed; this is how fast the
@@ -236,6 +240,9 @@ export const defaultParams: OrchidParams = {
   chordColor: 0,
   chordMaxNotes: 6,
   chordColorMatrix: null,
+  // Off until it is chosen: it changes how every chord is voiced, and that is
+  // the player's call rather than a default.
+  voicingPlayed: false,
   patternModifyAmount: 25,
   patternRate: 1,
   patternChordLayer: false,

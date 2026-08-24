@@ -1,6 +1,7 @@
 import { OrchidParams, NoteEvent } from '../types';
 import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
 import { colourTensionsFor, parseColourMatrix, qualityOf } from './ChordColour';
+import { chooseVoicing, voicingQualityOf } from './Voicings';
 
 // One voice in the Free MOO pool: a held MPE channel that is bent around
 // rather than retriggered.
@@ -1603,7 +1604,66 @@ export class OrchidEngine {
     });
   }
 
+  /**
+   * Voice a chord the way it is actually played, from the library of shapes
+   * taken off written progressions, rather than by stacking thirds and dropping
+   * one of them.
+   *
+   * The shape is chosen for the chord's quality and for what it has to state,
+   * then placed so its lowest sounding note falls at the register — a shape may
+   * begin on its fifth rather than its root, which is how an inversion is
+   * written there, and the placement has to respect that.
+   */
+  private playedVoicing(rootPitch: number, intervals: number[], keepAllTones: boolean, noteLimit?: number): number[] | null {
+    if (!this.params.voicingPlayed) return null;
+    if (intervals.length < 3) return null;
+    // A chord pasted as a symbol is played as spelled. Handing it to a library
+    // shape would re-voice it into something that is not the chord that was
+    // written, and quietly drop the alteration it was named for.
+    if (keepAllTones) return null;
+
+    const required = new Set(intervals.map(i => ((i % 12) + 12) % 12));
+    const quality = voicingQualityOf(required);
+    const wanted = noteLimit ?? Math.max(1, Math.min(8, Math.round(this.params.chordMaxNotes ?? 6)));
+
+    // The two axes of the pad, as fractions. Spread runs from the closest
+    // voicing to the widest, character from the commonest to the least.
+    const spread01 = ((this.params.voicingX ?? 0) + 1) / 2;
+    const character01 = ((this.params.voicingY ?? 0) + 1) / 2;
+
+    const voicing = chooseVoicing(quality, required, Math.max(4, Math.min(6, wanted)), spread01, character01);
+    if (!voicing) return null;
+
+    // The library covers the ordinary chords, not every colouring of them. If
+    // the shape cannot state everything this chord asks for, it is the wrong
+    // tool and the chord is built rather than borrowed — better an ordinary
+    // voicing of the right chord than a handsome voicing of the wrong one.
+    const stated = new Set(voicing.intervals.map(i => ((i % 12) + 12) % 12));
+    for (const pc of required) if (!stated.has(pc)) return null;
+
+    // Place it so the lowest note it actually sounds sits at the register.
+    const start = this.params.chordRegisterStart;
+    const rootPC = ((rootPitch % 12) + 12) % 12;
+    let base = start - (((start - rootPC) % 12) + 12) % 12;
+    while (base + voicing.intervals[0] < start) base += 12;
+    while (base + voicing.intervals[0] >= start + 12) base -= 12;
+
+    const pitches = voicing.intervals.map(i => base + i).filter(p => p >= 0 && p <= 127);
+    if (pitches.length === 0) return null;
+
+    // A smaller chord than the shape offers is thinned from the top, which
+    // keeps the bass and the note that gives the chord its quality.
+    if (noteLimit !== undefined && pitches.length > noteLimit) {
+      return pitches.slice(0, Math.max(1, noteLimit));
+    }
+    const cap = Math.max(1, Math.min(8, Math.round(this.params.chordMaxNotes ?? 6)));
+    return pitches.length > cap ? pitches.slice(0, cap) : pitches;
+  }
+
   private calculateFoldedPitches(rootPitch: number, intervals: number[], keepAllTones = false, noteLimit?: number): number[] {
+    const played = this.playedVoicing(rootPitch, intervals, keepAllTones, noteLimit);
+    if (played) return played;
+
     const startRange = this.params.chordRegisterStart;
     const endRange = startRange + this.params.voicingRange;
     const registerStartPC = startRange % 12;
