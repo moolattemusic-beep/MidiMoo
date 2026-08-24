@@ -20,14 +20,16 @@ console.log('\n=== MAX NOTES is a plain count ===');
     check(`max ${n} gives ${n} notes`, major(n) === n, `${major(n)}`);
   }
   check('8 is available', major(8) >= 7, `${major(8)}`);
-  check('a triad cannot exceed its own tones',
+  // A played voicing may sound a tone in more than one octave, so a triad can
+  // legitimately arrive as more than three notes; it is still three tones.
+  check('a triad still states only its own three tones',
     (() => {
       const e = new OrchidEngine({ ...defaultParams, strumEngine: 0, chordMaxNotes: 8, chordColor: 0 });
       const ons: number[] = [];
       e.onOutputNote = (ev: any) => { if (ev.isOn && !ev.isPitchBend && !ev.isCC) ons.push(ev.pitch); };
       e.setModifiers(0, false, false, false, false);
       e.handleMidi(60, 100, true);
-      return new Set(ons).size === 3;
+      return new Set([...ons].map(p => ((p % 12) + 12) % 12)).size === 3;
     })());
 }
 

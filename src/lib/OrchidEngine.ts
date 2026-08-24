@@ -1639,10 +1639,12 @@ export class OrchidEngine {
   private playedVoicing(rootPitch: number, intervals: number[], keepAllTones: boolean, noteLimit?: number): number[] | null {
     if (!this.params.voicingPlayed) return null;
     if (intervals.length < 3) return null;
-    // A chord pasted as a symbol is played as spelled. Handing it to a library
-    // shape would re-voice it into something that is not the chord that was
-    // written, and quietly drop the alteration it was named for.
-    if (keepAllTones) return null;
+    // A pasted chord is voiced from the library like any other, so the same
+    // chord sounds the same however it arrived. What protects its spelling is
+    // the coverage check below: a shape that cannot state every written tone is
+    // refused, and the chord is built instead. Refusing the library outright
+    // here made a pasted chord sound unlike a played one.
+    void keepAllTones;
 
     const required = new Set(intervals.map(i => ((i % 12) + 12) % 12));
     const quality = voicingQualityOf(required);
@@ -1662,6 +1664,13 @@ export class OrchidEngine {
     // voicing of the right chord than a handsome voicing of the wrong one.
     const stated = new Set(voicing.intervals.map(i => ((i % 12) + 12) % 12));
     for (const pc of required) if (!stated.has(pc)) return null;
+    // A chord named in writing gets exactly what it was named: a shape that
+    // adds a tone of its own would turn a pasted Dbmaj7 into a Dbmaj9, which is
+    // a different chord from the one asked for. A chord played by hand has no
+    // such spelling to honour, so a richer shape is welcome there.
+    if (keepAllTones) {
+      for (const pc of stated) if (!required.has(pc)) return null;
+    }
 
     // Place it so the lowest note it actually sounds sits at the register.
     const start = this.params.chordRegisterStart;
@@ -1702,12 +1711,20 @@ export class OrchidEngine {
     const out = [...pitches].sort((a, b) => a - b);
     for (let i = 0; i < Math.abs(inv); i++) {
       if (inv > 0) {
-        const lifted = out.shift()! + 12;
-        if (lifted > 127) { out.unshift(lifted - 12); break; }
+        const from = out.shift()!;
+        // Carry on up until the note has somewhere of its own to land. A played
+        // voicing states the same tone in more than one octave, so lifting the
+        // bottom note by one can put it exactly where a note already is — and
+        // the chord would come back a note short every time it was turned over.
+        let lifted = from + 12;
+        while (out.includes(lifted) && lifted + 12 <= 127) lifted += 12;
+        if (lifted > 127 || out.includes(lifted)) { out.unshift(from); break; }
         out.push(lifted);
       } else {
-        const dropped = out.pop()! - 12;
-        if (dropped < 0) { out.push(dropped + 12); break; }
+        const from = out.pop()!;
+        let dropped = from - 12;
+        while (out.includes(dropped) && dropped - 12 >= 0) dropped -= 12;
+        if (dropped < 0 || out.includes(dropped)) { out.push(from); break; }
         out.unshift(dropped);
       }
       out.sort((a, b) => a - b);

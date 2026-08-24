@@ -6,7 +6,9 @@ const check = (n: string, c: boolean, d = '') => { if (c) { pass++; console.log(
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 const play = (over: any) => {
-  const e = new OrchidEngine({ ...defaultParams, strumEngine: 0, chordRegisterStart: 60, ...over });
+  // The exact pitches below are those of a built chord, so this pins that path;
+  // inverting a played voicing is covered in inv2.
+  const e = new OrchidEngine({ ...defaultParams, strumEngine: 0, chordRegisterStart: 60, voicingPlayed: false, ...over });
   const ons: number[] = [];
   e.onOutputNote = (ev: any) => { if (ev.isOn && !ev.isPitchBend && !ev.isCC) ons.push(ev.pitch); };
   e.setModifiers(0, false, false, false, false);

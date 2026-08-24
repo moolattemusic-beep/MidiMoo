@@ -69,13 +69,16 @@ const play = async (over: any, voices: number[], chord: number[]) => {
     const major = (c: number) => chordOf({ chordColor: c }, (e) => e.setModifiers(0, false, false, false, false));
     const minor = (c: number) => chordOf({ chordColor: c }, (e) => e.setModifiers(1, false, false, false, false));
 
-    check('dry major is a triad', JSON.stringify(major(0)) === JSON.stringify([0, 4, 7]), JSON.stringify(major(0)));
+    // A played voicing doubles notes across octaves, so the chord is compared
+    // rather than the exact list of intervals it came out as.
+    const chordOnly = (a: number[]) => [...new Set(a.map(i => ((i % 12) + 12) % 12))].sort((x, y) => x - y);
+    check('dry major is a triad', JSON.stringify(chordOnly(major(0))) === JSON.stringify([0, 4, 7]), JSON.stringify(major(0)));
     check('major +1 adds a major 7th', major(1).includes(11), JSON.stringify(major(1)));
     check('major +2 adds the 9th', major(2).some(i => i % 12 === 2), JSON.stringify(major(2)));
     check('major +3 adds the 13th', major(3).some(i => i % 12 === 9), JSON.stringify(major(3)));
     check('major +4 adds a RAISED 11th, not a natural one', major(4).some(i => i % 12 === 6) && !major(4).some(i => i % 12 === 5), JSON.stringify(major(4)));
 
-    check('dry minor is a triad', JSON.stringify(minor(0)) === JSON.stringify([0, 3, 7]), JSON.stringify(minor(0)));
+    check('dry minor is a triad', JSON.stringify(chordOnly(minor(0))) === JSON.stringify([0, 3, 7]), JSON.stringify(minor(0)));
     check('minor +1 adds a flat 7th', minor(1).includes(10), JSON.stringify(minor(1)));
     check('minor +2 adds the 9th', minor(2).some(i => i % 12 === 2), JSON.stringify(minor(2)));
     check('minor +3 adds a NATURAL 11th', minor(3).some(i => i % 12 === 5), JSON.stringify(minor(3)));

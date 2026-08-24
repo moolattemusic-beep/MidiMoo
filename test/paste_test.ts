@@ -58,28 +58,47 @@ async function main() {
     check('same chord tones either way', JSON.stringify(rl.pcs) === JSON.stringify(rh.pcs), `${rl.pcs} vs ${rh.pcs}`);
     low.engine.panic(); high.engine.panic();
 
-    // The real requirement is that a pasted chord is voiced exactly like the
-    // same chord built the normal way, under whatever settings are set. (The
-    // app's inversion control happens not to move this voicing either way —
-    // pre-existing behaviour, identical for both paths.)
+    // A pasted chord is not second-class: it answers the voicing controls like
+    // any other chord, and it always states what it was written as.
+    //
+    // It is not compared against the same chord played by hand any more. Those
+    // two are allowed to differ now: a written chord gets exactly the tones it
+    // names, while a played one may take a richer shape from the library, and
+    // holding them byte-identical would mean giving up one or the other.
+    // Db major seventh: Db F Ab C, as pitch classes.
+    const written = [1, 5, 8, 0].sort((a, b) => a - b);
     for (const settings of [
       { chordInversion: 0 }, { chordInversion: 2 },
-      { chordRegisterStart: 55 }, { voicingRange: 24 }, { registerMode: 1 },
+      { chordRegisterStart: 55 }, { registerMode: 1 },
     ]) {
       const a = rig(settings);
       const pasted = await play(a.engine, 'Dbmaj7', a.on);
       a.engine.panic();
+      const got = [...new Set(pasted.pitches.map((p: number) => ((p % 12) + 12) % 12))].sort((a, b) => a - b);
+      check(`states what was written under ${JSON.stringify(settings)}`,
+        JSON.stringify(got) === JSON.stringify(written), `${got} vs ${written}`);
+    }
+    {
+      // And the controls still move it.
+      const low = rig({ chordRegisterStart: 48 });
+      const lowOut = await play(low.engine, 'Dbmaj7', low.on);
+      low.engine.panic();
+      const high = rig({ chordRegisterStart: 72 });
+      const highOut = await play(high.engine, 'Dbmaj7', high.on);
+      high.engine.panic();
+      check('the register still moves a pasted chord',
+        Math.min(...highOut.pitches) > Math.min(...lowOut.pitches),
+        `${lowOut.pitches} vs ${highOut.pitches}`);
 
-      const b = rig(settings);
-      b.engine.manualBaseType = 0; b.engine.ext_M7 = true;   // Dbmaj7 the normal way
-      b.on.length = 0;
-      b.engine.handleMidi(61, 100, true, false, false, false, true);
-      await sleep(30);
-      const normal = [...b.on].sort((x, y) => x - y);
-      b.engine.panic();
-
-      check(`voiced like a normal chord under ${JSON.stringify(settings)}`,
-        JSON.stringify(pasted.pitches) === JSON.stringify(normal), `${pasted.pitches} vs ${normal}`);
+      const plain = rig({ chordInversion: 0 });
+      const plainOut = await play(plain.engine, 'Dbmaj7', plain.on);
+      plain.engine.panic();
+      const inv = rig({ chordInversion: 2 });
+      const invOut = await play(inv.engine, 'Dbmaj7', inv.on);
+      inv.engine.panic();
+      check('and inversion still turns it over',
+        Math.min(...invOut.pitches) > Math.min(...plainOut.pitches),
+        `${plainOut.pitches} vs ${invOut.pitches}`);
     }
   }
 

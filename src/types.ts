@@ -248,9 +248,7 @@ export const defaultParams: OrchidParams = {
   chordColor: 0,
   chordMaxNotes: 6,
   chordColorMatrix: null,
-  // Off until it is chosen: it changes how every chord is voiced, and that is
-  // the player's call rather than a default.
-  voicingPlayed: false,
+  voicingPlayed: true,
   outputRangeLow: 24,
   outputRangeHigh: 96,
   patternModifyAmount: 25,

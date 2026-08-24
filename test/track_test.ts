@@ -40,7 +40,13 @@ async function main() {
     const summary = [...perCh.entries()].map(([ch, s]) => ({ ch, travelled: +(s[s.length - 1] - s[0]).toFixed(1), steps: s.length }));
     console.log('  pitch travelled per channel:', JSON.stringify(summary));
     check('notes actually moved with the slider', summary.every(s => Math.abs(s.travelled) > 12), JSON.stringify(summary));
-    check('movement was gradual, not a jump', summary.every(s => s.steps > 20), JSON.stringify(summary));
+    // Gradual means small moves, not a fixed number of them: how many steps a
+    // channel gets depends on how long it is part of the voicing, and a played
+    // voicing reshapes as the register moves. What says it glided rather than
+    // jumped is the distance covered per step.
+    check('movement was gradual, not a jump',
+      summary.every(s => s.steps >= 8 && Math.abs(s.travelled) / s.steps <= 3),
+      JSON.stringify(summary.map(s => ({ ...s, perStep: +(Math.abs(s.travelled) / s.steps).toFixed(2) }))));
   }
 
   console.log('\n=== Hanging notes: many drag styles ===');

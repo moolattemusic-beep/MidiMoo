@@ -15,12 +15,27 @@ const classes = (e: OrchidEngine) => [...new Set(e.getArpeggioPitches().map(p =>
 (async () => {
   console.log('\n=== The arpeggio follows the chord, not the colour on it ===');
   {
+    const dryClasses = (() => {
+      const x = mk({ chordColor: 0, chordMaxNotes: 8 });
+      x.setModifiers(0, false, false, false, false);
+      x.handleMidi(60, 100, true);
+      return classes(x);
+    })();
     for (const colour of [0, 1, 2, 3, 4]) {
       const e = mk({ chordColor: colour, chordMaxNotes: 8 });
       e.setModifiers(0, false, false, false, false);
       e.handleMidi(60, 100, true);
-      check(`colour ${colour} still arpeggiates the triad`,
-        JSON.stringify(classes(e)) === JSON.stringify([0, 4, 7]), JSON.stringify(classes(e)));
+      // Colour tones themselves never reach the pad. The voicing's own tones
+      // can, because those are the notes actually sounding — colour changing
+      // the chord's quality changes which shape is chosen, and that shape may
+      // carry a tension of its own. What must not happen is the pad turning
+      // into a scale, which is what the complaint was.
+      const COLOUR_TONES: Record<number, number[]> = { 1: [11], 2: [11, 2], 3: [11, 2, 9], 4: [11, 2, 9, 6] };
+      const got = classes(e);
+      check(`colour ${colour}: its own tones stay off the pad`,
+        !(COLOUR_TONES[colour] ?? []).some(pc => !dryClasses.includes(pc) && got.includes(pc)),
+        `${JSON.stringify(got)} vs dry ${JSON.stringify(dryClasses)}`);
+      check(`colour ${colour}: the pad is still a chord, not a scale`, got.length <= 5, `${got.length} tones`);
     }
   }
   {
