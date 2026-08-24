@@ -146,9 +146,15 @@ export class OrchidEngine {
   }
 
   /** Where the cycle has got to, 0 to 1, or null when nothing is running. */
+  /** How long one cycle lasts, tempo and half/double time together. */
+  private patternCycleMs(): number {
+    const rate = Math.max(0.25, Math.min(4, this.params.patternRate ?? 1));
+    return patternDurationMs(this.getActivePattern(), this.params.patternBpm ?? 100) / rate;
+  }
+
   public getPatternPhase(): number | null {
     if (this.patternRuns.size === 0 || this.patternPhaseStart === null) return null;
-    const cycleMs = patternDurationMs(this.getActivePattern(), this.params.patternBpm ?? 100);
+    const cycleMs = this.patternCycleMs();
     if (cycleMs <= 0) return null;
     // The anchor is where the cycle first began and does not move, so the
     // modulo alone says where in the cycle we are. Advancing it as each cycle
@@ -194,7 +200,7 @@ export class OrchidEngine {
       this.patternGraceTimer = null;
     }
     const pattern = this.getActivePattern();
-    const cycleMs = patternDurationMs(pattern, this.params.patternBpm ?? 100);
+    const cycleMs = this.patternCycleMs();
     let cycleStartMs = now;
     let nextIdx = 0;
     if (continuing) {
@@ -365,7 +371,7 @@ export class OrchidEngine {
     const events = pattern.events;
     if (events.length === 0) return;
 
-    const cycleMs = patternDurationMs(pattern, this.params.patternBpm ?? 100);
+    const cycleMs = this.patternCycleMs();
     const msPerTick = cycleMs / Math.max(1, patternTicks(pattern));
     const now = Date.now();
     const horizon = now + 60;
@@ -388,6 +394,12 @@ export class OrchidEngine {
         const at = run.cycleStartMs + event.start * msPerTick;
         if (at > horizon) break;
         const isCycleStart = run.nextIdx === 0;
+        if (isCycleStart && this.params.patternChordLayer) {
+          // The chord itself under the figure. It is placed at the top of the
+          // cycle rather than when a key happens to go down, so it lands with
+          // the pattern, and it lasts the cycle so the two layers move together.
+          this.schedulePatternChord(run, Math.max(0, at - now), cycleMs);
+        }
         // The written length is what the editor shows; how long it actually
         // rings is one control for the whole pattern, applied here.
         const release = Math.max(5, Math.min(400, this.params.patternRelease ?? 100)) / 100;
@@ -395,6 +407,44 @@ export class OrchidEngine {
         run.nextIdx++;
       }
     }
+  }
+
+  /**
+   * The whole chord, struck once at the top of a cycle. Its notes take channels
+   * of their own rather than the pattern's, so the figure's expression and the
+   * chord's stay apart.
+   */
+  private schedulePatternChord(run: PatternRun, delayMs: number, lengthMs: number) {
+    const pitches = [...run.pitches];
+    const velocity = this.params.patternFixedVelocity
+      ? Math.max(1, Math.min(127, this.params.patternVelocity ?? 100))
+      : run.velocity;
+
+    const timer = setTimeout(() => {
+      run.timers.delete(timer);
+      pitches.forEach((pitch, i) => {
+        if (pitch < 0 || pitch > 127) return;
+        // Filed under a voice key of its own, well clear of the pattern's, so
+        // the two layers never take each other's channel.
+        const key = 1000 + i;
+        const channel = this.patternChannelForVoice(run, key);
+        const previous = run.sounding.get(key);
+        if (previous) {
+          if (previous.offTimer) clearTimeout(previous.offTimer);
+          this.emitNoteOff(previous.pitch, 0, 0, previous.channel);
+        }
+        this.emitNoteOn(pitch, Math.max(1, Math.round(velocity * 0.85)), 0, channel);
+        const offTimer = setTimeout(() => {
+          const held = run.sounding.get(key);
+          if (held && held.pitch === pitch) {
+            this.emitNoteOff(pitch, 0, 0, channel);
+            run.sounding.delete(key);
+          }
+        }, Math.max(20, lengthMs * 0.95));
+        run.sounding.set(key, { pitch, channel, offTimer });
+      });
+    }, delayMs);
+    run.timers.add(timer);
   }
 
   private schedulePatternEvent(run: PatternRun, event: PatternEvent, delayMs: number, lengthMs: number, isCycleStart: boolean) {
@@ -1438,22 +1488,47 @@ export class OrchidEngine {
    * raised 11th and take it last, while a minor chord has no such quarrel and
    * takes its 11th early.
    */
-  private addColour(intervals: number[], baseType: number, isDominant: boolean): number[] {
+  private addColour(intervals: number[], baseType: number, _isDominant: boolean): number[] {
     const colour = Math.max(0, Math.min(4, Math.round(this.params.chordColor ?? 0)));
     if (colour === 0 || intervals.length === 0) return intervals;
 
+    // What the chord actually is, read off its own notes rather than off which
+    // button was pressed. A major third with a flat seventh is a dominant
+    // however it arrived — played by hand, or handed over by the key as the
+    // fifth degree — and it must not then be given a major seventh on top of
+    // its flat one, which is what made colour sound wrong on those chords.
+    const pcs = new Set(intervals.map(i => ((i % 12) + 12) % 12));
+    const majorThird = pcs.has(4);
+    const minorThird = pcs.has(3);
+    const flatSeventh = pcs.has(10);
+    const isDominantChord = majorThird && flatSeventh;
+
     let order: number[];
-    if (baseType === 1) order = [10, 14, 17, 21];          // minor: b7, 9, 11, 13
-    else if (isDominant) order = [10, 14, 21, 18];         // dominant: b7, 9, 13, #11
-    else if (baseType === 2) order = [10, 14, 21, 18];     // sus, which behaves like a dominant
-    else if (baseType === 3) order = [10, 14, 20, 17];     // diminished: b7, 9, b13, 11
-    else order = [11, 14, 21, 18];                          // major: maj7, 9, 13, #11
+    if (isDominantChord) {
+      // A dominant is already carrying its seventh, so colour goes straight to
+      // the alterations, and takes them in the order they are usually voiced.
+      order = [13, 15, 20, 18];                            // b9, #9, b13, #11
+    } else if (minorThird && baseType !== 3) {
+      order = [10, 14, 17, 21];                            // minor: b7, 9, 11, 13
+    } else if (baseType === 2) {
+      order = [10, 14, 21, 18];                            // sus, which leans dominant
+    } else if (baseType === 3) {
+      order = [10, 14, 20, 17];                            // diminished
+    } else {
+      order = [11, 14, 21, 18];                            // major: maj7, 9, 13, #11
+    }
 
     const out = [...intervals];
     for (const tone of order.slice(0, colour)) {
+      const pc = tone % 12;
       // Never twice, and never a tone the chord already states in another
       // octave — a written extension keeps its own place.
-      if (!out.some(i => i % 12 === tone % 12)) out.push(tone);
+      if (out.some(i => ((i % 12) + 12) % 12 === pc)) continue;
+      // Never a seventh against the other seventh, or a ninth against the other
+      // ninth: those are not colour, they are two chords at once.
+      if ((pc === 11 && flatSeventh) || (pc === 10 && pcs.has(11))) continue;
+      if ((pc === 1 || pc === 3) && pcs.has(2)) continue;
+      out.push(tone);
     }
     return out.sort((a, b) => a - b);
   }

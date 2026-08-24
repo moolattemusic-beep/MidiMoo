@@ -123,6 +123,12 @@ export interface OrchidParams {
   chordMaxNotes: number; // 1-8
   // How far MODIFY moves the pattern it is given.
   patternModifyAmount: number; // 0-100
+  // Half and double time. The tempo stays as typed; this is how fast the
+  // pattern runs against it.
+  patternRate: number; // 0.25 - 4
+  // Sound the chord itself at the top of each cycle, with the pattern moving
+  // over it.
+  patternChordLayer: boolean;
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -220,6 +226,8 @@ export const defaultParams: OrchidParams = {
   chordColor: 0,
   chordMaxNotes: 6,
   patternModifyAmount: 25,
+  patternRate: 1,
+  patternChordLayer: false,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,

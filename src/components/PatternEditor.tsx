@@ -369,6 +369,35 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternVelocity ?? 100}</span>
           </div>
 
+          <div className="flex items-center gap-1" title="Half and double time against the tempo">
+            <button
+              onClick={() => update({ patternRate: Math.max(0.25, (params.patternRate ?? 1) / 2) })}
+              className="analog-btn !text-[9px] !px-2 !py-[3px]"
+            >
+              ÷2
+            </button>
+            <span className="label-meta !text-[var(--accent)] w-8 text-center">
+              {(() => {
+                const r = params.patternRate ?? 1;
+                return r === 1 ? '1x' : r < 1 ? `1/${Math.round(1 / r)}` : `${r}x`;
+              })()}
+            </span>
+            <button
+              onClick={() => update({ patternRate: Math.min(4, (params.patternRate ?? 1) * 2) })}
+              className="analog-btn !text-[9px] !px-2 !py-[3px]"
+            >
+              ×2
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2" title="Sound the chord itself at the top of each cycle, with the pattern over it">
+            <span className="label-meta whitespace-nowrap">CHORD LAYER</span>
+            <div
+              className={`toggle-switch sm ${params.patternChordLayer ? 'on' : ''}`}
+              onClick={() => update({ patternChordLayer: !params.patternChordLayer })}
+            ></div>
+          </div>
+
           <div className="flex items-center gap-1" title="How many octaves of the chord the pattern can reach">
             <span className="label-meta whitespace-nowrap">SPREAD</span>
             {[1, 2, 3].map(n => (
@@ -582,6 +611,9 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
 
       <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
         VOICE 1 IS THE LOWEST NOTE OF WHATEVER CHORD IS PLAYING. A PATTERN NAMING MORE
+        DIVIDE AND MULTIPLY RUN THE PATTERN AT HALF OR DOUBLE TIME WITHOUT TOUCHING
+        THE TEMPO. CHORD LAYER SOUNDS THE CHORD ITSELF AT THE TOP OF EACH CYCLE,
+        WITH THE PATTERN MOVING OVER IT.
         MODIFY VARIES THE PATTERN THAT IS LOADED INSTEAD OF REPLACING IT, BY THE
         PERCENTAGE BESIDE IT. UNDO, OR CMD-Z, WALKS BACK THROUGH EVERY EDIT.
         SPREAD REPEATS THE CHORD'S TONES UPWARD, SO VOICE 4 ON A THREE-NOTE CHORD
