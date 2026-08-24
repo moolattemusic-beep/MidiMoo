@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
+import { ColourMatrix } from './ColourMatrix';
 
 interface VoicingPadProps {
   engine: OrchidEngine;
@@ -9,6 +10,7 @@ interface VoicingPadProps {
 }
 
 export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
+  const [showMatrix, setShowMatrix] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [pos, setPos] = useState({ x: engine.params.voicingX, y: engine.params.voicingY });
@@ -60,6 +62,14 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
 
   return (
     <div className="module flex flex-col items-center">
+      {showMatrix && (
+        <ColourMatrix
+          params={params}
+          setParams={setParams}
+          engine={engine}
+          onClose={() => setShowMatrix(false)}
+        />
+      )}
       <p className="label-meta self-start mb-3">VOICING DISK</p>
 
       {/* Dry to rich. Each quality takes its tensions in the order it wants
@@ -68,12 +78,24 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
       <div className="w-full mb-4">
         <div className="flex justify-between items-center mb-1">
           <span className="label-meta">COLOUR</span>
-          <span className="label-meta !text-[var(--accent)]">
-            {['DRY', '+7', '+9', '+13', '+11'][Math.max(0, Math.min(4, params.chordColor ?? 0))]}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="label-meta !text-[var(--accent)]">
+              {(() => {
+                const n = Math.max(0, Math.min(6, params.chordColor ?? 0));
+                return n === 0 ? 'DRY' : `+${n}`;
+              })()}
+            </span>
+            <button
+              onClick={() => setShowMatrix(true)}
+              className="analog-btn !text-[9px] !px-2 !py-[2px]"
+              title="Choose which tensions each quality of chord may take"
+            >
+              EDIT
+            </button>
+          </div>
         </div>
         <input
-          type="range" min={0} max={4} step={1}
+          type="range" min={0} max={6} step={1}
           value={params.chordColor ?? 0}
           onChange={(e) => {
             const next = { ...params, chordColor: parseInt(e.target.value, 10) };
@@ -83,9 +105,8 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
           className="range-sm w-full accent-[var(--accent)]"
         />
         <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
-          MAJOR TAKES MAJ7, 9, 13 THEN #11. MINOR TAKES B7, 9, 11 THEN 13.
-          THE 11TH IS RAISED ON MAJOR AND DOMINANT, WHERE A NATURAL ONE WOULD
-          CLOUD THE THIRD, AND COMES LAST.
+          THE CHORD'S QUALITY IS READ OFF ITS OWN THIRD AND SEVENTH, AND THE TENSIONS
+          IT TAKES ARE THE ONES TICKED UNDER EDIT.
         </p>
       </div>
       

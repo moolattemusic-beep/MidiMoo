@@ -1,5 +1,6 @@
 import { OrchidParams, NoteEvent } from '../types';
 import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
+import { colourTensionsFor, parseColourMatrix, qualityOf } from './ChordColour';
 
 // One voice in the Free MOO pool: a held MPE channel that is bent around
 // rather than retriggered.
@@ -1528,48 +1529,32 @@ export class OrchidEngine {
    * raised 11th and take it last, while a minor chord has no such quarrel and
    * takes its 11th early.
    */
-  private addColour(intervals: number[], baseType: number, _isDominant: boolean): number[] {
-    const colour = Math.max(0, Math.min(4, Math.round(this.params.chordColor ?? 0)));
+  private addColour(intervals: number[], _baseType: number, _isDominant: boolean): number[] {
+    const colour = Math.max(0, Math.min(8, Math.round(this.params.chordColor ?? 0)));
     if (colour === 0 || intervals.length === 0) return intervals;
 
-    // What the chord actually is, read off its own notes rather than off which
-    // button was pressed. A major third with a flat seventh is a dominant
-    // however it arrived — played by hand, or handed over by the key as the
-    // fifth degree — and it must not then be given a major seventh on top of
-    // its flat one, which is what made colour sound wrong on those chords.
+    // What the chord actually is, read off its own third and seventh rather than
+    // off which button was pressed. A major third with a flat seventh is a
+    // dominant however it arrived — played by hand, or handed over by the key as
+    // the fifth degree.
     const pcs = new Set(intervals.map(i => ((i % 12) + 12) % 12));
-    const majorThird = pcs.has(4);
-    const minorThird = pcs.has(3);
-    const flatSeventh = pcs.has(10);
-    const isDominantChord = majorThird && flatSeventh;
-
-    let order: number[];
-    if (isDominantChord) {
-      // A dominant is already carrying its seventh, so colour goes straight to
-      // the alterations, and takes them in the order they are usually voiced.
-      order = [13, 15, 20, 18];                            // b9, #9, b13, #11
-    } else if (minorThird && baseType !== 3) {
-      order = [10, 14, 17, 21];                            // minor: b7, 9, 11, 13
-    } else if (baseType === 2) {
-      order = [10, 14, 21, 18];                            // sus, which leans dominant
-    } else if (baseType === 3) {
-      order = [10, 14, 20, 17];                            // diminished
-    } else {
-      order = [11, 14, 21, 18];                            // major: maj7, 9, 13, #11
-    }
+    const quality = qualityOf(pcs);
+    const matrix = parseColourMatrix(this.params.chordColorMatrix);
+    const wanted = colourTensionsFor(quality, matrix);
 
     const out = [...intervals];
     this.colourClasses.clear();
-    for (const tone of order.slice(0, colour)) {
-      const pc = tone % 12;
+    for (const tension of wanted) {
+      if (this.colourClasses.size >= colour) break;
+      const pc = ((tension.interval % 12) + 12) % 12;
       // Never twice, and never a tone the chord already states in another
       // octave — a written extension keeps its own place.
       if (out.some(i => ((i % 12) + 12) % 12 === pc)) continue;
       // Never a seventh against the other seventh, or a ninth against the other
       // ninth: those are not colour, they are two chords at once.
-      if ((pc === 11 && flatSeventh) || (pc === 10 && pcs.has(11))) continue;
+      if ((pc === 11 && pcs.has(10)) || (pc === 10 && pcs.has(11))) continue;
       if ((pc === 1 || pc === 3) && pcs.has(2)) continue;
-      out.push(tone);
+      out.push(tension.interval);
       this.colourClasses.add(pc);
     }
     return out.sort((a, b) => a - b);

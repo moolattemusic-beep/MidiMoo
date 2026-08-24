@@ -121,6 +121,9 @@ export interface OrchidParams {
   // How many notes a chord is voiced with, plainly. Replaces the old density
   // bands, which said things like "4-6" and left the actual count implicit.
   chordMaxNotes: number; // 1-8
+  // Which tensions each quality of chord may take, as JSON. Null means the
+  // ordinary set for each.
+  chordColorMatrix: string | null;
   // How far MODIFY moves the pattern it is given.
   patternModifyAmount: number; // 0-100
   // Half and double time. The tempo stays as typed; this is how fast the
@@ -232,6 +235,7 @@ export const defaultParams: OrchidParams = {
   patternSpread: 1,
   chordColor: 0,
   chordMaxNotes: 6,
+  chordColorMatrix: null,
   patternModifyAmount: 25,
   patternRate: 1,
   patternChordLayer: false,
