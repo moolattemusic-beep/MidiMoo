@@ -8,6 +8,7 @@ import {
   PatternEvent,
   TICKS_PER_BEAT,
   randomPattern,
+  mutatePattern,
 } from '../lib/ChordPatterns';
 
 const CATEGORIES: Array<{ key: PatternCategory; label: string }> = [
@@ -44,7 +45,25 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
   // timer thinks they should be.
   const [phase, setPhase] = useState<number | null>(null);
   const [browsing, setBrowsing] = useState(false);
+  // Every edit pushes what it replaced, so one control walks back through all of
+  // them — dragging, holding, generating, modifying and choosing alike.
+  const undoStack = useRef<Array<{ custom: string | null; index: number }>>([]);
+  const [undoDepth, setUndoDepth] = useState(0);
   const [category, setCategory] = useState<PatternCategory>('piano');
+
+  // Cmd-Z anywhere in the app, as long as a field is not being typed into.
+  const undoRef = useRef<() => void>(() => {});
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      e.preventDefault();
+      undoRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   React.useEffect(() => {
     let raf = 0;
     const follow = () => {
@@ -74,10 +93,31 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     if (engine) engine.params = merged;
   };
 
-  /** Editing anything writes a custom pattern; the library stays untouched. */
-  const writePattern = (next: ChordPattern) => update({ patternCustom: JSON.stringify(next) });
+  const pushUndo = () => {
+    undoStack.current.push({ custom: params.patternCustom ?? null, index: params.patternIndex ?? 0 });
+    // A drag writes on every pointer move, so the stack is capped rather than
+    // allowed to grow without limit.
+    if (undoStack.current.length > 200) undoStack.current.shift();
+    setUndoDepth(undoStack.current.length);
+  };
 
-  const selectLibrary = (index: number) => update({ patternIndex: index, patternCustom: null });
+  const undo = () => {
+    const previous = undoStack.current.pop();
+    setUndoDepth(undoStack.current.length);
+    if (!previous) return;
+    update({ patternCustom: previous.custom, patternIndex: previous.index });
+  };
+
+  /** Editing anything writes a custom pattern; the library stays untouched. */
+  const writePattern = (next: ChordPattern, recordUndo = true) => {
+    if (recordUndo) pushUndo();
+    update({ patternCustom: JSON.stringify(next) });
+  };
+
+  const selectLibrary = (index: number) => {
+    pushUndo();
+    update({ patternIndex: index, patternCustom: null });
+  };
 
   const ticksFromClientX = (clientX: number): number => {
     const rect = gridRef.current?.getBoundingClientRect();
@@ -103,6 +143,9 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
   const onPointerDown = (e: React.PointerEvent, index: number, kind: 'move' | 'length') => {
     e.stopPropagation();
     e.preventDefault();
+    // The whole drag is one edit: the state to come back to is the one before
+    // the gesture began, not each pixel of it.
+    pushUndo();
     // Held modifiers move the note an octave instead of starting a drag, which
     // keeps the vertical axis meaning "which voice" rather than "which pitch".
     if (kind === 'move' && (e.shiftKey || e.altKey)) {
@@ -142,7 +185,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
       event.length = Math.max(gridTicks, snap(ticksFromClientX(e.clientX) - event.start));
     }
     events[drag.index] = event;
-    writePattern({ ...pattern, events });
+    writePattern({ ...pattern, events }, false);
   };
 
   const endDrag = () => setDrag(null);
@@ -176,6 +219,8 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
     events[index] = event;
     writePattern({ ...pattern, events });
   };
+
+  undoRef.current = undo;
 
   const beats = Math.max(1, Math.round(pattern.lengthBeats));
 
@@ -271,9 +316,33 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
           >
             RANDOM
           </button>
+          <button
+            onClick={() => writePattern(mutatePattern(pattern, params.patternModifyAmount ?? 25))}
+            className="analog-btn !text-[9px] !px-2 !py-[3px]"
+            title="Vary the pattern that is loaded, rather than replacing it"
+          >
+            MODIFY
+          </button>
+          <input
+            type="range" min={0} max={100} step={5}
+            value={params.patternModifyAmount ?? 25}
+            onChange={(e) => update({ patternModifyAmount: parseInt(e.target.value, 10) })}
+            title="How far MODIFY moves the pattern"
+            className="range-sm w-16 accent-[var(--accent)]"
+          />
+          <span className="label-meta !text-[var(--accent)] w-7">{params.patternModifyAmount ?? 25}%</span>
+
+          <button
+            onClick={undo}
+            disabled={undoDepth === 0}
+            className={`analog-btn !text-[9px] !px-2 !py-[3px] ${undoDepth === 0 ? 'opacity-30' : ''}`}
+            title="Undo the last edit (Cmd-Z)"
+          >
+            UNDO
+          </button>
           {params.patternCustom && (
             <button
-              onClick={() => update({ patternCustom: null })}
+              onClick={() => { pushUndo(); update({ patternCustom: null }); }}
               className="analog-btn !text-[9px] !px-2 !py-[3px]"
               title="Discard the edit and go back to the library pattern"
             >
@@ -513,6 +582,8 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
 
       <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
         VOICE 1 IS THE LOWEST NOTE OF WHATEVER CHORD IS PLAYING. A PATTERN NAMING MORE
+        MODIFY VARIES THE PATTERN THAT IS LOADED INSTEAD OF REPLACING IT, BY THE
+        PERCENTAGE BESIDE IT. UNDO, OR CMD-Z, WALKS BACK THROUGH EVERY EDIT.
         SPREAD REPEATS THE CHORD'S TONES UPWARD, SO VOICE 4 ON A THREE-NOTE CHORD
         BECOMES THE ROOT AN OCTAVE HIGHER — THE SAME NOTES, MORE RUNGS TO PLAY THEM
         ON. AT SPREAD 1 A PATTERN NAMING MORE VOICES THAN THE CHORD HAS WRAPS ROUND

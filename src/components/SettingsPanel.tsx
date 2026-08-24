@@ -140,7 +140,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         engine.updateRegister(value);
       } else if (key === 'chordInversion') {
         engine.updateInversion(value);
-      } else if (key === 'registerMode' || key === 'chordDensity' || key === 'voicingRange') {
+      } else if (key === 'registerMode' || key === 'chordMaxNotes' || key === 'chordColor' || key === 'voicingRange') {
         engine.params = newParams;
         engine.retriggerHeldKeys(true);
       } else if (key === 'mpeEnabled' || key === 'mpeGlideMode' || key === 'keyboardMapping') {
@@ -256,14 +256,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           <div className="fade-in">
             <div className="flex justify-between items-center mb-2">
               <span className="label-meta">MAX NOTES</span>
-              <span className="label-meta !text-[var(--accent)]">{['3', '4', '5', '3-5', '4-6'][params.chordDensity ?? 4]}</span>
+              <span className="label-meta !text-[var(--accent)]">{params.chordMaxNotes ?? 6}</span>
             </div>
             <CustomSlider
-              min={0}
-              max={4}
+              min={1}
+              max={8}
               step={1}
-              value={params.chordDensity ?? 4}
-              onChange={(val) => updateParam('chordDensity', val)}
+              value={params.chordMaxNotes ?? 6}
+              onChange={(val) => updateParam('chordMaxNotes', val)}
             />
           </div>
         </div>

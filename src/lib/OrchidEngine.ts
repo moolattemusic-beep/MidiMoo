@@ -1506,28 +1506,15 @@ export class OrchidEngine {
     const endRange = startRange + this.params.voicingRange;
     const registerStartPC = startRange % 12;
 
-    let maxNotes = 6;
-    const density = this.params.chordDensity ?? 4;
-    if (density === 0) { maxNotes = 3; }
-    else if (density === 1) { maxNotes = 4; }
-    else if (density === 2) { maxNotes = 5; }
-    else if (density === 3) { maxNotes = 5; }
-    else if (density === 4) { maxNotes = 6; }
-    
-    let extensionBoost = 0;
-    // Colour is asked for as deliberately as a written extension, so it raises
-    // the note budget too rather than being thinned straight back out.
-    extensionBoost += Math.max(0, Math.min(4, Math.round(this.params.chordColor ?? 0)));
-    if (this.ext_m7) extensionBoost++;
-    if (this.ext_M7) extensionBoost++;
-    if (this.ext_6) extensionBoost++;
-    if (this.ext_9) extensionBoost++;
-    if (this.ext_alt) extensionBoost++;
+    // A plain count rather than a band. Extensions and colour no longer raise it
+    // behind the player's back: if the chord wants more notes than this, the
+    // slider is where to say so.
+    const maxNotes = Math.max(1, Math.min(8, Math.round(this.params.chordMaxNotes ?? 6)));
     
     // A chord pasted as a symbol is played as spelled: thinning it by density
     // would drop the very alteration that gives it its name. MAX VOICES is a
     // deliberate limit though, so it still applies.
-    let targetNotes = keepAllTones ? intervals.length : maxNotes + extensionBoost;
+    let targetNotes = keepAllTones ? intervals.length : maxNotes;
     if (noteLimit !== undefined) targetNotes = noteLimit;
     if (targetNotes > intervals.length) {
       targetNotes = intervals.length;

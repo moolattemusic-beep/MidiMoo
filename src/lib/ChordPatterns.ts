@@ -856,6 +856,87 @@ export function randomPattern(opts: RandomOptions | number = {}): ChordPattern {
   return { name: 'RANDOM', lengthBeats, events };
 }
 
+/**
+ * Nudge a pattern rather than replace it. The amount is how likely any one note
+ * is to be touched, so a low setting varies a figure you already like and a
+ * high one takes it somewhere else while keeping its length and its grid.
+ *
+ * What it will not do is empty the bar or lose the downbeat: a pattern that
+ * comes back silent is not a variation, and one that has lost its first beat
+ * stops sounding like the same idea.
+ */
+export function mutatePattern(pattern: ChordPattern, amount: number, seed?: number): ChordPattern {
+  const strength = Math.max(0, Math.min(100, amount)) / 100;
+  if (strength === 0) return pattern;
+  let s = seed ?? Math.floor(Math.random() * 1e9);
+  const rnd = () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+
+  const totalTicks = Math.round(pattern.lengthBeats * TICKS_PER_BEAT);
+  const grid = TICKS_PER_BEAT / 4;
+  const events: PatternEvent[] = [];
+
+  for (const event of pattern.events) {
+    if (rnd() > strength) {
+      events.push({ ...event });
+      continue;
+    }
+    // Dropping a note is a real variation, but only at higher settings and
+    // never so often that the bar thins out.
+    if (rnd() < strength * 0.25 && pattern.events.length > 3) continue;
+
+    const next: PatternEvent = { ...event };
+    const reach = 1 + Math.floor(strength * 3);
+
+    // Move it on the grid.
+    if (rnd() < 0.6) {
+      const steps = Math.round((rnd() * 2 - 1) * reach);
+      next.start = Math.max(0, Math.min(totalTicks - 1, next.start + steps * grid));
+    }
+    // Give it to a neighbouring voice.
+    if (rnd() < 0.5) {
+      const step = rnd() < 0.5 ? -1 : 1;
+      next.voice = Math.max(1, Math.min(8, next.voice + step));
+    }
+    // Lean on it, or back off it.
+    if (rnd() < 0.6) {
+      next.velocity = Math.max(30, Math.min(127, Math.round(next.velocity + (rnd() * 2 - 1) * 30 * strength)));
+    }
+    // Let it ring longer, or clip it.
+    if (rnd() < 0.4) {
+      const factor = 0.5 + rnd() * 1.5;
+      next.length = Math.max(grid, Math.round(next.length * factor));
+    }
+    // Occasionally throw one an octave, where an octave reads as reach.
+    if (rnd() < strength * 0.2) next.octave = rnd() < 0.5 ? -1 : 1;
+    events.push(next);
+  }
+
+  // Add a note or two at the stronger settings, so a pattern can grow and not
+  // only erode.
+  const additions = Math.floor(strength * 3 * rnd());
+  for (let i = 0; i < additions; i++) {
+    const stepCount = Math.max(1, Math.round(totalTicks / grid));
+    events.push({
+      voice: 1 + Math.floor(rnd() * 5),
+      start: Math.floor(rnd() * stepCount) * grid,
+      length: grid * (1 + Math.floor(rnd() * 3)),
+      velocity: Math.round(70 + rnd() * 40),
+    });
+  }
+
+  if (!events.some(e => e.start === 0)) {
+    const first = [...pattern.events].sort((a, b) => a.start - b.start)[0];
+    if (first) events.push({ ...first, start: 0 });
+  }
+  if (events.length === 0) return pattern;
+
+  events.sort((a, b) => a.start - b.start);
+  return { ...pattern, name: pattern.name, events };
+}
+
 /** Ticks in one cycle of a pattern. */
 export const patternTicks = (p: ChordPattern): number => Math.round(p.lengthBeats * TICKS_PER_BEAT);
 

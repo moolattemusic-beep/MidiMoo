@@ -118,6 +118,11 @@ export interface OrchidParams {
   // How much colour the chord carries, dry to rich. The tensions are added in
   // the order each quality wants them.
   chordColor: number; // 0-4
+  // How many notes a chord is voiced with, plainly. Replaces the old density
+  // bands, which said things like "4-6" and left the actual count implicit.
+  chordMaxNotes: number; // 1-8
+  // How far MODIFY moves the pattern it is given.
+  patternModifyAmount: number; // 0-100
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -213,6 +218,8 @@ export const defaultParams: OrchidParams = {
   patternRandomOverlap: 30,
   patternSpread: 1,
   chordColor: 0,
+  chordMaxNotes: 6,
+  patternModifyAmount: 25,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,
