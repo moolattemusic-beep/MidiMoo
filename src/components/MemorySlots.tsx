@@ -1,6 +1,21 @@
 import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
 import { randomPreset } from '../lib/ChordPresets';
+
+const TRANSPOSE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
+const NOTE_INDEX: Record<string, number> = {
+  C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6,
+  G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11,
+};
+
+/** Move a chord symbol's root, leaving the quality after it alone. */
+function transposeSymbol(symbol: string, semitones: number): string {
+  const m = symbol.match(/^([A-G][#b]?)(.*)$/);
+  if (!m) return symbol;
+  const base = NOTE_INDEX[m[1]];
+  if (base === undefined) return symbol;
+  return TRANSPOSE_NAMES[((base + semitones) % 12 + 12) % 12] + m[2];
+}
 import { parseProgression } from '../lib/ChordSymbol';
 
 export type MemorySlot = {
@@ -75,6 +90,24 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
+
+  /**
+   * Move every saved chord by the same interval. The notes are rewritten rather
+   * than offset at playback, so the pads show where they now are and a second
+   * press moves them again from there.
+   */
+  const transposeAll = (semitones: number) => {
+    const shift = (n: number) => Math.max(0, Math.min(127, n + semitones));
+    onUpdateSlots(slots.map(slot => {
+      if (!slot) return slot;
+      const next = { ...slot, rootPitch: ((slot.rootPitch + semitones) % 12 + 12) % 12 };
+      if (slot.customVoicing) next.customVoicing = slot.customVoicing.map(shift);
+      // The symbol names the chord that was saved, and it is no longer that
+      // chord, so it goes rather than sitting there wrong.
+      if (slot.symbol) next.symbol = transposeSymbol(slot.symbol, semitones);
+      return next;
+    }));
+  };
 
   /**
    * Fill the pads from one of the bundled progressions. The chords are kept as
@@ -187,6 +220,19 @@ export function MemorySlots({ engine, slots, playingSlotIndex, onPlaySlot, onSto
                   className="range-sm w-16 accent-[var(--accent)]"
                 />
              </div>
+             <div className="flex items-center gap-1" title="Move every saved chord">
+                <span className="label-meta !text-[9px] whitespace-nowrap">TRANSPOSE</span>
+                {([['-12', -12], ['-1', -1], ['+1', 1], ['+12', 12]] as const).map(([label, by]) => (
+                   <button
+                      key={label}
+                      onClick={() => transposeAll(by)}
+                      className="analog-btn !text-[9px] !px-[6px] !py-[3px]"
+                   >
+                      {label}
+                   </button>
+                ))}
+             </div>
+
              <button
                 onClick={loadPreset}
                 className="analog-btn !py-1 !px-2 !text-[9px]"

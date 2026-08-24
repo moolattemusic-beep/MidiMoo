@@ -278,6 +278,17 @@ export class OrchidEngine {
     run.holdsStale = true;
   }
 
+  /**
+   * Let go of a key. Running continuously, the transport does not stop with it:
+   * the run stays on the notes it has and waits for the next chord, so a part
+   * can be played by changing chords rather than by holding one throughout.
+   * Only PANIC, or switching patterns off, actually stops it.
+   */
+  private releasePatternRun(key: number) {
+    if (this.params.patternContinuous && this.params.patternEnabled) return;
+    this.stopPatternRun(key);
+  }
+
   private stopPatternRun(key: number) {
     const run = this.patternRuns.get(key);
     if (!run) return;
@@ -375,6 +386,13 @@ export class OrchidEngine {
     if (!this.params.patternEnabled) {
       this.stopAllPatternRuns();
       return;
+    }
+    // Continuous is what keeps a run alive past its key, so switching it off
+    // has to let go of anything it was holding on to.
+    if (!this.params.patternContinuous) {
+      for (const key of [...this.patternRuns.keys()]) {
+        if (!this.heldKeys.has(key) && !this.physicallyReleasedKeys.has(key)) this.stopPatternRun(key);
+      }
     }
     const pattern = this.getActivePattern();
     const events = pattern.events;
@@ -598,7 +616,7 @@ export class OrchidEngine {
     for (const pitch of this.physicallyReleasedKeys) {
       this.heldKeys.delete(pitch);
       // The pedal held the pattern on past the key; this is where that run ends.
-      this.stopPatternRun(pitch);
+      this.releasePatternRun(pitch);
       const notesToKill = this.activePitchesMemory[pitch];
       if (notesToKill) {
         for (const note of notesToKill) {
@@ -629,7 +647,7 @@ export class OrchidEngine {
   }
 
   private silenceMemory(pitch: number) {
-    this.stopPatternRun(pitch);
+    this.releasePatternRun(pitch);
     const notes = this.activePitchesMemory[pitch];
     if (!notes) return;
     for (const note of notes) {
@@ -1697,23 +1715,6 @@ export class OrchidEngine {
     scoredIntervals.sort((a, b) => b.score - a.score);
     const selectedIntervals = scoredIntervals.slice(0, targetNotes).map(s => s.interval).sort((a, b) => a - b);
 
-    const inv = this.params.chordInversion;
-    if (inv > 0) {
-      for (let i = 0; i < inv; i++) {
-        if (selectedIntervals.length > 0) {
-          selectedIntervals[0] += 12;
-          selectedIntervals.sort((a, b) => a - b);
-        }
-      }
-    } else if (inv < 0) {
-      for (let i = 0; i < Math.abs(inv); i++) {
-        if (selectedIntervals.length > 0) {
-          selectedIntervals[selectedIntervals.length - 1] -= 12;
-          selectedIntervals.sort((a, b) => a - b);
-        }
-      }
-    }
-
     const finalPitches: number[] = [];
     const rootPC = rootPitch % 12;
     const anchorPitch = startRange + ((rootPC - registerStartPC + 12) % 12);
@@ -1727,9 +1728,28 @@ export class OrchidEngine {
       finalPitches.push(pitch);
     }
     
-    let filteredPitches = finalPitches;
+    // Inversion is applied here, to the notes themselves, and not to the
+    // intervals above. Done there it was undone immediately: the folding that
+    // follows pulls anything above the range back down an octave, which is
+    // exactly the note the inversion had just lifted, so the chord collapsed
+    // back into one register however far the control was turned.
+    finalPitches.sort((a, b) => a - b);
+    const inv = Math.round(this.params.chordInversion ?? 0);
+    for (let i = 0; i < Math.abs(inv); i++) {
+      if (finalPitches.length === 0) break;
+      if (inv > 0) {
+        const lifted = finalPitches.shift()! + 12;
+        if (lifted > 127) { finalPitches.unshift(lifted - 12); break; }
+        finalPitches.push(lifted);
+      } else {
+        const dropped = finalPitches.pop()! - 12;
+        if (dropped < 0) { finalPitches.push(dropped + 12); break; }
+        finalPitches.unshift(dropped);
+      }
+      finalPitches.sort((a, b) => a - b);
+    }
 
-    return filteredPitches;
+    return finalPitches;
   }
 
   public getArpeggioPitches(): number[] {
@@ -2396,8 +2416,9 @@ export class OrchidEngine {
         this.checkAndClearLatches();
       } else {
         // The pattern is what is sounding this key's notes, so letting go of
-        // the key has to stop its clock as well as its notes.
-        this.stopPatternRun(pitch);
+        // the key has to stop its clock as well as its notes — unless it is
+        // running continuously, in which case it plays on.
+        this.releasePatternRun(pitch);
         if (this.activePitchesMemory[pitch]) {
           const notesToKill = this.activePitchesMemory[pitch];
           for (const note of notesToKill) {
@@ -2548,9 +2569,14 @@ export class OrchidEngine {
         if (finalPitches.length >= 2) finalPitches[finalPitches.length - 2] -= 12;
         if (finalPitches.length >= 4) finalPitches[finalPitches.length - 4] -= 12;
       }
-      // Clamp to minimum MIDI pitch and filter out drops below startRange (but allow inversions to exceed endRange)
+      // Drop voicings can push a note well below the register, and those are
+      // tidied away here. A downward inversion is not that: it is meant to go
+      // below, so the floor is lowered by exactly as far as it was asked to
+      // reach — otherwise the inversion is thrown away note by note and the
+      // chord loses its bottom as the control is turned down.
       const startRange = this.params.chordRegisterStart;
-      finalPitches = finalPitches.filter(p => p >= startRange && p <= 127).map(p => Math.max(0, p));
+      const inversionFloor = startRange + Math.min(0, Math.round(this.params.chordInversion ?? 0)) * 12;
+      finalPitches = finalPitches.filter(p => p >= inversionFloor && p <= 127).map(p => Math.max(0, p));
     }
     
     // Apply Inversion Repeat Extra Inversions uniformly (to both custom voicings and generated chords)

@@ -404,6 +404,14 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             </button>
           </div>
 
+          <div className="flex items-center gap-2" title="Keep the transport running once it has started; chords then change the notes rather than starting and stopping it">
+            <span className="label-meta whitespace-nowrap">CONTINUOUS</span>
+            <div
+              className={`toggle-switch sm ${params.patternContinuous ? 'on' : ''}`}
+              onClick={() => update({ patternContinuous: !params.patternContinuous })}
+            ></div>
+          </div>
+
           <div className="flex items-center gap-2" title="Sound the chord itself at the top of each cycle, with the pattern over it">
             <span className="label-meta whitespace-nowrap">CHORD LAYER</span>
             <div
@@ -436,8 +444,8 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternHumanize ?? 0}</span>
           </div>
 
-          <div className="flex items-center gap-1" title="How many octaves of the chord the pattern can reach">
-            <span className="label-meta whitespace-nowrap">SPREAD</span>
+          <div className="flex items-center gap-1" title="How many octaves of the chord the pattern's voices can climb: at 1 they wrap round inside the chord, at 2 and 3 they carry on up">
+            <span className="label-meta whitespace-nowrap">OCTAVES</span>
             {[1, 2, 3].map(n => (
               <button
                 key={n}
@@ -658,10 +666,14 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
         WITH THE PATTERN MOVING OVER IT.
         MODIFY VARIES THE PATTERN THAT IS LOADED INSTEAD OF REPLACING IT, BY THE
         PERCENTAGE BESIDE IT. UNDO, OR CMD-Z, WALKS BACK THROUGH EVERY EDIT.
-        SPREAD REPEATS THE CHORD'S TONES UPWARD, SO VOICE 4 ON A THREE-NOTE CHORD
-        BECOMES THE ROOT AN OCTAVE HIGHER — THE SAME NOTES, MORE RUNGS TO PLAY THEM
-        ON. AT SPREAD 1 A PATTERN NAMING MORE VOICES THAN THE CHORD HAS WRAPS ROUND
-        IN PLACE INSTEAD. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
+        OCTAVES IS HOW FAR UP THE PATTERN MAY CLIMB. A CHORD HAS ONLY AS MANY NOTES
+        AS IT HAS TONES — A TRIAD HAS THREE — SO AT 1 A PATTERN ASKING FOR VOICE 4
+        WRAPS BACK ROUND TO THE FIRST NOTE. AT 2 IT CARRIES ON UPWARD INSTEAD: VOICE
+        4 BECOMES THE ROOT AN OCTAVE HIGHER, VOICE 5 THE THIRD ABOVE THAT. THE SAME
+        THREE NOTES, MORE RUNGS TO PLAY THEM ON, WHICH IS WHAT A HARPIST DOES WITH A
+        THREE-NOTE CHORD. CONTINUOUS KEEPS THE TRANSPORT RUNNING ONCE STARTED, SO
+        CHORDS CHANGE THE NOTES RATHER THAN STARTING AND STOPPING IT; PANIC OR THE
+        PATTERN SWITCH STOPS IT. DOUBLE-CLICK TO ADD, DRAG TO MOVE,
         DRAG THE RIGHT EDGE TO LENGTHEN, RIGHT-CLICK TO REMOVE.
         SHIFT-CLICK AND ALT-CLICK MOVE A NOTE AN OCTAVE UP OR DOWN; CMD-DRAG UP AND
         DOWN TRANSPOSES IT BY SEMITONES. RELEASE SETS HOW LONG EVERY NOTE RINGS AND

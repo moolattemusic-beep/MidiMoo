@@ -141,6 +141,9 @@ export interface OrchidParams {
   // Sound the chord itself at the top of each cycle, with the pattern moving
   // over it.
   patternChordLayer: boolean;
+  // Once started, the transport keeps running: chords change the notes it is
+  // playing rather than starting and stopping it.
+  patternContinuous: boolean;
   // Where the weight sits between the figure and the chord under it. Fifty is
   // level; below it the pattern leads, above it the chord does.
   patternChordBalance: number; // 0-100
@@ -253,6 +256,7 @@ export const defaultParams: OrchidParams = {
   patternModifyAmount: 25,
   patternRate: 1,
   patternChordLayer: false,
+  patternContinuous: false,
   patternChordBalance: 50,
   patternHumanize: 0,
   velModChordThresholdMs: 80,
