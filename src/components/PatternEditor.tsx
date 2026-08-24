@@ -396,6 +396,30 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               className={`toggle-switch sm ${params.patternChordLayer ? 'on' : ''}`}
               onClick={() => update({ patternChordLayer: !params.patternChordLayer })}
             ></div>
+            <input
+              type="range" min={0} max={100} step={5}
+              value={params.patternChordBalance ?? 50}
+              onChange={(e) => update({ patternChordBalance: parseInt(e.target.value, 10) })}
+              title="Where the weight sits: left is the pattern, right is the chord"
+              className={`range-sm w-20 accent-[var(--accent)] ${params.patternChordLayer ? '' : 'opacity-30'}`}
+            />
+            <span className="label-meta !text-[var(--accent)] w-12 whitespace-nowrap">
+              {(() => {
+                const b = params.patternChordBalance ?? 50;
+                return b === 50 ? 'LEVEL' : b < 50 ? `PAT ${50 - b}` : `CHD ${b - 50}`;
+              })()}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2" title="Nudge the notes off the grid; mostly late rather than early">
+            <span className="label-meta whitespace-nowrap">HUMAN</span>
+            <input
+              type="range" min={0} max={100} step={5}
+              value={params.patternHumanize ?? 0}
+              onChange={(e) => update({ patternHumanize: parseInt(e.target.value, 10) })}
+              className="range-sm w-16 accent-[var(--accent)]"
+            />
+            <span className="label-meta !text-[var(--accent)] w-6">{params.patternHumanize ?? 0}</span>
           </div>
 
           <div className="flex items-center gap-1" title="How many octaves of the chord the pattern can reach">
@@ -611,6 +635,10 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
 
       <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
         VOICE 1 IS THE LOWEST NOTE OF WHATEVER CHORD IS PLAYING. A PATTERN NAMING MORE
+        THE BALANCE BESIDE CHORD LAYER MOVES THE WEIGHT BETWEEN THE FIGURE AND THE
+        CHORD UNDER IT. HUMAN NUDGES THE NOTES OFF THE GRID, THREE TIMES OUT OF FOUR
+        LATE RATHER THAN EARLY, BECAUSE DRAGGING SOUNDS PLAYED WHERE RUSHING SOUNDS
+        LIKE A MISTAKE.
         DIVIDE AND MULTIPLY RUN THE PATTERN AT HALF OR DOUBLE TIME WITHOUT TOUCHING
         THE TEMPO. CHORD LAYER SOUNDS THE CHORD ITSELF AT THE TOP OF EACH CYCLE,
         WITH THE PATTERN MOVING OVER IT.

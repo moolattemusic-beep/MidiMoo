@@ -129,6 +129,13 @@ export interface OrchidParams {
   // Sound the chord itself at the top of each cycle, with the pattern moving
   // over it.
   patternChordLayer: boolean;
+  // Where the weight sits between the figure and the chord under it. Fifty is
+  // level; below it the pattern leads, above it the chord does.
+  patternChordBalance: number; // 0-100
+  // How far notes are allowed off the grid. Most of that movement is late
+  // rather than early, because a part that rushes sounds nervous where one that
+  // drags sounds played.
+  patternHumanize: number; // 0-100
   velModChordThresholdMs: number; // notes closer than this share one envelope
 
   // Vibrato that fades in after each note, like a singer leaning into it.
@@ -228,6 +235,8 @@ export const defaultParams: OrchidParams = {
   patternModifyAmount: 25,
   patternRate: 1,
   patternChordLayer: false,
+  patternChordBalance: 50,
+  patternHumanize: 0,
   velModChordThresholdMs: 80,
   vibratoEnabled: false,
   vibratoDepth: 0.3,

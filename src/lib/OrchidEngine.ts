@@ -414,11 +414,38 @@ export class OrchidEngine {
    * of their own rather than the pattern's, so the figure's expression and the
    * chord's stay apart.
    */
+  /**
+   * Level at fifty, and either side of it one layer gives way to the other.
+   * Returns the multiplier for each so a single control moves both.
+   */
+  private patternGains(): { pattern: number; chord: number } {
+    const balance = Math.max(0, Math.min(100, this.params.patternChordBalance ?? 50));
+    return {
+      pattern: Math.min(1, (100 - balance) / 50),
+      chord: Math.min(1, balance / 50),
+    };
+  }
+
+  /**
+   * A few milliseconds off the grid, three times out of four late rather than
+   * early. Dragging slightly is what a played part does; rushing sounds like a
+   * mistake, so the odds are weighted against it.
+   */
+  private humanizeOffsetMs(): number {
+    const amount = Math.max(0, Math.min(100, this.params.patternHumanize ?? 0));
+    if (amount === 0) return 0;
+    const reach = (amount / 100) * 45;
+    const late = Math.random() < 0.75;
+    return (late ? 1 : -1) * Math.random() * reach;
+  }
+
   private schedulePatternChord(run: PatternRun, delayMs: number, lengthMs: number) {
     const pitches = [...run.pitches];
-    const velocity = this.params.patternFixedVelocity
+    const source = this.params.patternFixedVelocity
       ? Math.max(1, Math.min(127, this.params.patternVelocity ?? 100))
       : run.velocity;
+    const velocity = source * this.patternGains().chord;
+    if (velocity < 1) return;
 
     const timer = setTimeout(() => {
       run.timers.delete(timer);
@@ -433,7 +460,7 @@ export class OrchidEngine {
           if (previous.offTimer) clearTimeout(previous.offTimer);
           this.emitNoteOff(previous.pitch, 0, 0, previous.channel);
         }
-        this.emitNoteOn(pitch, Math.max(1, Math.round(velocity * 0.85)), 0, channel);
+        this.emitNoteOn(pitch, Math.max(1, Math.min(127, Math.round(velocity))), 0, channel);
         const offTimer = setTimeout(() => {
           const held = run.sounding.get(key);
           if (held && held.pitch === pitch) {
@@ -443,7 +470,7 @@ export class OrchidEngine {
         }, Math.max(20, lengthMs * 0.95));
         run.sounding.set(key, { pitch, channel, offTimer });
       });
-    }, delayMs);
+    }, Math.max(0, delayMs + this.humanizeOffsetMs()));
     run.timers.add(timer);
   }
 
@@ -501,7 +528,13 @@ export class OrchidEngine {
       const source = this.params.patternFixedVelocity
         ? Math.max(1, Math.min(127, this.params.patternVelocity ?? 100))
         : run.velocity;
-      const velocity = Math.max(1, Math.min(127, Math.round((source * event.velocity) / 127)));
+      const gain = this.params.patternChordLayer ? this.patternGains().pattern : 1;
+      const scaled = (source * event.velocity * gain) / 127;
+      // Turned all the way down means silent, not the quietest possible note:
+      // a velocity of one is still a note, and the balance is meant to be able
+      // to take a layer away entirely.
+      if (scaled < 1) return;
+      const velocity = Math.max(1, Math.min(127, Math.round(scaled)));
       const channel = this.patternChannelForVoice(run, event.voice);
 
       if (event.hold) {
@@ -541,7 +574,9 @@ export class OrchidEngine {
       run.sounding.set(event.voice, { pitch, channel, offTimer });
     };
 
-    const timer = setTimeout(fire, delayMs);
+    // Off the grid by a few milliseconds, never before the moment it was
+    // already due — a note cannot be scheduled into the past.
+    const timer = setTimeout(fire, Math.max(0, delayMs + this.humanizeOffsetMs()));
     run.timers.add(timer);
   }
 
