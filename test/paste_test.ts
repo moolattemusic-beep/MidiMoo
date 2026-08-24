@@ -40,8 +40,7 @@ async function main() {
 
   console.log('\n=== Density does not thin a pasted chord ===');
   {
-    // chordDensity 0 caps generated chords at 3 notes
-    const { engine, on } = rig({ chordDensity: 0 });
+    const { engine, on } = rig({ chordMaxNotes: 3 });
     const r = await play(engine, 'E9(b13)', on);
     check('6-note chord survives MAX NOTES = 3', r.pcs.length === 6, `${r.pcs.length} notes: ${r.pcs.map(p=>NAMES[p])}`);
     engine.panic();
@@ -69,7 +68,7 @@ async function main() {
     const written = [1, 5, 8, 0].sort((a, b) => a - b);
     for (const settings of [
       { chordInversion: 0 }, { chordInversion: 2 },
-      { chordRegisterStart: 55 }, { registerMode: 1 },
+      { chordRegisterStart: 55 },
     ]) {
       const a = rig(settings);
       const pasted = await play(a.engine, 'Dbmaj7', a.on);

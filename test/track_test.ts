@@ -58,7 +58,7 @@ async function main() {
     ['long glide (470ms)',       { mpeGlideTimeMs: 470 }, 8, 1],
     ['with auto bass',           { autoBassRegister: 2 }, 8, 1],
     ['inversion repeat',         { inversionRepeat: 2 }, 8, 1],
-    ['dense chords',             { chordDensity: 4, alwaysAdd7th: true }, 8, 1],
+    ['dense chords',             { alwaysAdd7th: true }, 8, 1],
     ['two keys held',            { strumEngine: 1 }, 8, 2],
   ];
   for (const [label, opts, gap, keys] of styles) {

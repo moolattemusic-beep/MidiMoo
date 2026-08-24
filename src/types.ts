@@ -8,10 +8,8 @@ export interface OrchidParams {
   keyboardMapping: number; // 0=Classic, 1=Circle, 2=Key Mode
   keyRoot: number; // 0=C to 11=B
   keyScale: number; // 0=Major, 1=Minor, 2=Melodic Minor
-  registerMode: number; // 0=Absolute Start, 1=Inversions
   chordRegisterStart: number; // 24 to 96
   chordInversion: number; // 0 to 16
-  chordDensity: number; // 0=3, 1=4, 2=5, 3=3-5, 4=4-6
   mpeEnabled: boolean;
   mpeBendRange: number;
   mpeGlideTimeMs: number;
@@ -175,10 +173,8 @@ export const defaultParams: OrchidParams = {
   keyboardMapping: 0,
   keyRoot: 0,
   keyScale: 0,
-  registerMode: 0,
   chordRegisterStart: 60,
   chordInversion: 0,
-  chordDensity: 4,
   mpeEnabled: false,
   mpeBendRange: 48,
   mpeGlideTimeMs: 150,

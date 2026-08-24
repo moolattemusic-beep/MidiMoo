@@ -48,7 +48,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
   // Folded away, the section keeps only its header — the pattern goes on
   // playing, it is simply out of the way when the hands are elsewhere.
   const [open, setOpen] = useState<boolean>(
-    () => localStorage.getItem('orchid-pattern-open') !== 'false'
+    () => localStorage.getItem('orchid-pattern-open') === 'true'
   );
   React.useEffect(() => { localStorage.setItem('orchid-pattern-open', String(open)); }, [open]);
   // Every edit pushes what it replaced, so one control walks back through all of
@@ -300,7 +300,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               value={params.patternRelease ?? 100}
               onChange={(e) => update({ patternRelease: parseInt(e.target.value, 10) })}
               title="How long the pattern's notes ring, as a percentage of their written length"
-              className="range-sm w-20 accent-[var(--accent)]"
+              className="range-sm !w-20 shrink-0 accent-[var(--accent)]"
             />
             <span className="label-meta !text-[var(--accent)] w-9">{params.patternRelease ?? 100}%</span>
           </div>
@@ -341,7 +341,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             value={params.patternModifyAmount ?? 25}
             onChange={(e) => update({ patternModifyAmount: parseInt(e.target.value, 10) })}
             title="How far MODIFY moves the pattern"
-            className="range-sm w-16 accent-[var(--accent)]"
+            className="range-sm !w-16 shrink-0 accent-[var(--accent)]"
           />
           <span className="label-meta !text-[var(--accent)] w-7">{params.patternModifyAmount ?? 25}%</span>
 
@@ -378,7 +378,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               type="range" min={1} max={127}
               value={params.patternVelocity ?? 100}
               onChange={(e) => update({ patternVelocity: parseInt(e.target.value, 10) })}
-              className={`range-sm w-20 accent-[var(--accent)] ${params.patternFixedVelocity ? '' : 'opacity-30'}`}
+              className={`range-sm !w-20 shrink-0 accent-[var(--accent)] ${params.patternFixedVelocity ? '' : 'opacity-30'}`}
             />
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternVelocity ?? 100}</span>
           </div>
@@ -404,6 +404,22 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
             </button>
           </div>
 
+          <div className="flex items-center gap-1" title="Whether the pattern's lowest voice is the bass, or the bass sounds on its own beneath it">
+            <span className="label-meta whitespace-nowrap">BASS</span>
+            {['OWN', 'IN FIGURE'].map((label, i) => (
+              <button
+                key={label}
+                onClick={() => update({ patternBassMode: i })}
+                title={i === 0
+                  ? 'The bass sounds on its own at the top of each cycle, with the figure above it'
+                  : "The pattern's lowest voice is the bass; nothing sounds beneath it"}
+                className={`analog-btn !text-[9px] !px-2 !py-[3px] ${(params.patternBassMode ?? 0) === i ? 'active' : ''}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-center gap-2" title="Keep the transport running once it has started; chords then change the notes rather than starting and stopping it">
             <span className="label-meta whitespace-nowrap">CONTINUOUS</span>
             <div
@@ -423,12 +439,12 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               value={params.patternChordBalance ?? 50}
               onChange={(e) => update({ patternChordBalance: parseInt(e.target.value, 10) })}
               title="Where the weight sits: left is the pattern, right is the chord"
-              className={`range-sm w-20 accent-[var(--accent)] ${params.patternChordLayer ? '' : 'opacity-30'}`}
+              className={`range-sm !w-20 shrink-0 accent-[var(--accent)] ${params.patternChordLayer ? '' : 'opacity-30'}`}
             />
-            <span className="label-meta !text-[var(--accent)] w-12 whitespace-nowrap">
+            <span className="label-meta !text-[var(--accent)] w-[68px] shrink-0 whitespace-nowrap">
               {(() => {
                 const b = params.patternChordBalance ?? 50;
-                return b === 50 ? 'LEVEL' : b < 50 ? `PAT ${50 - b}` : `CHD ${b - 50}`;
+                return b === 50 ? 'LEVEL' : b < 50 ? `FIGURE +${50 - b}` : `CHORD +${b - 50}`;
               })()}
             </span>
           </div>
@@ -439,7 +455,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               type="range" min={0} max={100} step={5}
               value={params.patternHumanize ?? 0}
               onChange={(e) => update({ patternHumanize: parseInt(e.target.value, 10) })}
-              className="range-sm w-16 accent-[var(--accent)]"
+              className="range-sm !w-16 shrink-0 accent-[var(--accent)]"
             />
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternHumanize ?? 0}</span>
           </div>
@@ -463,7 +479,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               type="range" min={-4} max={4} step={1}
               value={params.patternInversion ?? 0}
               onChange={(e) => update({ patternInversion: parseInt(e.target.value, 10) })}
-              className="range-sm w-20 accent-[var(--accent)]"
+              className="range-sm !w-20 shrink-0 accent-[var(--accent)]"
             />
             <span className="label-meta !text-[var(--accent)] w-5">{params.patternInversion ?? 0}</span>
           </div>
@@ -478,7 +494,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               type="range" min={0} max={1500} step={25}
               value={params.patternGraceMs ?? 350}
               onChange={(e) => update({ patternGraceMs: parseInt(e.target.value, 10) })}
-              className={`range-sm w-20 accent-[var(--accent)] ${params.patternGraceEnabled !== false ? '' : 'opacity-30'}`}
+              className={`range-sm !w-20 shrink-0 accent-[var(--accent)] ${params.patternGraceEnabled !== false ? '' : 'opacity-30'}`}
             />
             <span className="label-meta !text-[var(--accent)] w-10">{params.patternGraceMs ?? 350}MS</span>
           </div>
@@ -491,7 +507,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               type="range" min={0} max={100}
               value={params.patternRandomDensity ?? 45}
               onChange={(e) => update({ patternRandomDensity: parseInt(e.target.value, 10) })}
-              className="range-sm w-16 accent-[var(--accent)]"
+              className="range-sm !w-16 shrink-0 accent-[var(--accent)]"
             />
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternRandomDensity ?? 45}</span>
           </div>
@@ -501,7 +517,7 @@ export const PatternEditor: React.FC<Props> = ({ params, setParams, engine }) =>
               type="range" min={0} max={100}
               value={params.patternRandomOverlap ?? 30}
               onChange={(e) => update({ patternRandomOverlap: parseInt(e.target.value, 10) })}
-              className="range-sm w-16 accent-[var(--accent)]"
+              className="range-sm !w-16 shrink-0 accent-[var(--accent)]"
             />
             <span className="label-meta !text-[var(--accent)] w-6">{params.patternRandomOverlap ?? 30}</span>
           </div>

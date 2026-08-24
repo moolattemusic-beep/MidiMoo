@@ -10,7 +10,9 @@ interface KeyboardProps {
 }
 
 export function PerformanceKeyboard({ engine, params, activeNotes, numKeysOverride }: KeyboardProps) {
-  const numKeys = numKeysOverride ?? (params.voicingRange + 1);
+  // An octave, always. The keyboard is for placing a chord, not for playing a
+  // range, and it used to follow a slider that no longer exists.
+  const numKeys = numKeysOverride ?? 12;
   const startPitch = params.chordRegisterStart;
   
   let totalWhiteKeys = 0;

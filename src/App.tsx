@@ -819,7 +819,7 @@ function App() {
       )}
 
       <footer className="bg-[var(--wood)] px-8 py-1 flex justify-between mt-auto">
-        <span className="label-meta !text-black font-bold tracking-[0.2em]">MidiMOO v1.0.4</span>
+        <span className="label-meta !text-black font-bold tracking-[0.2em]">{`MidiMOO v${__APP_VERSION__}`}</span>
         <span className="label-meta !text-black font-bold tracking-[0.2em]">STATUS: SIGNAL LOCK</span>
       </footer>
       </div>

@@ -2,9 +2,15 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import {createRequire} from 'module';
+
+const {version} = createRequire(import.meta.url)('./package.json');
 
 export default defineConfig(() => {
   return {
+    // The version is shown in the footer and stamped on the built app; reading
+    // both from package.json keeps them from disagreeing.
+    define: {__APP_VERSION__: JSON.stringify(version)},
     // The packaged app loads index.html over file://, where a root-absolute
     // "/assets/…" resolves against the filesystem root rather than the asar,
     // leaving the window blank. Relative paths resolve against the html itself,

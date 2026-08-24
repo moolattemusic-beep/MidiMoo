@@ -39,7 +39,10 @@ export class SimpleSynth {
           osc.stop();
           osc.disconnect();
           gain.disconnect();
-        } catch (e) {}
+        } catch (e) {
+          // Already stopped, or the context went away underneath it.
+          console.warn('SimpleSynth: could not stop voice', e);
+        }
       });
     });
     this.activeOscillators.clear();
@@ -131,7 +134,10 @@ export class SimpleSynth {
         gain.gain.setTargetAtTime(0, startTime, 0.01);
         try {
           osc.stop(startTime + 0.1);
-        } catch (e) {}
+        } catch (e) {
+          // Already scheduled to stop; the release below still applies.
+          console.warn('SimpleSynth: could not schedule voice stop', e);
+        }
       });
       this.activeOscillators.delete(pitch);
     }

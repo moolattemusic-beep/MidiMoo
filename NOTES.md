@@ -60,10 +60,23 @@ stops chords sounding through each other, but with MPE glide the previous chord
 *is* what bends into the next one, so releasing it leaves the glide nothing to
 move from. Guarded by a test.
 
-**Played voicings are opt-in.** `voicingPlayed` is off by default. Turning it on
-changes how every chord in the instrument is voiced, which is the player's call.
-A pasted chord is never re-voiced, and a chord the library cannot fully state
-falls back to being built.
+**A slider's Tailwind width does not win by itself.** `index.css` styles
+`input[type="range"]` with `width: 100%`, and that selector outranks a `w-16`
+utility — so a sized slider is only ever as narrow as its row squeezes it. In a
+row with space to spare it stretches and pushes everything after it onto a line
+of its own. Widths on sliders are marked important (`!w-16`) for this reason.
+
+**The bass meets a pattern one of two ways.** In OWN — the default, and what the
+instrument has always done — it sounds by itself at the top of each cycle with
+the figure above it. In IN FIGURE it joins the figure as its lowest voice, so a
+pattern that never names voice 1 has no bass at all. That is the point of the
+setting, not a fault.
+
+**Played voicings are on.** `voicingPlayed` defaults to true: chords are voiced
+from the Ripchord library rather than built. A pasted chord is voiced from the
+library too, but only by a shape stating exactly the tones it names — otherwise
+a pasted `Dbmaj7` arrives as a `Dbmaj9`. A chord the library cannot state falls
+back to being built.
 
 ## Where things came from
 
@@ -80,9 +93,10 @@ falls back to being built.
 
 - The strum pad's INVERSION control had no audible effect on voicings long
   before any of this work; never chased down.
-- `chordDensity` and `registerMode` are still in `types.ts` but nothing reads
-  them.
 - The app is unsigned; notarising needs a paid Apple Developer account.
-- `index.html` registers a service worker that cannot work under `file://` and
-  logs a caught error on every launch. Harmless, and a leftover from the web
-  version.
+- `vite`, `@vitejs/plugin-react` and `@tailwindcss/vite` sit in `dependencies`
+  rather than `devDependencies`, so the build tooling ships inside the app and
+  takes it to about 133MB.
+- `voicingRange` no longer has a control. It still sets the window the chord
+  builder folds into, so it is a constant rather than dead — but nothing can
+  change it.

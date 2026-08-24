@@ -54,7 +54,7 @@ async function main() {
 
   console.log('\n=== Played chords are untouched by MAX VOICES ===');
   {
-    const { engine, on } = rig({ mpeEnabled: true, mpeMaxVoices: 2, chordDensity: 4 });
+    const { engine, on } = rig({ mpeEnabled: true, mpeMaxVoices: 2 });
     engine.manualBaseType = 0; engine.ext_M7 = true;
     on.length = 0;
     engine.handleMidi(60, 100, true);          // a performance key, not a pad

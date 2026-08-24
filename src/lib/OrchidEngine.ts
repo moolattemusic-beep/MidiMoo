@@ -1136,6 +1136,37 @@ export class OrchidEngine {
    * so turning per-note channels off gives the arpeggio a single voice whose
    * expression is its own but never spreads across the pool.
    */
+  /**
+   * How the bass meets a running pattern. In OWN it sounds by itself at the top
+   * of each cycle and the figure runs above it; IN FIGURE it joins the figure as
+   * its lowest voice, struck when the cycle reaches that voice, with nothing
+   * sustaining underneath. Returns the pitch for whichever of the two wants it.
+   */
+  private patternBass(bassPitch: number, skipBass: boolean): { own: number | null; inFigure: number | null } {
+    const none = { own: null, inFigure: null };
+    if (skipBass || this.params.autoBassRegister <= 0) return none;
+    if (bassPitch < 0 || bassPitch > 127) return none;
+    return (this.params.patternBassMode ?? 0) === 1
+      ? { own: null, inFigure: bassPitch }
+      : { own: bassPitch, inFigure: null };
+  }
+
+  /**
+   * Hand the arpeggio's shared channel back once nothing is sounding on it.
+   * Held for as long as the arpeggio is routed through it — a chord taking it
+   * mid-figure is the thing it exists to prevent — but switching to per-note
+   * channels or turning MPE off used to leave it reserved for good, against a
+   * pool only fourteen wide.
+   */
+  private releaseArpSharedChannel() {
+    if (this.arpChannel === null) return;
+    for (const note of this.activeArpeggioNotes.values()) {
+      if (note.mpeChannel === this.arpChannel) return;
+    }
+    this.freeMpeChannel(this.arpChannel);
+    this.arpChannel = null;
+  }
+
   private arpSharedChannel(): number {
     if (this.arpChannel === null) this.arpChannel = this.allocateMpeChannel(true);
     return this.arpChannel;
@@ -1945,6 +1976,7 @@ export class OrchidEngine {
     // share the arpeggiator's one; it can glide in from the note before it; and
     // RAW takes it out of the modulation without affecting either of those.
     const perNoteChannels = this.params.arpeggioMpeChannels !== false;
+    if (!this.params.mpeEnabled || perNoteChannels) this.releaseArpSharedChannel();
     const channel = this.params.mpeEnabled
       ? (perNoteChannels ? this.allocateMpeChannel(true) : this.arpSharedChannel())
       : undefined;
@@ -1982,6 +2014,9 @@ export class OrchidEngine {
       // back — releasing it would let a chord take it mid-arpeggio.
       if (note.mpeChannel && note.mpeChannel !== this.arpChannel) this.freeMpeChannel(note.mpeChannel);
       this.activeArpeggioNotes.delete(pitch);
+      if (!this.params.mpeEnabled || this.params.arpeggioMpeChannels !== false) {
+        this.releaseArpSharedChannel();
+      }
     }
   }
 
@@ -2659,9 +2694,13 @@ export class OrchidEngine {
     // would sound the new voicing immediately alongside the one the pattern is
     // still working through.
     if (isUpdate && this.params.patternEnabled && this.patternRuns.has(pitch)) {
+      const bass = this.patternBass(bassPitch, skipBass);
       const patternPitches = finalPitches.filter(p => p >= 0 && p <= 127);
-      const runBass = (!skipBass && bassSetting > 0 && bassPitch >= 0 && bassPitch <= 127) ? bassPitch : null;
-      this.updatePatternRun(pitch, patternPitches, runBass);
+      if (bass.inFigure !== null && !patternPitches.includes(bass.inFigure)) {
+        patternPitches.push(bass.inFigure);
+        patternPitches.sort((a, b) => a - b);
+      }
+      this.updatePatternRun(pitch, patternPitches, bass.own);
       this.updateStrumplatePitches();
       return;
     }
@@ -2848,9 +2887,13 @@ export class OrchidEngine {
     // A pattern places the notes itself, so the strum — which is the same stage
     // doing a simpler job — steps aside rather than fighting it for the timing.
     if (this.params.patternEnabled) {
+      const bass = this.patternBass(bassPitch, skipBass);
       const patternPitches = finalPitches.filter(p => p >= 0 && p <= 127 && !playedPitches[p]);
-      const runBass = (!skipBass && bassSetting > 0 && bassPitch >= 0 && bassPitch <= 127) ? bassPitch : null;
-      this.startPatternRun(pitch, patternPitches, runBass, velocity);
+      if (bass.inFigure !== null && !patternPitches.includes(bass.inFigure)) {
+        patternPitches.push(bass.inFigure);
+        patternPitches.sort((a, b) => a - b);
+      }
+      this.startPatternRun(pitch, patternPitches, bass.own, velocity);
       this.updateStrumplatePitches();
       return;
     }

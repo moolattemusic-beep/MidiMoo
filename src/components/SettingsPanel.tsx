@@ -149,7 +149,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         // The range is a setting rather than something played: it takes effect
         // on what comes next and never re-sounds what is already held.
         engine.params = newParams;
-      } else if (key === 'registerMode' || key === 'chordMaxNotes' || key === 'chordColor') {
+      } else if (key === 'chordMaxNotes' || key === 'chordColor') {
         engine.params = newParams;
         engine.retriggerHeldKeys(true);
       } else if (key === 'mpeEnabled' || key === 'mpeGlideMode' || key === 'keyboardMapping') {
