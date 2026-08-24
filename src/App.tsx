@@ -4,6 +4,7 @@ import { MidiDeviceManager } from './lib/MidiDeviceManager';
 import { SimpleSynth } from './lib/SimpleSynth';
 import { VelocityModulator } from './lib/VelocityModulator';
 import { PatternEditor } from './components/PatternEditor';
+import { MidiSetup } from './components/MidiSetup';
 import { OrchidParams, defaultParams, NoteEvent } from './types';
 import { ModifierPads } from './components/ModifierPads';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -98,6 +99,7 @@ function App() {
   activeEditSlotIndexRef.current = activeEditSlotIndex;
 
   const [isFreeEditMode, setIsFreeEditMode] = useState(false);
+  const [showMidiSetup, setShowMidiSetup] = useState(false);
   const [armedSlotIndex, setArmedSlotIndex] = useState<number | null>(null);
   const armedSlotIndexRef = useRef(armedSlotIndex);
   armedSlotIndexRef.current = armedSlotIndex;
@@ -546,29 +548,19 @@ function App() {
             PANIC
           </button>
 
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="label-meta shrink-0">IN</span>
-            <select
-              value={selectedInput}
-              onChange={(e) => midiManager.selectInput(e.target.value)}
-              className="bg-black text-[var(--accent)] border border-[#444] px-2 h-8 font-['Space_Mono'] text-[11px] rounded-sm outline-none min-w-0 w-[120px]"
-            >
-              <option value="">No Input</option>
-              {inputs.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-            </select>
-          </div>
-
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="label-meta shrink-0">OUT</span>
-            <select
-              value={selectedOutput}
-              onChange={(e) => midiManager.selectOutput(e.target.value)}
-              className="bg-black text-[var(--accent)] border border-[#444] px-2 h-8 font-['Space_Mono'] text-[11px] rounded-sm outline-none min-w-0 w-[120px]"
-            >
-              <option value="">No Output</option>
-              {outputs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-            </select>
-          </div>
+          {/* One place for the ports, rather than two dropdowns that can each
+              hold a single device. Several inputs play together and several
+              outputs can be fed at once. */}
+          <button
+            onClick={() => setShowMidiSetup(true)}
+            className="analog-btn px-3 h-8 flex items-center gap-2 shrink-0 !text-[10px] min-w-0"
+            title="Choose which MIDI ports are live"
+          >
+            <span className="label-meta !text-[9px]">PORTS</span>
+            <span className="text-[var(--accent)] font-['Space_Mono'] text-[10px] whitespace-nowrap">
+              {midiManager.selectedInputIds.size} IN / {midiManager.selectedOutputIds.size} OUT
+            </span>
+          </button>
 
           <button
             onClick={() => midiManager.refreshDevices().then(supported => setMidiSupported(supported))}
@@ -793,6 +785,19 @@ function App() {
       <div className="px-6 lg:px-8 pb-3 shrink-0">
         <PatternEditor params={params} setParams={setParams} engine={engine} />
       </div>
+
+      {showMidiSetup && (
+        <MidiSetup
+          midiManager={midiManager}
+          onClose={() => setShowMidiSetup(false)}
+          onChanged={() => {
+            setInputs([...midiManager.inputs]);
+            setOutputs([...midiManager.outputs]);
+            setSelectedInput(midiManager.selectedInputId || '');
+            setSelectedOutput(midiManager.selectedOutputId || '');
+          }}
+        />
+      )}
 
       {/* MIDI Monitor Overlay */}
       {showMidiMonitor && (
