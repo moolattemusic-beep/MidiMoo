@@ -45,6 +45,20 @@ strip the instrumentation before committing.
 
 ## Decisions worth knowing
 
+**SCALE does not use RNDM's parent scales.** They answer a different question —
+which notes a chord can *tolerate* — and are deliberately permissive: minor gets
+ten notes, dominant eleven of twelve, and several of the exotic types fall
+through to a plain major scale. Running a pad over that is a chromatic run, the
+same trap colour fell into. `CHORD_SCALES` is an ordinary chord-scale table
+keyed by the quality `qualityOf` already reads off the chord. The chord's own
+notes are always kept whatever the scale says: a diminished seventh states a
+note Locrian does not have.
+
+**The pad has no root of its own.** It works in pitch classes, and an inverted
+voicing does not begin on its root, so `lastArpRoot` is recorded where the chord
+is built. Free mode never has one — there the keys are the notes — so SCALE
+leaves it on what is actually held rather than inventing a key.
+
 **Colour is separate from the arpeggio.** The strum pad plays the notes the
 chord is holding, so turning colour up used to make it run a scale — a major
 chord at full colour is seven of the twelve notes. Colour tones are excluded

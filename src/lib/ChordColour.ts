@@ -80,6 +80,26 @@ export function parseColourMatrix(raw: string | null | undefined): ColourMatrix 
 }
 
 /** The quality of a chord, read off its third and its seventh. */
+/**
+ * The scale each quality is played over.
+ *
+ * These are chord-scales in the ordinary sense — the safe reading of the chord
+ * rather than the interesting one. Deliberately not RNDM's parent scales: those
+ * answer a different question, "which notes can this chord tolerate", and give
+ * a minor chord ten notes and a dominant eleven of twelve. Running a pad over
+ * that is a chromatic scale, which is the same reason colour tones are kept off
+ * the pad.
+ *
+ * Sus has no third of its own, so it is not given one.
+ */
+export const CHORD_SCALES: Record<ChordQuality, number[]> = {
+  major: [0, 2, 4, 5, 7, 9, 11],      // Ionian
+  minor: [0, 2, 3, 5, 7, 9, 10],      // Dorian
+  dominant: [0, 2, 4, 5, 7, 9, 10],   // Mixolydian
+  dim: [0, 1, 3, 5, 6, 8, 10],        // Locrian
+  sus: [0, 2, 5, 7, 9, 10],           // Mixolydian, minus the third
+};
+
 export function qualityOf(pitchClasses: Set<number>): ChordQuality {
   const minorThird = pitchClasses.has(3);
   const majorThird = pitchClasses.has(4);

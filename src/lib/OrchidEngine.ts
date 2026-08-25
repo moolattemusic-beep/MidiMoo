@@ -1,6 +1,6 @@
 import { OrchidParams, NoteEvent } from '../types';
 import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
-import { colourTensionsFor, parseColourMatrix, qualityOf } from './ChordColour';
+import { colourTensionsFor, parseColourMatrix, qualityOf, CHORD_SCALES } from './ChordColour';
 import { chooseVoicing, voicingQualityOf } from './Voicings';
 
 // One voice in the Free MOO pool: a held MPE channel that is bent around
@@ -129,6 +129,9 @@ export class OrchidEngine {
   private colourClasses: Set<number> = new Set();
   // The chord the strum pad falls back on when nothing is being held.
   private lastArpClasses: number[] = [];
+  // The root the last chord was built on. The pad works in pitch classes and
+  // has no root of its own, but a scale cannot be chosen without one.
+  private lastArpRoot: number | null = null;
   private patternCache: { key: string; pattern: ChordPattern } | null = null;
 
   /** The pattern in force: an edited one if there is one, else the library. */
@@ -1233,6 +1236,7 @@ export class OrchidEngine {
     }
     this.lastArpeggioPitch = null;
     this.lastArpClasses = [];
+    this.lastArpRoot = null;
     for (const timeoutId of this.glideCarryKeys.values()) {
       if (timeoutId) clearTimeout(timeoutId);
     }
@@ -1916,7 +1920,26 @@ export class OrchidEngine {
     }
     
     pitchClasses = Array.from(new Set(pitchClasses)).sort((a, b) => a - b);
-    
+    this.arpChordTones = [...pitchClasses];
+
+    // SCALE widens the pad from the chord's own notes to the scale that chord
+    // implies, so a line can be run over it rather than only its tones picked
+    // out. The chord's notes are always kept whatever the scale says: a
+    // diminished seventh states a note Locrian does not have, and losing it
+    // would be losing the chord.
+    //
+    // It needs a root, and the pad has none of its own — an inverted voicing
+    // does not begin on it. Where the root is unknown, which is Free mode, the
+    // pad stays on the chord rather than guessing a key.
+    if (this.params.arpeggioScale && this.lastArpRoot !== null && pitchClasses.length > 0) {
+      const root = this.lastArpRoot;
+      const relative = new Set(pitchClasses.map(pc => ((pc - root) % 12 + 12) % 12));
+      const scale = CHORD_SCALES[qualityOf(relative)] ?? [];
+      const widened = new Set(pitchClasses);
+      for (const step of scale) widened.add((root + step) % 12);
+      pitchClasses = [...widened].sort((a, b) => a - b);
+    }
+
     const allNotes: number[] = [];
     for (let i = 0; i <= 127; i++) {
        if (pitchClasses.includes(i % 12)) {
@@ -1956,6 +1979,20 @@ export class OrchidEngine {
   }
 
   private arpRandomCache: { key: string; sequence: number[] } | null = null;
+
+  /**
+   * The pitch classes belonging to the chord itself, as opposed to the scale
+   * around it. The pad plays scale notes more quietly and draws them dimmer, so
+   * the chord still reads while a line is being run over it.
+   */
+  public getArpeggioChordTones(): number[] {
+    // Worked out while the pad's notes are gathered, so ask for those first
+    // rather than answering from whatever the last caller happened to leave.
+    this.getArpeggioPitches();
+    return [...this.arpChordTones];
+  }
+
+  private arpChordTones: number[] = [];
 
   public getArpeggioSequence(): number[] {
     const pitches = this.getArpeggioPitches();
@@ -2012,7 +2049,20 @@ export class OrchidEngine {
     }
   }
 
+  /**
+   * How hard a note off the chord is struck, against one belonging to it.
+   * Enough of a step down that the chord still reads through a line running
+   * over it, not so much that the passing notes disappear.
+   */
+  private static readonly SCALE_TONE_LEVEL = 0.62;
+
   public handleArpeggioNoteOn(pitch: number, velocity: number) {
+    // A note the scale reached for rather than the chord itself is a passing
+    // note, and sounds like one.
+    if (this.params.arpeggioScale && this.arpChordTones.length > 0
+      && !this.arpChordTones.includes(((pitch % 12) + 12) % 12)) {
+      velocity = Math.max(1, Math.round(velocity * OrchidEngine.SCALE_TONE_LEVEL));
+    }
     if (this.activeArpeggioNotes.has(pitch)) {
        const existing = this.activeArpeggioNotes.get(pitch);
        if (existing && existing.timeoutId) {
@@ -2074,6 +2124,7 @@ export class OrchidEngine {
       const perfKey = parseInt(pkStr);
       const pasted = this.heldChordIntervals.get(perfKey);
       const mappedRoot = pasted ? perfKey : this.getMappedRootPitch(perfKey);
+      this.lastArpRoot = ((mappedRoot % 12) + 12) % 12;
       const memoryArray = this.activePitchesMemory[perfKey];
       const limit = (this.heldMemoryKeys.has(perfKey) && this.params.mpeEnabled)
         ? Math.max(1, this.params.mpeMaxVoices ?? 5)
@@ -2643,6 +2694,7 @@ export class OrchidEngine {
     // A pasted symbol names its own root, so it is taken literally rather than
     // run through the key-mode or circle-of-fifths remapping.
     const mappedRoot = usingPastedChord ? pitch : this.getMappedRootPitch(pitch);
+    this.lastArpRoot = ((mappedRoot % 12) + 12) % 12;
     // A pasted chord symbol supplies its own intervals; the modifier pads and
     // key-mode defaults do not reshape it.
     const intervals = usingPastedChord ? chordIntervals! : this.getIntervalsForState(pitch);

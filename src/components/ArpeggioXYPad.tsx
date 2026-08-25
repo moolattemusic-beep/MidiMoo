@@ -62,6 +62,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
   }, []);
 
   const strings: number[] = engine?.getArpeggioSequence?.() ?? [];
+  const chordTones: number[] = engine?.getArpeggioChordTones?.() ?? [];
   const stringsKey = strings.join(',');
   // A new chord is a new set of strings, so nothing carries over from the old one.
   useEffect(() => {
@@ -319,6 +320,15 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
         <div className="flex justify-between items-center mb-1">
           <span className="label-meta !text-[10px] whitespace-nowrap">PATTERN</span>
           <div className="flex items-center gap-2">
+            <span className="label-meta !text-[10px] whitespace-nowrap" title="Run the pad over the scale the chord implies, not only its own notes. Scale notes sound softer and are drawn dimmer, so the chord still reads.">SCALE</span>
+            <div
+              className={`toggle-switch ${params.arpeggioScale ? 'on' : ''}`}
+              onClick={() => {
+                const newParams = { ...params, arpeggioScale: !params.arpeggioScale };
+                setParams(newParams);
+                if (engine) engine.params = newParams;
+              }}
+            ></div>
             <span className="label-meta !text-[10px] whitespace-nowrap">TAP TO PLAY</span>
             <div
               className={`toggle-switch ${params.arpeggioTapToPlay ? 'on' : ''}`}
@@ -387,7 +397,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
           style={{ containerType: 'size' }}
         >
         <div className="absolute inset-0 opacity-20 pointer-events-none bg-[linear-gradient(to_right,rgba(0,0,0,0.8),transparent)]" />
-        <Strings pitches={strings} plucks={plucks} />
+        <Strings pitches={strings} plucks={plucks} chordTones={chordTones} />
         
         <div className="absolute top-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]">VELOCITY →</div>
         <div className="absolute bottom-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>PITCH ↑</div>
@@ -415,7 +425,9 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
  * Falls back to an even grid before a chord is held, so the surface is never
  * blank.
  */
-const Strings: React.FC<{ pitches: number[]; plucks: Record<number, number> }> = ({ pitches, plucks }) => {
+const Strings: React.FC<{
+  pitches: number[]; plucks: Record<number, number>; chordTones?: number[];
+}> = ({ pitches, plucks, chordTones }) => {
   if (pitches.length === 0) {
     return (
       <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
@@ -427,12 +439,16 @@ const Strings: React.FC<{ pitches: number[]; plucks: Record<number, number> }> =
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       {pitches.map((pitch, index) => {
         const nonce = plucks[index];
+        // A string the scale reached for rather than the chord is drawn fainter,
+        // so the chord's own shape stays visible under the line being played.
+        const inChord = !chordTones?.length || chordTones.includes(((pitch % 12) + 12) % 12);
         return (
           <div
             // Remounting on each strike is what restarts the animation; without
             // it a string struck twice in a row only moves the first time.
             key={`${index}-${nonce ?? 0}`}
-            className={`absolute left-0 right-0 h-px bg-[var(--accent)] ${nonce ? 'string-line' : 'opacity-[0.14]'}`}
+            className={`absolute left-0 right-0 h-px bg-[var(--accent)] ${
+              nonce ? 'string-line' : inChord ? 'opacity-[0.18]' : 'opacity-[0.07]'}`}
             style={{ top: `${(1 - (index + 0.5) / pitches.length) * 100}%` }}
           />
         );
