@@ -30,9 +30,11 @@ interface ArpeggioXYPadProps {
   params: OrchidParams;
   setParams: (p: OrchidParams) => void;
   incomingCC?: {cc: number, val: number, ch: number, t: number} | null;
+  /** The remote wants the playing surface on its own, without the settings above it. */
+  padOnly?: boolean;
 }
 
-export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: ArpeggioXYPadProps) {
+export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }: ArpeggioXYPadProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [activePitch, setActivePitch] = useState<number | null>(null);
@@ -206,8 +208,9 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
   };
 
   return (
-    <div className="module flex flex-col items-center flex-1 h-full">
-      <p className="label-meta self-start mb-2">ARPEGGIO STRUM PAD</p>
+    <div className={`flex flex-col items-center flex-1 h-full ${padOnly ? 'min-h-0' : 'module'}`}>
+      {!padOnly && <p className="label-meta self-start mb-2">ARPEGGIO STRUM PAD</p>}
+      {!padOnly && (<>
       
       {/* Two columns rather than four: at four across, the labels wrapped and
           collided with the neighbouring readouts. */}
@@ -336,7 +339,8 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC }: Arpeggi
         </div>
       </div>
 
-      <div className="flex gap-4 w-full h-[240px]">
+      </>)}
+      <div className={`flex w-full ${padOnly ? 'gap-2 flex-1 min-h-0' : 'gap-4 h-[240px]'}`}>
         {/* Global Pitch Bend Strip */}
         <MagneticPitchBend engine={engine} incomingCC={incomingCC} />
         

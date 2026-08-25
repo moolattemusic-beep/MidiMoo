@@ -115,6 +115,18 @@ export class RemoteEngine {
     this.send('updateInversion', [inversion]);
   }
 
+  /** The register slider. Re-voices what is held unless it has been set to stay silent. */
+  public updateRegister(register: number) {
+    haptic('step');
+    this.send('updateRegister', [register]);
+  }
+
+  /** Sweep a controller so a plugin sitting in LEARN can catch it. */
+  public wiggleCC(cc: number) {
+    haptic('tap');
+    this.send('wiggleCC', [cc]);
+  }
+
   public panic() {
     haptic('error');
     this.send('panic', []);

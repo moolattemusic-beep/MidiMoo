@@ -30,12 +30,22 @@ admin page — that keeps the same address without configuring anything on the M
 itself, which is the part that survives a router restart. Once it is fixed, the
 home-screen icon keeps working indefinitely.
 
-## What you can play from it
+## The layout
 
-Memory pads, the chord modifier pads, the arpeggio strum pad, the inversion
-slider, the performance keyboard, and PANIC. Whatever you change on the phone
-changes on the Mac, and the other way round — pads light up in both places, and
-a toggle flipped on the Mac shows its new position on the phone.
+Hold the phone sideways. It is a control surface, not a copy of the app:
+
+- **PADS / CHORDS** switch one bank of eight for another in the same space —
+  your memory pads, or the four base types and four extensions. **ALT** appears
+  beside the tabs on the chords bank and swaps the extensions for alterations.
+- **The strum pad** runs down the right-hand side, with the pitch bend strip
+  beside it.
+- **REG** along the bottom is the register slider, with **−** and **+** for
+  inversion next to it.
+- **MORE** holds everything that is not played: PANIC, the three controller
+  sweeps for teaching a plugin CC1, CC74 or CC80, and the phone's own settings.
+
+Whatever you change on the phone changes on the Mac, and the other way round —
+pads light in both places, and a chord type set on the Mac shows on the phone.
 
 ## Haptics
 

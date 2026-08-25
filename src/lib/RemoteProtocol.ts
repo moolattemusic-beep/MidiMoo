@@ -21,7 +21,7 @@ export const ALLOWED_COMMANDS = commands as readonly string[];
 export type RemoteCommandName =
   | 'handleMidi' | 'setModifiers' | 'setBaseType' | 'releaseBaseType'
   | 'toggleExtension' | 'releaseExtension' | 'handleArpeggioNoteOn'
-  | 'emitControlChange' | 'updateInversion' | 'panic'
+  | 'emitControlChange' | 'updateInversion' | 'updateRegister' | 'wiggleCC' | 'panic'
   | 'setParams' | 'playSlot' | 'stopSlot' | 'saveSlot' | 'updateSlots';
 
 export const isAllowedCommand = (fn: unknown): fn is RemoteCommandName =>

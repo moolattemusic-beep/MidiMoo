@@ -8,6 +8,8 @@
   "handleArpeggioNoteOn",
   "emitControlChange",
   "updateInversion",
+  "wiggleCC",
+  "updateRegister",
   "panic",
   "setParams",
   "playSlot",

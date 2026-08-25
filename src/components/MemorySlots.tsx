@@ -57,6 +57,10 @@ interface MemorySlotsProps {
   onToggleFollowRegister: () => void;
   momentary: boolean;
   onToggleMomentary: () => void;
+  /** The remote is performance only, so it leaves out the edit affordance. */
+  hideEdit?: boolean;
+  /** Lets a caller give the pads the height it has room for. */
+  padHeight?: string;
 }
 
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
@@ -88,7 +92,7 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
   return `${note} ${base}${exts}`;
 }
 
-export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary }: MemorySlotsProps) {
+export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary, hideEdit, padHeight }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
@@ -249,7 +253,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
   };
 
   return (
-    <div className="module bg-[var(--surface-deep)] border border-white/10 p-4 rounded-sm flex flex-col gap-3">
+    <div className={`module bg-[var(--surface-deep)] border border-white/10 rounded-sm flex flex-col gap-3 ${padHeight ? 'h-full min-h-0 p-2' : 'p-4'}`}>
       {editorText !== null && (
         <div
           className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-6"
@@ -390,15 +394,15 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
           </div>
         )}
         {hideHeader && <span />}
-        <button 
+        {!hideEdit && <button 
           onClick={onToggleEditMode}
           className={`flex items-center justify-center w-6 h-6 rounded-sm border transition-colors ${isEditMode ? 'bg-[var(--accent)] border-[var(--accent)] text-black' : 'bg-transparent border-[#444] text-[#888] hover:text-white hover:border-white'}`}
           title="Edit Memory Slots (Drag to reorder, click X to clear)"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
-        </button>
+        </button>}
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className={`grid grid-cols-4 gap-2 ${padHeight ? 'flex-1 min-h-0 auto-rows-fr' : ''}`}>
         {slots.map((slot, i) => {
           const isPlaying = playingSlotIndices.includes(i);
           return (
@@ -411,7 +415,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
               onDrop={(e) => handleDrop(e, i)}
             >
               <button
-                className={`analog-btn h-12 text-xs flex items-center justify-center font-['Space_Mono'] leading-tight px-1
+                className={`analog-btn ${padHeight ?? 'h-12'} text-xs flex items-center justify-center font-['Space_Mono'] leading-tight px-1
                   ${isPlaying ? '!bg-white !text-black !border-[var(--ink)] shadow-[0_0_15px_rgba(255,255,255,0.5)]' : ''}
                   ${slot && !isPlaying && !isEditMode ? '!bg-[var(--accent)] !text-black !border-[var(--ink)]' : ''}
                   ${isEditMode && !isPlaying && activeEditSlotIndex !== i ? '!bg-[#222] !border-[#444] !text-[#888]' : ''}
