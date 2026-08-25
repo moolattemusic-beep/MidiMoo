@@ -1104,8 +1104,20 @@ export class OrchidEngine {
     this.cancelChannelGlide(channel);
     if (note) note.mpeTargetPitch = targetPitch;
 
-    const sendStep = (pitch: number) => {
-      if (note) note.mpeCurrentPitch = pitch;
+    // A glide is a bend on a note that RANGE has already folded, and the bend
+    // has to answer to the same window the note did. Aiming it at the raw
+    // target bends straight out of the range: with a chord folded to sit inside
+    // it, a target that lies outside would be reached by bending past the edge,
+    // so one note lands an octave from where the same chord sounds when played
+    // fresh — always the same note, since it is the boundary that decides which.
+    // Everything below is therefore in sounding pitch: the note number that
+    // actually went out, plus where the bend has carried it.
+    const emitted = this.soundingAs.get(this.soundingKey(basePitch, channel)) ?? this.foldToRange(basePitch);
+    const toSounding = this.foldToRange(targetPitch);
+    const fromSounding = emitted + (currentPitch - basePitch);
+
+    const sendStep = (sounding: number, unfolded: number) => {
+      if (note) note.mpeCurrentPitch = unfolded;
       if (this.onOutputNote) {
         this.onOutputNote({
           pitch: basePitch,
@@ -1114,22 +1126,23 @@ export class OrchidEngine {
           delayMs: 0,
           mpeChannel: channel,
           isPitchBend: true,
-          pitchBendValue: pitch - basePitch
+          pitchBendValue: sounding - emitted
         });
       }
     };
 
     if (glideMs <= 0 || currentPitch === targetPitch) {
-      sendStep(targetPitch);
+      sendStep(toSounding, targetPitch);
       return;
     }
 
     const timers: any[] = [];
     for (let i = 1; i <= steps; i++) {
       const progress = i / steps;
+      const soundingAtStep = fromSounding + (toSounding - fromSounding) * progress;
       const pitchAtStep = currentPitch + (targetPitch - currentPitch) * progress;
       const timer = setTimeout(() => {
-        sendStep(pitchAtStep);
+        sendStep(soundingAtStep, pitchAtStep);
         if (i === steps) this.channelGlideTimers.delete(channel);
       }, delayOffset + (i * stepTime));
       timers.push(timer);

@@ -157,6 +157,14 @@ restarted — which made panic, the thing you press when a note is stuck, the
 thing that broke MPE. Guarded by `mpepool_test`, which walks every route that
 takes a channel and asks for the pool back.
 
+**A glide is a bend on a note RANGE has already folded.** Aiming it at the raw
+target bends straight out of the window: the note number went out folded, so
+adding the untouched interval carries it past the edge and lands it an octave
+from where the same chord sounds when played fresh. Always the same voice, since
+the boundary decides which one — which is what made it look like one note
+refusing to glide. `emitMpePitchBend` works in sounding pitch now: the note that
+actually went out, and the folded target.
+
 **A note-off sends what the note-on sent.** RANGE folds a note on its way out
 and the fold answers to a range the player can move, so folding a second time at
 note-off could name a pitch nothing is playing: a chord held while the range

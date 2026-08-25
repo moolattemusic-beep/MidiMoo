@@ -37,9 +37,26 @@ async function main() {
       if (!perCh.has(b.ch)) perCh.set(b.ch, []);
       perCh.get(b.ch)!.push(b.sounding);
     }
-    const summary = [...perCh.entries()].map(([ch, s]) => ({ ch, travelled: +(s[s.length - 1] - s[0]).toFixed(1), steps: s.length }));
+    // Distance covered rather than start-to-finish displacement: RANGE folds a
+    // voice back an octave when the slider pushes it past the edge, so a note
+    // that followed the whole way can end up near where it started. What is
+    // being asked here is whether it moved, not where it stopped.
+    const summary = [...perCh.entries()].map(([ch, s]) => ({
+      ch,
+      travelled: +s.reduce((total, pitch, i) => i === 0 ? 0 : total + Math.abs(pitch - s[i - 1]), 0).toFixed(1),
+      steps: s.length,
+    }));
     console.log('  pitch travelled per channel:', JSON.stringify(summary));
-    check('notes actually moved with the slider', summary.every(s => Math.abs(s.travelled) > 12), JSON.stringify(summary));
+    // A voice used to be free to sail past the top of RANGE, so it could travel
+    // the slider's full two octaves. It is folded back now, which caps how far
+    // any one of them can get from where it started — so what is asked is that
+    // each one moved, and separately that none of them left the window. Landing
+    // where the chord would have been played is covered by `glidefold`.
+    check('notes actually moved with the slider', summary.every(s => Math.abs(s.travelled) > 6), JSON.stringify(summary));
+    const strayed = bends.filter(b => b.sounding < engine.params.outputRangeLow - 0.01
+      || b.sounding > engine.params.outputRangeHigh + 0.01);
+    check('and none of them left the range on the way',
+      strayed.length === 0, JSON.stringify(strayed.slice(0, 3)));
     // Gradual means small moves, not a fixed number of them: how many steps a
     // channel gets depends on how long it is part of the voicing, and a played
     // voicing reshapes as the register moves. What says it glided rather than
