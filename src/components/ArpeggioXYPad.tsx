@@ -47,10 +47,28 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
   // restarts its animation rather than doing nothing.
   const [plucks, setPlucks] = useState<Record<number, number>>({});
   const pluckCount = useRef(0);
+  const pluckTimers = useRef<Map<number, any>>(new Map());
   const pluck = (index: number) => {
     pluckCount.current += 1;
     setPlucks(previous => ({ ...previous, [index]: pluckCount.current }));
+    clearTimeout(pluckTimers.current.get(index));
+    pluckTimers.current.set(index, setTimeout(() => {
+      pluckTimers.current.delete(index);
+      setPlucks(({ [index]: _gone, ...rest }) => rest);
+    }, 520));
   };
+  useEffect(() => () => {
+    for (const timer of pluckTimers.current.values()) clearTimeout(timer);
+  }, []);
+
+  const strings: number[] = engine?.getArpeggioSequence?.() ?? [];
+  const stringsKey = strings.join(',');
+  // A new chord is a new set of strings, so nothing carries over from the old one.
+  useEffect(() => {
+    for (const timer of pluckTimers.current.values()) clearTimeout(timer);
+    pluckTimers.current.clear();
+    setPlucks({});
+  }, [stringsKey]);
 
   const [nx, setNx] = useState(0.5);
   const [ny, setNy] = useState(0.5);
@@ -191,9 +209,10 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
       return;
     }
     
-    const rect = containerRef.current.getBoundingClientRect();
-    let lnx = (clientX - rect.left) / rect.width;
-    let lny = (clientY - rect.top) / rect.height;
+    const element = containerRef.current;
+    const rect = element.getBoundingClientRect();
+    let lnx = (clientX - rect.left - element.clientLeft) / element.clientWidth;
+    let lny = (clientY - rect.top - element.clientTop) / element.clientHeight;
     
     lnx = Math.max(0, Math.min(1, lnx));
     lny = Math.max(0, Math.min(1, lny));
@@ -206,7 +225,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
   const handlePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     setIsDragging(true);
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* gesture already gone */ }
     handlePointer(e.clientX, e.clientY, 'down');
   };
 
@@ -216,7 +235,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* nothing captured */ }
     handlePointer(e.clientX, e.clientY, 'up');
   };
 
@@ -368,7 +387,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
           style={{ containerType: 'size' }}
         >
         <div className="absolute inset-0 opacity-20 pointer-events-none bg-[linear-gradient(to_right,rgba(0,0,0,0.8),transparent)]" />
-        <Strings pitches={engine?.getArpeggioSequence?.() ?? []} plucks={plucks} />
+        <Strings pitches={strings} plucks={plucks} />
         
         <div className="absolute top-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]">VELOCITY →</div>
         <div className="absolute bottom-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>PITCH ↑</div>
@@ -414,7 +433,7 @@ const Strings: React.FC<{ pitches: number[]; plucks: Record<number, number> }> =
             // it a string struck twice in a row only moves the first time.
             key={`${index}-${nonce ?? 0}`}
             className={`absolute left-0 right-0 h-px bg-[var(--accent)] ${nonce ? 'string-line' : 'opacity-[0.14]'}`}
-            style={{ top: `${((index + 0.5) / pitches.length) * 100}%` }}
+            style={{ top: `${(1 - (index + 0.5) / pitches.length) * 100}%` }}
           />
         );
       })}

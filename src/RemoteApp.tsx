@@ -112,7 +112,13 @@ export function RemoteApp() {
     };
   }, []);
 
-  useEffect(() => { engine.apply(snapshot); }, [engine, snapshot]);
+  // Applied here rather than in an effect: an effect runs after the render that
+  // brought the new state, so everything reading through the mirror would draw
+  // the previous chord — and once the patches stop, it would stay there. The
+  // call only copies what is already in props, so it is safe to do while
+  // rendering and idempotent if React renders twice.
+  engine.apply(snapshot);
+
   useEffect(() => watchVisibility(), []);
 
   const firstTouch = useRef(false);
