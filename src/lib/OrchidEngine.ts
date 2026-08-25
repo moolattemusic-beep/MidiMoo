@@ -1,6 +1,6 @@
 import { OrchidParams, NoteEvent } from '../types';
 import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
-import { colourTensionsFor, parseColourMatrix, qualityOf, CHORD_SCALES } from './ChordColour';
+import { colourTensionsFor, parseColourMatrix, qualityOf, scaleFor } from './ChordColour';
 import { chooseVoicing, voicingQualityOf } from './Voicings';
 
 // One voice in the Free MOO pool: a held MPE channel that is bent around
@@ -1934,7 +1934,7 @@ export class OrchidEngine {
     if (this.params.arpeggioScale && this.lastArpRoot !== null && pitchClasses.length > 0) {
       const root = this.lastArpRoot;
       const relative = new Set(pitchClasses.map(pc => ((pc - root) % 12 + 12) % 12));
-      const scale = CHORD_SCALES[qualityOf(relative)] ?? [];
+      const scale = scaleFor(relative);
       const widened = new Set(pitchClasses);
       for (const step of scale) widened.add((root + step) % 12);
       pitchClasses = [...widened].sort((a, b) => a - b);

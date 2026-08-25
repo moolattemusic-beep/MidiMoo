@@ -100,6 +100,44 @@ export const CHORD_SCALES: Record<ChordQuality, number[]> = {
   sus: [0, 2, 5, 7, 9, 10],           // Mixolydian, minus the third
 };
 
+/**
+ * A degree the chord has already spoken for, and the scale degree it silences.
+ *
+ * A scale is the safe reading of a chord; an alteration in the chord is the
+ * player being specific, and the specific reading wins. C7(b9) means the flat
+ * ninth — offering the natural one beside it is a semitone clash and not what
+ * the symbol says.
+ *
+ * Each pair is guarded, because the same interval means different things in
+ * different chords: a minor third is not a sharp ninth, a flat fifth is not a
+ * sharp eleventh, and an augmented fifth is not a flat thirteenth. The guard is
+ * what the chord would need for the alteration reading to be the true one.
+ */
+const ALTERED_DEGREES: Array<{ tone: number; silences: number; needs?: number }> = [
+  { tone: 1, silences: 2 },              // b9 over a natural 9
+  { tone: 3, silences: 2, needs: 4 },    // #9 — only with a major third under it
+  { tone: 6, silences: 5, needs: 7 },    // #11 — only with a natural fifth, or it is a b5
+  { tone: 8, silences: 9, needs: 7 },    // b13 — likewise, or it is a #5
+  { tone: 11, silences: 10 },            // a major seventh rules out the flat one
+  { tone: 10, silences: 11 },            // and the other way round
+];
+
+/**
+ * The scale to run over a chord, given the chord's own notes as intervals from
+ * its root. Degrees the chord has altered are dropped, so what is offered is
+ * the chord's reading of the scale rather than the generic one.
+ */
+export function scaleFor(relativeClasses: Set<number>): number[] {
+  const scale = CHORD_SCALES[qualityOf(relativeClasses)] ?? [];
+  const silenced = new Set<number>();
+  for (const { tone, silences, needs } of ALTERED_DEGREES) {
+    if (!relativeClasses.has(tone)) continue;
+    if (needs !== undefined && !relativeClasses.has(needs)) continue;
+    silenced.add(silences);
+  }
+  return scale.filter(step => !silenced.has(step));
+}
+
 export function qualityOf(pitchClasses: Set<number>): ChordQuality {
   const minorThird = pitchClasses.has(3);
   const majorThird = pitchClasses.has(4);

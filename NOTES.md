@@ -54,6 +54,20 @@ keyed by the quality `qualityOf` already reads off the chord. The chord's own
 notes are always kept whatever the scale says: a diminished seventh states a
 note Locrian does not have.
 
+**A stated alteration silences its natural.** A scale is the safe reading of a
+chord; an alteration in the symbol is the player being specific, and the
+specific reading wins — C7(b9) offers the flat ninth and not the natural one
+beside it. Each pair in `ALTERED_DEGREES` is guarded, because the same interval
+means different things in different chords: a minor third is not a sharp ninth,
+a flat fifth is not a sharp eleventh, an augmented fifth is not a flat
+thirteenth.
+
+**The symbol reference writes itself.** `chordSymbolReference()` and
+`alterationReference()` are built from the parser's own tables and spelled out
+on C, so the help beside the text field cannot come to describe something the
+parser no longer accepts. A test parses everything the reference offers and
+checks it produces what it claims.
+
 **The pad has no root of its own.** It works in pitch classes, and an inverted
 voicing does not begin on its root, so `lastArpRoot` is recorded where the chord
 is built. Free mode never has one — there the keys are the notes — so SCALE

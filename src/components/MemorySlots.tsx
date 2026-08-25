@@ -16,7 +16,7 @@ function transposeSymbol(symbol: string, semitones: number): string {
   if (base === undefined) return symbol;
   return TRANSPOSE_NAMES[((base + semitones) % 12 + 12) % 12] + m[2];
 }
-import { parseProgression } from '../lib/ChordSymbol';
+import { alterationReference, chordSymbolReference, parseProgression } from '../lib/ChordSymbol';
 import { NOTES as RNDM_NOTES, sharedNotes } from '../lib/RndmEngine';
 
 export type MemorySlot = {
@@ -122,6 +122,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
   const [editorText, setEditorText] = useState<string | null>(null);
+  const [showSymbolHelp, setShowSymbolHelp] = useState(false);
 
   /**
    * Open the pads as text. What is shown is what is on them — a chord saved by
@@ -311,17 +312,79 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
               rows={3}
               className="w-full bg-black text-[var(--accent)] border border-[#444] px-2 py-2 font-['Space_Mono'] text-[12px] rounded-sm outline-none resize-none"
             />
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
                 ONE CHORD TO A PAD, SEPARATED BY SPACES — Cmaj7 Dm7 G7(b9). A DASH LEAVES
                 A PAD EMPTY. A VOICING SAVED BY HAND HAS NO NAME TO SHOW, SO IT APPEARS AS
                 ITS NOTES IN BRACKETS AND COMES BACK UNCHANGED IF LEFT ALONE.
               </p>
               <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => setShowSymbolHelp(v => !v)}
+                  className={`analog-btn !text-[9px] !px-2 !py-[3px] ${showSymbolHelp ? 'active' : ''}`}
+                >
+                  SYMBOLS
+                </button>
                 <button onClick={() => setEditorText(null)} className="analog-btn !text-[9px] !px-2 !py-[3px]">CANCEL</button>
                 <button onClick={() => applyEditor(editorText)} className="analog-btn active !text-[9px] !px-3 !py-[3px]">APPLY</button>
               </div>
             </div>
+
+            {/* Written from the parser's own tables, so it cannot come to
+                describe something the parser no longer accepts. */}
+            {showSymbolHelp && (
+              <div className="max-h-[46vh] overflow-y-auto settings-scroll bg-[var(--surface-deep)] border border-white/10 rounded-[2px] p-3 flex flex-col gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="label-meta !text-[9px] !text-[var(--accent)]">ROOT</span>
+                  <span className="font-['Space_Mono'] text-[11px] text-white/70">
+                    A–G, WITH # OR b — C, F#, Bb. LOWER CASE IS FINE.
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="label-meta !text-[9px] !text-[var(--accent)]">CHORD, WRITTEN ON C</span>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-[2px]">
+                    {chordSymbolReference().map(entry => (
+                      <div key={entry.intervals.join()} className="flex items-baseline gap-2 min-w-0">
+                        <span className="font-['Space_Mono'] text-[11px] text-[var(--accent)] shrink-0">
+                          C{entry.spellings[0] === '(nothing)' ? '' : entry.spellings[0]}
+                        </span>
+                        <span className="font-['Space_Mono'] text-[10px] text-white/45 truncate">{entry.notes}</span>
+                        {/* A bare root is a major triad, so "C" has an empty
+                            spelling as a synonym — worth nothing on screen. */}
+                        {entry.spellings.slice(1).filter(x => x !== '(nothing)').length > 0 && (
+                          <span className="font-['Space_Mono'] text-[9px] text-white/25 truncate">
+                            = {entry.spellings.slice(1).filter(x => x !== '(nothing)').join(' ')}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="label-meta !text-[9px] !text-[var(--accent)]">ALTERATIONS</span>
+                  <span className="font-['Space_Mono'] text-[11px] text-white/70 leading-relaxed">
+                    {alterationReference().map(a => a.spelling).join('  ')}
+                  </span>
+                  <span className="help-text label-meta !text-[0.6rem] opacity-70 leading-relaxed">
+                    AFTER THE CHORD, IN BRACKETS AND COMMA-SEPARATED FOR MORE THAN ONE —
+                    C7(b9,#11). ONE ON ITS OWN NEEDS NO BRACKETS: C7b9. AN ALTERATION
+                    REPLACES THE DEGREE IT ALTERS RATHER THAN SITTING BESIDE IT, AND THE
+                    STRUM PAD'S SCALE FOLLOWS IT.
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="label-meta !text-[9px] !text-[var(--accent)]">SEPARATORS</span>
+                  <span className="help-text label-meta !text-[0.6rem] opacity-70 leading-relaxed">
+                    SPACES, COMMAS OR PIPES BETWEEN CHORDS. A COMMA INSIDE BRACKETS
+                    BELONGS TO THE CHORD — B7(b13,#9) IS ONE CHORD, NOT TWO. A DASH
+                    LEAVES A PAD EMPTY.
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

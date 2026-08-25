@@ -177,3 +177,47 @@ export function parseProgression(text: string): { chords: ParsedChord[]; rejecte
 
 const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 export const pitchClassName = (pc: number) => NOTE_NAMES[((pc % 12) + 12) % 12];
+
+// ---------------------------------------------------------------------------
+// The reference shown beside the text field.
+//
+// Generated from the tables above rather than written out beside them, so it
+// cannot quietly stop describing what the parser actually accepts.
+// ---------------------------------------------------------------------------
+
+/** What a set of intervals sounds like, spelled from C. */
+export function notesFromC(intervals: number[]): string {
+  return intervals.map(i => NOTE_NAMES[i % 12]).join(' ');
+}
+
+export interface SymbolReferenceEntry {
+  /** Every spelling that parses to this chord, shortest first. */
+  spellings: string[];
+  intervals: number[];
+  /** The chord written on C, so the entry can be read rather than decoded. */
+  notes: string;
+}
+
+/** Every chord the parser knows, with its synonyms collected together. */
+export function chordSymbolReference(): SymbolReferenceEntry[] {
+  const byShape = new Map<string, SymbolReferenceEntry>();
+  for (const [name, intervals] of QUALITIES) {
+    const key = intervals.join(',');
+    const spelling = name === '' ? '(nothing)' : name;
+    const found = byShape.get(key);
+    if (found) found.spellings.push(spelling);
+    else byShape.set(key, { spellings: [spelling], intervals, notes: notesFromC(intervals) });
+  }
+  for (const entry of byShape.values()) {
+    entry.spellings.sort((a, b) => a.length - b.length || a.localeCompare(b));
+  }
+  return [...byShape.values()].sort((a, b) => a.intervals.length - b.intervals.length
+    || a.intervals[1] - b.intervals[1]);
+}
+
+/** Every alteration the parser accepts, with the interval it adds. */
+export function alterationReference(): Array<{ spelling: string; semitones: number }> {
+  return Object.entries(ALTERATIONS)
+    .map(([spelling, semitones]) => ({ spelling, semitones }))
+    .sort((a, b) => a.semitones - b.semitones || a.spelling.localeCompare(b.spelling));
+}

@@ -79,6 +79,54 @@ const padClasses = async (e: any, key: number, intervals: number[]): Promise<num
     e.panic();
   }
 
+  console.log('\n=== A stated alteration silences its natural ===');
+  {
+    // C7(b9): the symbol says the flat ninth. Offering the natural one beside
+    // it is a semitone clash and not what was asked for.
+    const e = rig({ arpeggioScale: true });
+    const got = await padClasses(e, 60, [0, 4, 7, 10, 13]);
+    check('the flat ninth is there', got.includes(1), `${got.map(pc => NAMES[pc])}`);
+    check('and the natural ninth is not', !got.includes(2), `${got.map(pc => NAMES[pc])}`);
+    check('the rest of the scale is untouched',
+      [0, 4, 5, 7, 9, 10].every(pc => got.includes(pc)), `${got.map(pc => NAMES[pc])}`);
+    e.panic();
+  }
+  {
+    const e = rig({ arpeggioScale: true });   // C7#11
+    const got = await padClasses(e, 60, [0, 4, 7, 10, 18]);
+    check('a sharp eleventh silences the natural one', got.includes(6) && !got.includes(5), `${got.map(pc => NAMES[pc])}`);
+    e.panic();
+  }
+  {
+    const e = rig({ arpeggioScale: true });   // C7b13
+    const got = await padClasses(e, 60, [0, 4, 7, 10, 20]);
+    check('a flat thirteenth silences the natural one', got.includes(8) && !got.includes(9), `${got.map(pc => NAMES[pc])}`);
+    e.panic();
+  }
+  {
+    // The same interval means something else in another chord. A minor third is
+    // not a sharp ninth, so it must not take the ninth away.
+    const e = rig({ arpeggioScale: true });
+    const got = await padClasses(e, 60, [0, 3, 7, 10]);
+    check('a minor third is not read as a sharp ninth', got.includes(2), `${got.map(pc => NAMES[pc])}`);
+    e.panic();
+  }
+  {
+    // Nor is a flat fifth a sharp eleventh: Locrian wants both F and Gb.
+    const e = rig({ arpeggioScale: true });
+    const got = await padClasses(e, 60, [0, 3, 6, 10]);
+    check('a flat fifth is not read as a sharp eleventh',
+      got.includes(5) && got.includes(6), `${got.map(pc => NAMES[pc])}`);
+    e.panic();
+  }
+  {
+    // A major seventh and a flat seventh cannot both be the seventh.
+    const e = rig({ arpeggioScale: true });
+    const got = await padClasses(e, 60, [0, 4, 7, 11]);
+    check('a major seventh rules out the flat one', got.includes(11) && !got.includes(10), `${got.map(pc => NAMES[pc])}`);
+    e.panic();
+  }
+
   console.log('\n=== Chord tones stay dominant ===');
   {
     const e = rig({ arpeggioScale: true, arpeggioNoteLengthMs: 40, velHumanize: 0 });
