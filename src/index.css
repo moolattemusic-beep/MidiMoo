@@ -357,3 +357,39 @@ input[type="range"].range-sm::-moz-range-thumb {
   background: #3a3a34;
   border-radius: 3px;
 }
+
+/* ---------------------------------------------------------------------------
+   The phone remote.
+   ------------------------------------------------------------------------- */
+
+/* Holding a pad on iOS otherwise raises the text-selection magnifier, and a
+   double tap zooms. Nothing on the surface is text to be selected. */
+.remote-surface,
+.remote-surface * {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* A plucked string. It thickens and blurs as it swings rather than moving as a
+   line, which is what a real one looks like when it is going — and it appears
+   the instant the finger crosses it, so the eye is not waiting on the network. */
+@keyframes string-pluck {
+  0%   { transform: scaleY(1);   opacity: 0.95; }
+  10%  { transform: scaleY(6);   opacity: 1; }
+  28%  { transform: scaleY(3.4); opacity: 0.9; }
+  44%  { transform: scaleY(4.6); opacity: 0.85; }
+  60%  { transform: scaleY(2.4); opacity: 0.7; }
+  78%  { transform: scaleY(2.9); opacity: 0.5; }
+  100% { transform: scaleY(1);   opacity: 0.22; }
+}
+
+.string-line {
+  animation: string-pluck 460ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .string-line { animation: none; opacity: 0.5; }
+}

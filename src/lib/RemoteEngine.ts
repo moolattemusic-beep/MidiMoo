@@ -31,6 +31,8 @@ export class RemoteEngine {
   public onOutputNote: ((event: any) => void) | undefined;
 
   private arpSequence: number[] = [];
+  private pendingCC = new Map<string, [number, number, number]>();
+  private ccFlush: number | null = null;
 
   constructor(
     params: Record<string, any>,
@@ -107,7 +109,13 @@ export class RemoteEngine {
 
   /** The pad's position. Continuous, so deliberately silent — a buzz per pixel is not feedback. */
   public emitControlChange(cc: number, value: number, channel = 1) {
-    this.send('emitControlChange', [cc, value, channel]);
+    this.pendingCC.set(`${channel}:${cc}`, [cc, value, channel]);
+    if (this.ccFlush !== null) return;
+    this.ccFlush = requestAnimationFrame(() => {
+      this.ccFlush = null;
+      for (const args of this.pendingCC.values()) this.send('emitControlChange', args);
+      this.pendingCC.clear();
+    });
   }
 
   public updateInversion(inversion: number) {

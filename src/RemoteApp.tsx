@@ -8,7 +8,7 @@ import { RemoteEngine } from './lib/RemoteEngine';
 import { REMOTE_PORT, RemoteCommandName, RemoteSnapshot, ServerMessage } from './lib/RemoteProtocol';
 import {
   audioFallbackEnabled, hapticCapability, hapticsEnabled, haptic,
-  primeHaptics, setAudioFallback, setHapticsEnabled,
+  hapticLabelProps, HAPTIC_TARGET_ID, primeHaptics, setAudioFallback, setHapticsEnabled,
 } from './lib/Haptics';
 import { keepAwake, letSleep, wakeLockSupported, watchVisibility } from './lib/WakeLock';
 
@@ -168,7 +168,29 @@ export function RemoteApp() {
   };
 
   return (
-    <div onPointerDown={onFirstTouch} className="fixed inset-0 bg-black text-white font-['Space_Mono'] flex flex-col select-none">
+    <div
+      onPointerDown={onFirstTouch}
+      className="remote-surface fixed inset-0 bg-black text-white font-['Space_Mono'] flex flex-col"
+      style={{
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
+      }}
+    >
+      {/* The switch every pad's label points at. iOS gives it the system haptic
+          when it is genuinely operated, and a label tap counts as operating it.
+          Rendered rather than hidden with display:none: an element the layout
+          has thrown away cannot be activated. */}
+      <input
+        id={HAPTIC_TARGET_ID}
+        type="checkbox"
+        {...{ switch: '' } as any}
+        aria-hidden="true"
+        tabIndex={-1}
+        // Inside the viewport rather than parked off-screen: activating a label
+        // focuses its control, and Safari scrolls to bring a focused control
+        // into view — which off at -9999px would yank the whole surface sideways.
+        className="fixed top-0 left-0 w-px h-px opacity-0 pointer-events-none"
+      />
 
       {/* Which bank is showing, and the two things that are not played. */}
       <div className="flex items-center gap-1 px-2 pt-2 pb-1 shrink-0">
@@ -207,7 +229,10 @@ export function RemoteApp() {
       </div>
 
       {/* The surface: banks and the transport strip, with the strum pad alongside. */}
-      <div className="flex-1 min-h-0 flex portrait:flex-col gap-2 px-2 pb-2">
+      <div
+        className="flex-1 min-h-0 flex portrait:flex-col gap-2 px-2"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+      >
         <div className="flex-1 min-h-0 flex flex-col gap-2">
           <div className="flex-1 min-h-0 flex flex-col">
             {tab === 'pads' ? (
@@ -217,6 +242,7 @@ export function RemoteApp() {
                 playingSlotIndices={snapshot.playingSlotIndices}
                 hideHeader
                 hideEdit
+                hapticFor={HAPTIC_TARGET_ID}
                 padHeight="h-full"
                 onPlaySlot={(index) => send('playSlot', [index])}
                 onStopSlot={(index) => send('stopSlot', [index])}
@@ -322,16 +348,21 @@ export function RemoteApp() {
 }
 
 const PadButton: React.FC<{ label: string; active: boolean; onPress: () => void }> = ({ label, active, onPress }) => {
+  const anchor = hapticLabelProps();
+  // A label where the phone has a haptic to give, a button otherwise. It must
+  // not preventDefault: that would stop the label activating, and the tick with it.
+  const Tag: any = anchor.htmlFor ? 'label' : 'button';
   return (
-    <button
-      onPointerDown={(event) => { event.preventDefault(); onPress(); }}
+    <Tag
+      {...anchor}
+      onPointerDown={(event: any) => { if (!anchor.htmlFor) event.preventDefault(); onPress(); }}
       className={`rounded-sm border-[3px] flex items-center justify-center touch-none transition-colors
         ${active
           ? 'bg-[var(--accent)] border-[var(--accent)] text-black'
           : 'bg-[#1e1e1a] border-[#111] text-[var(--accent)]'}`}
     >
       <span className="font-['Oswald'] text-[clamp(0.9rem,3.4vh,1.6rem)] tracking-wider pointer-events-none">{label}</span>
-    </button>
+    </Tag>
   );
 };
 

@@ -59,6 +59,8 @@ interface MemorySlotsProps {
   onToggleMomentary: () => void;
   /** The remote is performance only, so it leaves out the edit affordance. */
   hideEdit?: boolean;
+  /** Points the pads at a hidden switch, which is where an iPhone's haptic comes from. */
+  hapticFor?: string;
   /** Lets a caller give the pads the height it has room for. */
   padHeight?: string;
 }
@@ -92,8 +94,9 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
   return `${note} ${base}${exts}`;
 }
 
-export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary, hideEdit, padHeight }: MemorySlotsProps) {
+export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary, hideEdit, hapticFor, padHeight }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const PadTag: any = hapticFor ? 'label' : 'button';
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
   const [editorText, setEditorText] = useState<string | null>(null);
@@ -414,7 +417,8 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
               onDragOver={(e) => handleDragOver(e, i)}
               onDrop={(e) => handleDrop(e, i)}
             >
-              <button
+              <PadTag
+                {...(hapticFor ? { htmlFor: hapticFor } : {})}
                 className={`analog-btn ${padHeight ?? 'h-12'} text-xs flex items-center justify-center font-['Space_Mono'] leading-tight px-1
                   ${isPlaying ? '!bg-white !text-black !border-[var(--ink)] shadow-[0_0_15px_rgba(255,255,255,0.5)]' : ''}
                   ${slot && !isPlaying && !isEditMode ? '!bg-[var(--accent)] !text-black !border-[var(--ink)]' : ''}
@@ -422,12 +426,12 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                   ${isEditMode && activeEditSlotIndex === i ? '!bg-white !text-black shadow-[0_0_15px_rgba(255,255,255,0.8)]' : ''}
                   ${isEditMode && draggedIndex === i ? 'opacity-50' : ''}
                 `}
-                onPointerDown={(e) => {
+                onPointerDown={(e: any) => {
                   if (isEditMode) {
                      onSelectEditSlot(i);
                      return;
                   }
-                  e.preventDefault();
+                  if (!hapticFor) e.preventDefault();
                   // Capture the pointer so the release is delivered here even if
                   // it happens off the pad or outside the window. Without it a
                   // press that ends elsewhere never sends its note-off, and the
@@ -436,6 +440,13 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                   // let go.
                   try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not fatal */ }
                   if (engine && slot) {
+                    for (const other of playingSlotIndices) {
+                      if (other === i) continue;
+                      const previous = slots[other];
+                      if (!previous) continue;
+                      engine.handleMidi(previous.rootPitch, 0, false, false, false, false, true, previous.customVoicing, previous.chordIntervals);
+                      onStopSlot(other);
+                    }
                     if (!momentary && isPlaying) {
                       engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                       onStopSlot(i);
@@ -448,17 +459,17 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                     onSaveSlot(i, lastPlayedChord);
                   }
                 }}
-                onPointerUp={(e) => {
+                onPointerUp={(e: any) => {
                   if (isEditMode || !momentary) return;
-                  e.preventDefault();
+                  if (!hapticFor) e.preventDefault();
                   if (engine && slot) {
                     engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                     onStopSlot(i);
                   }
                 }}
-                onPointerLeave={(e) => {
+                onPointerLeave={(e: any) => {
                   if (isEditMode || !momentary) return;
-                  e.preventDefault();
+                  if (!hapticFor) e.preventDefault();
                   if (engine && slot) {
                     engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
                     onStopSlot(i);
@@ -474,10 +485,10 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                     onStopSlot(i);
                   }
                 }}
-                onContextMenu={(e) => e.preventDefault()}
+                onContextMenu={(e: any) => e.preventDefault()}
               >
                 {formatSlot(slot, isEditMode, lastPlayedChord)}
-              </button>
+              </PadTag>
               
               {isEditMode && slot && (
                 <button 

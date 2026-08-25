@@ -38,6 +38,18 @@ const TONES: Record<HapticKind, [number, number, number]> = {
   error: [36, 0.05, 0.7],
 };
 
+/**
+ * The id of the one real switch on the page. iOS fires its system haptic when a
+ * switch is genuinely operated — and a `<label for>` pointing at it counts,
+ * wherever that label happens to be. Clicking the switch from script does not,
+ * which is why the pads are labels rather than buttons.
+ */
+export const HAPTIC_TARGET_ID = 'midimoo-haptic-tick';
+
+/** Spread onto anything that should tick when touched. */
+export const hapticLabelProps = (): { htmlFor?: string } =>
+  hasNativeSwitch() && enabled ? { htmlFor: HAPTIC_TARGET_ID } : {};
+
 let enabled = true;
 let audioFallback = false;
 let audioCtx: AudioContext | null = null;
@@ -63,8 +75,10 @@ function ensureSwitch(): HTMLInputElement | null {
   input.setAttribute('switch', '');
   input.setAttribute('aria-hidden', 'true');
   input.tabIndex = -1;
+  // Kept inside the viewport: focusing a control off at -9999px makes Safari
+  // scroll to it, which would drag the surface out from under the finger.
   input.style.cssText =
-    'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+    'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
   document.body.appendChild(input);
   switchEl = input;
   return input;
@@ -129,9 +143,8 @@ export function haptic(kind: HapticKind = 'tap') {
   if (canVibrate()) {
     try { navigator.vibrate(PATTERNS[kind]); return; } catch { /* fall through */ }
   }
-  const sw = ensureSwitch();
-  if (sw) {
-    try { sw.click(); } catch { /* fall through */ }
-  }
+  // No script-driven path on iOS: a switch toggled from code does not tick, so
+  // there is nothing to try here. Controls that want the system haptic carry
+  // `hapticLabelProps()` and get it from the touch itself.
   if (audioFallback) speakerClick(kind);
 }

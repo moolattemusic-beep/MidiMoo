@@ -55,11 +55,13 @@ you actually get depends on the phone, and it is worth knowing which you have:
 | Phone | What you feel |
 | --- | --- |
 | Android | A real, controllable buzz. The browser exposes the vibration motor. |
-| iPhone | One system haptic, borrowed from the switch control iOS gives web pages. It is the only haptic Safari has. |
+| iPhone | One system haptic, and only where a control is a native switch or a label pointing at one. Every pad is such a label. |
 | Neither | Nothing, unless you turn on **SPEAKER CLICK**. |
 
-Feedback fires on every pad press and release, every modifier, and **once per
-note as you slide across the arpeggio pad** — which is the thing worth having.
+On iOS this cannot be fired from code: a switch toggled from script stays
+silent, which is why the pads are labels aimed at a hidden switch — the tick
+comes from the touch itself. It follows that the strum pad, which is a surface
+rather than a control, has no haptic on an iPhone.
 
 **SPEAKER CLICK** is a short low tone instead of a buzz. On an iPhone the
 speaker has nothing down at the frequencies you would feel, so it is audible

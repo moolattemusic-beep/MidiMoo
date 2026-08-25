@@ -43,6 +43,15 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
   const activePitchRef = useRef<number | null>(null);
   
   // Track CC state internally for external MIDI
+  // Which string was last struck, and a counter so striking the same one again
+  // restarts its animation rather than doing nothing.
+  const [plucks, setPlucks] = useState<Record<number, number>>({});
+  const pluckCount = useRef(0);
+  const pluck = (index: number) => {
+    pluckCount.current += 1;
+    setPlucks(previous => ({ ...previous, [index]: pluckCount.current }));
+  };
+
   const [nx, setNx] = useState(0.5);
   const [ny, setNy] = useState(0.5);
   const lastMidiTimeRef = useRef<number>(0);
@@ -108,6 +117,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
        const maxVel = params.arpeggioMaxVelocity ?? 127;
        const velocity = Math.max(1, Math.min(maxVel, Math.round(xVal * maxVel)));
        engine.handleArpeggioNoteOn(targetPitch, velocity);
+       pluck(safeIndex);
        activePitchRef.current = targetPitch;
        setActivePitch(targetPitch);
        (containerRef as any).lastIndex = safeIndex;
@@ -119,6 +129,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
           const maxVel = params.arpeggioMaxVelocity ?? 127;
           const velocity = Math.max(1, Math.min(maxVel, Math.round(xVal * maxVel)));
           engine.handleArpeggioNoteOn(targetPitch, velocity);
+          pluck(safeIndex);
        }
        // Any sounding note is left to its own timer.
        activePitchRef.current = targetPitch;
@@ -146,6 +157,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
        // If no note was previously active, treat this first movement as a down trigger
        if (activePitchRef.current === null) {
            engine.handleArpeggioNoteOn(targetPitch, velocity);
+           pluck(safeIndex);
            activePitchRef.current = targetPitch;
            setActivePitch(targetPitch);
            (containerRef as any).lastIndex = safeIndex;
@@ -159,6 +171,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
            for (let i = minIdx; i <= maxIdx; i++) {
              if (i !== lastIndex) {
                 engine.handleArpeggioNoteOn(pitches[i], velocity);
+                pluck(i);
              }
            }
            
@@ -352,21 +365,19 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           className="flex-1 h-full bg-[#12120f] border-[8px] border-[var(--surface)] rounded-md relative shadow-[inset_0_0_20px_#000] touch-none overflow-hidden group"
+          style={{ containerType: 'size' }}
         >
         <div className="absolute inset-0 opacity-20 pointer-events-none bg-[linear-gradient(to_right,rgba(0,0,0,0.8),transparent)]" />
-        <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
-           backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, var(--accent) 19px, var(--accent) 20px)'
-        }} />
+        <Strings pitches={engine?.getArpeggioSequence?.() ?? []} plucks={plucks} />
         
         <div className="absolute top-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]">VELOCITY →</div>
         <div className="absolute bottom-2 left-2 label-meta pointer-events-none text-white/75 text-[10px]" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>PITCH ↑</div>
         
         {/* XY Visual Indicator */}
         <div 
-          className="absolute w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-[var(--accent)] pointer-events-none shadow-[0_0_10px_var(--accent)] transition-all duration-75" 
-          style={{ 
-            left: `${nx * 100}%`, 
-            top: `${(1 - ny) * 100}%`,
+          className="absolute top-0 left-0 w-4 h-4 -ml-2 -mt-2 rounded-full border-2 border-[var(--accent)] pointer-events-none shadow-[0_0_10px_var(--accent)] transition-opacity duration-75"
+          style={{
+            transform: `translate3d(${nx * 100}cqw, ${(1 - ny) * 100}cqh, 0)`,
             opacity: isDragging || activePitch !== null ? 1 : 0.4
           }} 
         />
@@ -379,6 +390,37 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
     </div>
   );
 }
+
+/**
+ * One line per note the strum pad can play, struck where the finger crosses it.
+ * Falls back to an even grid before a chord is held, so the surface is never
+ * blank.
+ */
+const Strings: React.FC<{ pitches: number[]; plucks: Record<number, number> }> = ({ pitches, plucks }) => {
+  if (pitches.length === 0) {
+    return (
+      <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
+        backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 19px, var(--accent) 19px, var(--accent) 20px)'
+      }} />
+    );
+  }
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      {pitches.map((pitch, index) => {
+        const nonce = plucks[index];
+        return (
+          <div
+            // Remounting on each strike is what restarts the animation; without
+            // it a string struck twice in a row only moves the first time.
+            key={`${index}-${nonce ?? 0}`}
+            className={`absolute left-0 right-0 h-px bg-[var(--accent)] ${nonce ? 'string-line' : 'opacity-[0.14]'}`}
+            style={{ top: `${((index + 0.5) / pitches.length) * 100}%` }}
+          />
+        );
+      })}
+    </div>
+  );
+};
 
 function MagneticPitchBend({ engine, incomingCC }: { engine: OrchidEngine | null, incomingCC?: {cc: number, val: number, ch: number, t: number} | null }) {
   const containerRef = useRef<HTMLDivElement>(null);
