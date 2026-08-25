@@ -134,6 +134,21 @@ note was. They light locally now and the instrument corrects them a frame or two
 later; the guess is dropped once the two agree, or after 700ms if the message
 never landed.
 
+**RNDM chooses chords that can hold a note, not chords that state it.** The
+generator is ported from moodsoundcollection.com/pages/rndm. A chord qualifies
+when the common notes belong to the scale it implies *and* land on a degree the
+player allows — which is looser than containing them: D is the eleventh of A9
+and simply is not in the chord. About a third of the time the note is not
+stated, so ADD COMMON NOTES puts the missing ones an octave above the root, the
+way the original does when it writes MIDI. Without that the whole idea is
+inaudible.
+
+**The generated chords arrive as symbols.** `smartRename` writes what the common
+notes are doing — `Cmin7(b9)`, `CminMaj7` — and `ChordSymbol.ts` reads them, so
+a generated pad follows register, inversion and the voicing disk like any pasted
+chord rather than being frozen. Three spellings had to be added for it:
+`minMaj7`, `alt7`, and chained bare alterations like `min7b5b13`.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long

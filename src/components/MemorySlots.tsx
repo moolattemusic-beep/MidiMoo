@@ -17,6 +17,7 @@ function transposeSymbol(symbol: string, semitones: number): string {
   return TRANSPOSE_NAMES[((base + semitones) % 12 + 12) % 12] + m[2];
 }
 import { parseProgression } from '../lib/ChordSymbol';
+import { NOTES as RNDM_NOTES, getAllCommonChordTones } from '../lib/RndmEngine';
 
 export type MemorySlot = {
   rootPitch: number;
@@ -61,6 +62,10 @@ interface MemorySlotsProps {
   hideEdit?: boolean;
   /** Points the pads at a hidden switch, which is where an iPhone's haptic comes from. */
   hapticFor?: string;
+  onOpenRndm?: () => void;
+  /** The notes RNDM was told every chord must be able to hold. */
+  rndmRequired?: string[];
+  onRndmRequiredChange?: (notes: string[]) => void;
   /** Lets a caller give the pads the height it has room for. */
   padHeight?: string;
 }
@@ -94,9 +99,18 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
   return `${note} ${base}${exts}`;
 }
 
-export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary, hideEdit, hapticFor, padHeight }: MemorySlotsProps) {
+export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary, hideEdit, hapticFor, padHeight,
+  onOpenRndm, rndmRequired, onRndmRequiredChange }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const PadTag: any = hapticFor ? 'label' : 'button';
+
+  // Worked out from what is on the pads, so it answers to transposing, editing
+  // and re-rolling without anything having to remember to update it.
+  const sharedTones = React.useMemo(() => {
+    const symbols = slots.filter(Boolean).map(slot => slot!.symbol).filter(Boolean) as string[];
+    if (symbols.length < 2) return [];
+    return getAllCommonChordTones(symbols).filter(note => !(rndmRequired ?? []).includes(note));
+  }, [slots, rndmRequired]);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
   const [editorText, setEditorText] = useState<string | null>(null);
@@ -166,6 +180,14 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
       if (slot.symbol) next.symbol = transposeSymbol(slot.symbol, semitones);
       return next;
     }));
+    // The notes running through the set are notes, not labels: transposing the
+    // chords moves them too, or the readout would describe the old key.
+    if (rndmRequired?.length && onRndmRequiredChange) {
+      onRndmRequiredChange(rndmRequired.map(note => {
+        const index = RNDM_NOTES.indexOf(note);
+        return index === -1 ? note : RNDM_NOTES[((index + semitones) % 12 + 12) % 12];
+      }));
+    }
   };
 
   /**
@@ -322,6 +344,15 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                   className="range-sm w-16 accent-[var(--accent)]"
                 />
              </div>
+             {onOpenRndm && (
+                <button
+                   onClick={onOpenRndm}
+                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
+                   title="Generate a set of chords from the notes they must all be able to hold"
+                >
+                   RNDM
+                </button>
+             )}
              <button
                 onClick={openEditor}
                 className="analog-btn !py-1 !px-2 !text-[9px]"
@@ -405,6 +436,21 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
         </button>}
       </div>
+      {!hideHeader && (rndmRequired?.length || sharedTones.length > 0) && (
+        <div className="flex items-center gap-2 flex-wrap border-t border-white/10 pt-2">
+          <span className="label-meta !text-[9px] opacity-50">REQUIRED</span>
+          <span className="font-['Space_Mono'] text-[12px] text-[var(--accent)]">
+            {rndmRequired?.length ? rndmRequired.join('  ') : 'NONE'}
+          </span>
+          {sharedTones.length > 0 && (
+            <>
+              <span className="label-meta !text-[9px] opacity-50 ml-2">ALSO SHARED</span>
+              <span className="font-['Space_Mono'] text-[12px] text-white/55">{sharedTones.join('  ')}</span>
+            </>
+          )}
+        </div>
+      )}
+
       <div className={`grid grid-cols-4 gap-2 ${padHeight ? 'flex-1 min-h-0 auto-rows-fr' : ''}`}>
         {slots.map((slot, i) => {
           const isPlaying = playingSlotIndices.includes(i);

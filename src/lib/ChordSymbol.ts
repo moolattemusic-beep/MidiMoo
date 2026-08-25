@@ -33,6 +33,14 @@ const QUALITIES: Array<[string, number[]]> = [
   ['min7', [0, 3, 7, 10]],
   ['min6', [0, 3, 7, 9]],
   ['dim7', [0, 3, 6, 9]],
+  // A minor triad under a major seventh. RNDM writes it this way; so do most
+  // lead sheets, in one spelling or another.
+  ['minMaj7', [0, 3, 7, 11]],
+  ['mMaj7', [0, 3, 7, 11]],
+  ['mM7', [0, 3, 7, 11]],
+  // An altered dominant: no fifth, and the tensions that give it its name.
+  ['alt7', [0, 4, 10, 15, 20]],
+  ['7alt', [0, 4, 10, 15, 20]],
   ['sus2', [0, 2, 7]],
   ['sus4', [0, 5, 7]],
   ['maj', [0, 4, 7]],
@@ -94,11 +102,17 @@ export function parseChordSymbol(raw: string): ParsedChord | null {
     return '';
   });
 
-  // Alterations written without parentheses, e.g. C7b9
-  rest = rest.replace(/([#b])(5|6|9|11|13)$/, (_, acc: string, deg: string) => {
-    alterations.push(acc + deg);
-    return '';
-  });
+  // Alterations written without parentheses, e.g. C7b9 — and more than one of
+  // them, e.g. Cmin7b5b13, which is peeled from the end a degree at a time.
+  // Order does not matter: they end up in a set of intervals either way.
+  for (;;) {
+    const peeled = rest.replace(/([#b])(5|6|9|11|13)$/, (_, acc: string, deg: string) => {
+      alterations.push(acc + deg);
+      return '';
+    });
+    if (peeled === rest) break;
+    rest = peeled;
+  }
 
   const quality = QUALITIES.find(([name]) => name.toLowerCase() === rest.toLowerCase());
   if (!quality) return null;

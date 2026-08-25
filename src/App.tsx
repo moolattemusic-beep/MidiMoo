@@ -14,6 +14,7 @@ import { MemorySlots, MemorySlot } from './components/MemorySlots';
 import { PerformanceKeyboard } from './components/PerformanceKeyboard';
 import { MobileView } from './components/MobileView';
 import { RemotePanel } from './components/RemotePanel';
+import { RndmPanel } from './components/RndmPanel';
 import { remoteHostAvailable, useRemoteHost } from './lib/useRemoteHost';
 import { CollapsiblePanel } from './components/CollapsiblePanel';
 
@@ -96,6 +97,15 @@ function App() {
   // Several pads can sound at once, so this is every pad currently lit.
   const [playingSlotIndices, setPlayingSlotIndices] = useState<number[]>([]);
   const [lastPlayedChord, setLastPlayedChord] = useState<MemorySlot | null>(null);
+  const [showRndm, setShowRndm] = useState(false);
+  // The notes RNDM was told every chord must be able to hold, kept so the pads
+  // can say what is running through them — and moved when they are transposed.
+  const [rndmRequired, setRndmRequired] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('orchid-rndm-required') || '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    localStorage.setItem('orchid-rndm-required', JSON.stringify(rndmRequired));
+  }, [rndmRequired]);
   const [isChordEditMode, setIsChordEditMode] = useState(false);
   const [activeEditSlotIndex, setActiveEditSlotIndex] = useState<number | null>(null);
   const activeEditSlotIndexRef = useRef(activeEditSlotIndex);
@@ -515,6 +525,18 @@ function App() {
 
   return (
     <>
+      {showRndm && (
+        <RndmPanel
+          engine={engine}
+          memoryVelocity={params.memoryVelocity || 100}
+          onCommit={(slots, required) => {
+            setMemorySlots(slots);
+            setRndmRequired(required);
+          }}
+          onClose={() => setShowRndm(false)}
+        />
+      )}
+
       {showMobileView && (
         <MobileView 
           engine={engine}
@@ -738,6 +760,9 @@ function App() {
               }}
               momentary={params.memoryMomentary !== false}
               onToggleMomentary={() => setParams({ ...params, memoryMomentary: params.memoryMomentary === false })}
+              onOpenRndm={() => setShowRndm(true)}
+              rndmRequired={rndmRequired}
+              onRndmRequiredChange={setRndmRequired}
               memoryVelocity={params.memoryVelocity}
               onMemoryVelocityChange={(vel) => setParams(prev => ({ ...prev, memoryVelocity: vel }))}
               followRegister={params.memoryFollowRegister !== false}
