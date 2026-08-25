@@ -84,8 +84,17 @@ you actually get depends on the phone, and it is worth knowing which you have:
 
 On iOS this cannot be fired from code: a switch toggled from script stays
 silent, which is why the pads are labels aimed at a hidden switch — the tick
-comes from the touch itself. It follows that the strum pad, which is a surface
-rather than a control, has no haptic on an iPhone.
+comes from the touch itself. Two things follow from that, and neither can be
+worked around from a web page:
+
+- **The tick lands when you let go, not when you press.** A switch is operated
+  on the tap completing, and there is no way to ask iOS for a haptic at the
+  moment a finger arrives. Only a native app can do that.
+- **The strum pad has no haptic at all on an iPhone**, being a surface rather
+  than a control.
+
+Turning on **SPEAKER CLICK** is the only thing that answers the press itself on
+an iPhone. It is a sound rather than a feeling, but it arrives immediately.
 
 **SPEAKER CLICK** is a short low tone instead of a buzz. On an iPhone the
 speaker has nothing down at the frequencies you would feel, so it is audible

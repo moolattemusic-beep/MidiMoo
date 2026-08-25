@@ -128,6 +128,12 @@ restarted — and a phone will happily go on talking to a rebuilt instrument wit
 a page from the previous run. Both ends carry the build number and the remote
 says so when they differ, because nothing else about that failure looks wrong.
 
+**A remote surface must answer to the finger.** Pads used to light from the
+snapshot, so a press waited on the round trip and read as lag however fast the
+note was. They light locally now and the instrument corrects them a frame or two
+later; the guess is dropped once the two agree, or after 700ms if the message
+never landed.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long
@@ -141,6 +147,9 @@ says so when they differ, because nothing else about that failure looks wrong.
   its root pitch, so the second press takes the first one's slot. Pads on
   different roots overlap correctly. Fixing it means giving a held chord an
   identity separate from its root.
+- iOS gives a web page one haptic and only on the tap completing, so the remote
+  can tick on release but never on press. A native app is the only way to feel
+  the moment a pad goes down.
 - The remote is served over plain HTTP, so `navigator.wakeLock` is unavailable
   and the screen is held awake with a silent looping video instead. HTTPS with a
   self-signed certificate would fix it properly.

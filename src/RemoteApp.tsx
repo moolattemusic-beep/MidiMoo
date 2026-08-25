@@ -121,6 +121,37 @@ export function RemoteApp() {
 
   useEffect(() => watchVisibility(), []);
 
+
+  // What this phone believes it is doing, held until the instrument agrees or
+  // long enough to know the message went missing.
+  const [padHint, setPadHint] = useState<number[] | null>(null);
+  const [chordHint, setChordHint] = useState<Record<string, any> | null>(null);
+  const hintTimers = useRef<{ pad?: any; chord?: any }>({});
+
+  const hintPads = (next: number[]) => {
+    setPadHint(next);
+    clearTimeout(hintTimers.current.pad);
+    hintTimers.current.pad = setTimeout(() => setPadHint(null), 700);
+  };
+  const hintChord = (next: Record<string, any>) => {
+    setChordHint(previous => ({ ...(previous ?? {}), ...next }));
+    clearTimeout(hintTimers.current.chord);
+    hintTimers.current.chord = setTimeout(() => setChordHint(null), 700);
+  };
+  useEffect(() => () => {
+    clearTimeout(hintTimers.current.pad);
+    clearTimeout(hintTimers.current.chord);
+  }, []);
+  // Once the instrument agrees there is nothing left to guess about.
+  useEffect(() => {
+    if (padHint && padHint.join() === snapshot.playingSlotIndices.join()) setPadHint(null);
+  }, [snapshot.playingSlotIndices, padHint]);
+  useEffect(() => {
+    if (chordHint && Object.entries(chordHint).every(([key, value]) => snapshot.engineState[key] === value)) {
+      setChordHint(null);
+    }
+  }, [snapshot.engineState, chordHint]);
+
   const firstTouch = useRef(false);
   const onFirstTouch = useCallback(() => {
     if (firstTouch.current) return;
@@ -165,8 +196,12 @@ export function RemoteApp() {
     );
   }
 
-  const activeBaseType = state.effectiveBaseType ?? state.manualBaseType ?? -1;
-  const isDominant = !!state.ext_alt && activeBaseType === 3;
+  // The finger's version of the truth, with the instrument's underneath it.
+  const shown = { ...state, ...(chordHint ?? {}) };
+  const litPads = padHint ?? snapshot.playingSlotIndices;
+
+  const activeBaseType = shown.effectiveBaseType ?? shown.manualBaseType ?? -1;
+  const isDominant = !!shown.ext_alt && activeBaseType === 3;
   const inversion = params.chordInversion ?? 0;
 
   const nudgeInversion = (by: number) => {
@@ -215,8 +250,12 @@ export function RemoteApp() {
 
         {tab === 'chords' && (
           <button
-            onPointerDown={() => { haptic('tap'); engine.toggleExtension('alt'); }}
-            className={`analog-btn !px-3 !py-[6px] !text-[11px] tracking-[0.18em] ${state.ext_alt ? 'active' : ''}`}
+            onPointerDown={() => {
+              haptic('tap');
+              hintChord({ ext_alt: !shown.ext_alt });
+              engine.toggleExtension('alt');
+            }}
+            className={`analog-btn !px-3 !py-[6px] !text-[11px] tracking-[0.18em] ${shown.ext_alt ? 'active' : ''}`}
             title="Alterations instead of extensions"
           >
             ALT
@@ -249,13 +288,13 @@ export function RemoteApp() {
               <MemorySlots
                 engine={engine as unknown as OrchidEngine}
                 slots={snapshot.memorySlots}
-                playingSlotIndices={snapshot.playingSlotIndices}
+                playingSlotIndices={litPads}
                 hideHeader
                 hideEdit
                 hapticFor={HAPTIC_TARGET_ID}
                 padHeight="h-full"
-                onPlaySlot={(index) => send('playSlot', [index])}
-                onStopSlot={(index) => send('stopSlot', [index])}
+                onPlaySlot={(index) => { hintPads([index]); send('playSlot', [index]); }}
+                onStopSlot={(index) => { hintPads([]); send('stopSlot', [index]); }}
                 onSaveSlot={(index, chord) => send('saveSlot', [index, chord])}
                 onUpdateSlots={(slots) => send('updateSlots', [slots])}
                 lastPlayedChord={snapshot.lastPlayedChord}
@@ -285,7 +324,11 @@ export function RemoteApp() {
                       active={active}
                       // Latching rather than momentary: a phone has no spare
                       // finger to hold a modifier down with.
-                      onPress={() => engine.setBaseType(active ? -1 : type.value)}
+                      onPress={() => {
+                        const next = active ? -1 : type.value;
+                        hintChord({ effectiveBaseType: next, manualBaseType: next });
+                        engine.setBaseType(next);
+                      }}
                     />
                   );
                 })}
@@ -293,8 +336,11 @@ export function RemoteApp() {
                   <PadButton
                     key={ext.id}
                     label={ext.label}
-                    active={!!state[`ext_${ext.id}`]}
-                    onPress={() => engine.toggleExtension(ext.id as any)}
+                    active={!!shown[`ext_${ext.id}`]}
+                    onPress={() => {
+                      hintChord({ [`ext_${ext.id}`]: !shown[`ext_${ext.id}`] });
+                      engine.toggleExtension(ext.id as any);
+                    }}
                   />
                 ))}
               </div>
@@ -455,7 +501,7 @@ function MorePanel({
           />
           <SwitchRow
             label="SPEAKER CLICK"
-            hint="A short low tone where there is no haptic. It makes a sound, so it is off unless wanted."
+            hint="The only feedback an iPhone can give the moment a pad goes down rather than when it comes up. It makes a sound, so it is off unless wanted."
             checked={audioFallbackEnabled()}
             onChange={(on) => { setAudioFallback(on); if (on) haptic('tap'); onChanged(); }}
           />
