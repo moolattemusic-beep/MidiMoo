@@ -2861,9 +2861,35 @@ export class OrchidEngine {
               if (oldNote.mpeChannel) this.freeMpeChannel(oldNote.mpeChannel);
             }
           } else if (!oldNote && newPitch !== undefined) {
+            // A chord with more notes than the one before it has a voice with
+            // nothing to glide from, so it has to arrive somehow. Which of the
+            // three ways is the player's ear to decide.
+            const mode = this.params.mpeNewVoice ?? 0;
+            if (mode === 2) continue; // DROP: it simply does not sound.
+
             const channel = this.allocateMpeChannel();
-            this.emitNoteOn(newPitch, velocity, 0, channel, suppressImmediatePlay);
-            newMemory.push({ pitch: newPitch, delayUsed: 0, isBass: false, mpeChannel: channel, mpeBasePitch: newPitch, mpeCurrentPitch: newPitch, isInternalSynthOnly: suppressImmediatePlay });
+            // UNISON: enter on the pitch of whichever voice is already sounding
+            // closest, then glide out to where the note belongs. The attack
+            // lands where something is already ringing, so what is heard is the
+            // chord opening rather than a note being struck.
+            const neighbours = newMemory.filter(n => !n.isBass).map(n => n.pitch);
+            const enterAt = (mode === 1 && neighbours.length > 0)
+              ? neighbours.reduce((closest, p) =>
+                  Math.abs(p - newPitch) < Math.abs(closest - newPitch) ? p : closest)
+              : newPitch;
+
+            this.emitNoteOn(enterAt, velocity, 0, channel, suppressImmediatePlay);
+            const entered = {
+              pitch: newPitch, delayUsed: 0, isBass: false, mpeChannel: channel,
+              // The note-off names the pitch that was sounded, so this is where
+              // it entered rather than where it is heading.
+              mpeBasePitch: enterAt, mpeCurrentPitch: enterAt,
+              isInternalSynthOnly: suppressImmediatePlay,
+            };
+            if (enterAt !== newPitch) {
+              this.emitMpePitchBend(channel, enterAt, enterAt, newPitch, 0, entered);
+            }
+            newMemory.push(entered);
           }
         }
       } else {

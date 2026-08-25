@@ -12,6 +12,8 @@ export interface OrchidParams {
   chordInversion: number; // 0 to 16
   mpeEnabled: boolean;
   mpeBendRange: number;
+  /** How a voice enters when the new chord has more notes than the old: 0 attack, 1 unison then glide, 2 drop. */
+  mpeNewVoice: number;
   mpeGlideTimeMs: number;
   mpeGlideMode: number; // 0=Legato (overlap only), 1=Grace window, 2=Hold, 3=Free MOO
   mpeGraceMs: number; // Grace-window length used by mpeGlideMode 1
@@ -178,6 +180,7 @@ export const defaultParams: OrchidParams = {
   chordInversion: 0,
   mpeEnabled: false,
   mpeBendRange: 48,
+  mpeNewVoice: 0,
   mpeGlideTimeMs: 150,
   mpeGlideMode: 0,
   mpeGraceMs: 250,

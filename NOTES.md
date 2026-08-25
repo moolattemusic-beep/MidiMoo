@@ -157,6 +157,15 @@ restarted — which made panic, the thing you press when a note is stuck, the
 thing that broke MPE. Guarded by `mpepool_test`, which walks every route that
 takes a channel and asks for the pool back.
 
+**A chord with more notes than the last has a voice with nothing to glide
+from.** It happens on about four changes in ten with played voicings, and it is
+always exactly one voice — the highest unmatched pitch, since the pairing sorts
+both chords and the leftover falls off the end. NEW VOICE decides how it
+arrives: ATTACK strikes it, UNISON enters it on the nearest note already
+sounding and glides it out so the attack is masked, DROP leaves it out. DROP is
+the one to be careful with: the voice is never held, so the next chord has fewer
+to glide from and the count cannot climb back until everything is released.
+
 **A glide is a bend on a note RANGE has already folded.** Aiming it at the raw
 target bends straight out of the window: the note number went out folded, so
 adding the untouched interval carries it past the edge and lands it an octave

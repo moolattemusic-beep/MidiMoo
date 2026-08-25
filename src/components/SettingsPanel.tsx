@@ -414,6 +414,26 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 : 'FREE MOO ONLY APPLIES IN FREE MODE — OTHER MAPPINGS GLIDE AS LEGATO')}
             </p>
 
+            <p className="label-meta mt-4 mb-2">NEW VOICE</p>
+            <div className="grid grid-cols-3 gap-2">
+              {["ATTACK", "UNISON", "DROP"].map((val, idx) => (
+                <button
+                  key={val}
+                  onClick={() => updateParam('mpeNewVoice', idx)}
+                  className={`analog-btn ${(params.mpeNewVoice ?? 0) === idx ? 'active' : ''}`}
+                >
+                  {val}
+                </button>
+              ))}
+            </div>
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-2 leading-relaxed">
+              A CHORD WITH MORE NOTES THAN THE ONE BEFORE IT HAS A VOICE WITH NOTHING
+              TO GLIDE FROM.{' '}
+              {(params.mpeNewVoice ?? 0) === 0 && 'ATTACK STRIKES IT WHERE IT BELONGS — HONEST, BUT YOU HEAR IT ARRIVE.'}
+              {(params.mpeNewVoice ?? 0) === 1 && 'UNISON ENTERS IT ON THE NEAREST NOTE ALREADY SOUNDING AND GLIDES IT OUT, SO THE CHORD OPENS RATHER THAN RE-ARTICULATES.'}
+              {(params.mpeNewVoice ?? 0) === 2 && 'DROP LEAVES IT OUT ALTOGETHER. SEAMLESS, BUT THE CHORD LOSES ITS TOP NOTE — AND SINCE THAT VOICE IS NEVER HELD, EVERY LATER CHORD IS CAPPED AT THE SMALLEST ONE PLAYED UNTIL EVERYTHING IS RELEASED.'}
+            </p>
+
             {params.mpeGlideMode === 1 && (
               <div className="fade-in mt-4">
                 <div className="flex justify-between items-center mb-2">
