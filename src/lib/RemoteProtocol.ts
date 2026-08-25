@@ -29,6 +29,8 @@ export const isAllowedCommand = (fn: unknown): fn is RemoteCommandName =>
 
 /** Everything the phone needs to draw itself. */
 export interface RemoteSnapshot {
+  /** The instrument's build. A phone showing a different one is a stale page. */
+  version: string;
   params: Record<string, any>;
   engineState: Record<string, any>;
   memorySlots: any[];
@@ -45,6 +47,7 @@ export interface RemoteSnapshot {
  * whole object sixty times a second.
  */
 export interface RemotePatch {
+  version?: string;
   params?: Record<string, any>;
   engineState?: Record<string, any>;
   memorySlots?: any[];
@@ -72,6 +75,19 @@ export const SNAPSHOT_FIELDS = [
   'arpSequence',
   'lastPlayedChord',
 ] as const;
+
+/**
+ * Whether the page a phone is showing came from an older run of the app.
+ *
+ * The interface and the instrument are the same build, so a difference means
+ * this page was served before the app was rebuilt and is not the version being
+ * tested. An instrument that reports nothing is one from before this check
+ * existed, and saying so would be worse than staying quiet.
+ */
+export function isStalePage(pageVersion: string, instrumentVersion: string | undefined): boolean {
+  if (!instrumentVersion || !pageVersion) return false;
+  return instrumentVersion !== pageVersion;
+}
 
 /** The keys of `params` that differ between two versions of it. */
 export function diffParams(

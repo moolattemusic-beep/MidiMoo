@@ -103,6 +103,16 @@ so the video is what will be doing the work here. It is re-established whenever
 you come back to the app, because iOS drops it every time the app goes to the
 background.
 
+## Knowing which build you are on
+
+The version is in the footer of the instrument, and on the remote beside the
+link light. They are the same build, so if they ever disagree the phone is
+showing a page served by an earlier run of the app — a red bar says so across
+the bottom of the remote, and tapping it reloads. MORE shows both plainly.
+
+That is the failure worth knowing about: the phone will happily keep talking to
+a rebuilt instrument with an old page, and nothing else about it looks wrong.
+
 ## If something is wrong
 
 **The phone says WAITING FOR THE INSTRUMENT.** MidiMOO is closed, or REMOTE is

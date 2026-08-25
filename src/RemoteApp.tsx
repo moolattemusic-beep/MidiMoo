@@ -5,7 +5,7 @@ import { ArpeggioXYPad } from './components/ArpeggioXYPad';
 import { CustomSlider } from './components/CustomSlider';
 import { MemorySlots } from './components/MemorySlots';
 import { RemoteEngine } from './lib/RemoteEngine';
-import { REMOTE_PORT, RemoteCommandName, RemoteSnapshot, ServerMessage } from './lib/RemoteProtocol';
+import { isStalePage, REMOTE_PORT, RemoteCommandName, RemoteSnapshot, ServerMessage } from './lib/RemoteProtocol';
 import {
   audioFallbackEnabled, hapticCapability, hapticsEnabled, haptic,
   hapticLabelProps, HAPTIC_TARGET_ID, primeHaptics, setAudioFallback, setHapticsEnabled,
@@ -16,7 +16,7 @@ type Connection = 'connecting' | 'open' | 'lost';
 type Tab = 'chords' | 'pads';
 
 const EMPTY: RemoteSnapshot = {
-  params: {}, engineState: {}, memorySlots: [],
+  version: '', params: {}, engineState: {}, memorySlots: [],
   playingSlotIndices: [], activeNotes: [], arpSequence: [], lastPlayedChord: null,
 };
 
@@ -140,6 +140,8 @@ export function RemoteApp() {
     send('setParams', [next]);
   }, [send]);
 
+  const stale = isStalePage(__APP_VERSION__, snapshot.version);
+
   const status = connection === 'open' ? (ready ? 'LINK' : 'SYNC')
     : connection === 'connecting' ? 'CONNECTING' : 'RECONNECTING';
   const light = connection === 'open' && ready ? '#7FB069'
@@ -152,6 +154,7 @@ export function RemoteApp() {
         className="fixed inset-0 flex flex-col items-center justify-center gap-3 bg-black text-white font-['Space_Mono'] p-8 text-center"
       >
         <div className="text-[var(--accent)] tracking-[0.3em] text-sm">MIDIMOO</div>
+        <div className="text-[10px] tracking-[0.2em] text-white/35">V{__APP_VERSION__}</div>
         <div className="text-xs tracking-[0.2em]" style={{ color: light }}>{status}</div>
         <p className="text-[11px] leading-relaxed text-white/45 max-w-[16rem]">
           {connection === 'lost'
@@ -225,6 +228,7 @@ export function RemoteApp() {
         <span className="flex items-center gap-[6px] px-2 text-[9px] tracking-[0.16em] text-white/50">
           <span className="w-[7px] h-[7px] rounded-full" style={{ background: light }} />
           {status}
+          <span className="text-white/30">V{__APP_VERSION__}</span>
         </span>
         <button
           onPointerDown={() => { haptic('tap'); setShowMore(true); }}
@@ -337,9 +341,19 @@ export function RemoteApp() {
         </div>
       </div>
 
+      {stale && (
+        <button
+          onClick={() => window.location.reload()}
+          className="absolute inset-x-0 bottom-0 z-[80] py-2 px-3 bg-[#8a2b28] text-white text-[10px] tracking-[0.14em] text-left"
+        >
+          THIS PAGE IS V{__APP_VERSION__}, THE INSTRUMENT IS V{snapshot.version} — TAP TO RELOAD
+        </button>
+      )}
+
       {showMore && (
         <MorePanel
           engine={engine}
+          instrumentVersion={snapshot.version}
           awake={awake}
           onAwakeChange={async (on) => {
             if (on) setAwake((await keepAwake()) !== 'none');
@@ -377,9 +391,10 @@ const PadButton: React.FC<{ label: string; active: boolean; onPress: () => void 
  * learn from, and the phone's own business.
  */
 function MorePanel({
-  engine, awake, onAwakeChange, onChanged, onClose,
+  engine, instrumentVersion, awake, onAwakeChange, onChanged, onClose,
 }: {
   engine: RemoteEngine;
+  instrumentVersion: string;
   awake: boolean;
   onAwakeChange: (on: boolean) => void;
   onChanged: () => void;
@@ -401,6 +416,9 @@ function MorePanel({
       >
         <div className="flex items-center justify-between">
           <span className="text-[10px] tracking-[0.2em] text-[var(--accent)]">MORE</span>
+          <span className="text-[9px] tracking-[0.14em] text-white/35">
+            REMOTE V{__APP_VERSION__} · INSTRUMENT V{instrumentVersion || '?'}
+          </span>
           <button onPointerDown={onClose} className="analog-btn !text-[10px] !px-4 !py-1">DONE</button>
         </div>
 

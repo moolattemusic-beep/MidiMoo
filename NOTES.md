@@ -122,6 +122,12 @@ it. `remote-addresses.cjs` works out which interface is which from
 whatever the word USB suggests — and falls back to Apple's hotspot /28, which
 only ever comes from the phone itself.
 
+**The version is on both surfaces on purpose.** A running app keeps its own copy
+of the bundle open, so replacing the file on disk changes nothing until it is
+restarted — and a phone will happily go on talking to a rebuilt instrument with
+a page from the previous run. Both ends carry the build number and the remote
+says so when they differ, because nothing else about that failure looks wrong.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long

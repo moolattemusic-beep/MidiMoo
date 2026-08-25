@@ -63,6 +63,7 @@ export function useRemoteHost(sources: HostSources) {
   const snapshot = (): RemoteSnapshot => {
     const s = latest.current;
     return {
+      version: __APP_VERSION__,
       params: s.params,
       engineState: {
         ...s.engineState,

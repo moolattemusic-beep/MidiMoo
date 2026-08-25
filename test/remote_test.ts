@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { diffParams, fieldChanged, isAllowedCommand } from '../src/lib/RemoteProtocol.ts';
+import { diffParams, fieldChanged, isAllowedCommand, isStalePage } from '../src/lib/RemoteProtocol.ts';
 
 // The suite is bundled into test/.build before it runs, so relative requires
 // would resolve from there rather than from this file.
@@ -80,6 +80,19 @@ console.log('\n=== Only listed commands get through ===');
     check(`"${bad}" is refused`, !isAllowedCommand(bad), '');
   }
   check('and so is nonsense', !isAllowedCommand(42) && !isAllowedCommand(null), '');
+}
+
+console.log('\n=== Knowing which build you are testing ===');
+{
+  check('the same build is not stale', !isStalePage('1.1.0', '1.1.0'), '');
+  check('an older page is stale', isStalePage('1.0.4', '1.1.0'), '');
+  // It runs the other way too: the phone can be ahead if the Mac was not restarted.
+  check('a newer page is stale as well', isStalePage('1.1.0', '1.0.4'), '');
+  // An instrument from before this existed says nothing, and a false alarm on
+  // every connection would be worse than staying quiet.
+  check('an instrument that says nothing raises nothing', !isStalePage('1.1.0', undefined), '');
+  check('nor does an empty one', !isStalePage('1.1.0', ''), '');
+  check('and a page with no version of its own stays quiet', !isStalePage('', '1.1.0'), '');
 }
 
 console.log('\n=== Which way in is which ===');
