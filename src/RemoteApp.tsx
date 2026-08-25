@@ -200,6 +200,8 @@ export function RemoteApp() {
   const shown = { ...state, ...(chordHint ?? {}) };
   const litPads = padHint ?? snapshot.playingSlotIndices;
 
+  const momentaryBase = !!params.momentaryBase;
+  const momentaryExt = !!params.momentaryExt;
   const activeBaseType = shown.effectiveBaseType ?? shown.manualBaseType ?? -1;
   const isDominant = !!shown.ext_alt && activeBaseType === 3;
   const inversion = params.chordInversion ?? 0;
@@ -322,27 +324,45 @@ export function RemoteApp() {
                       key={type.label}
                       label={type.label}
                       active={active}
-                      // Latching rather than momentary: a phone has no spare
-                      // finger to hold a modifier down with.
                       onPress={() => {
+                        if (momentaryBase) {
+                          hintChord({ effectiveBaseType: type.value, manualBaseType: type.value });
+                          engine.setBaseType(type.value);
+                          return;
+                        }
                         const next = active ? -1 : type.value;
                         hintChord({ effectiveBaseType: next, manualBaseType: next });
                         engine.setBaseType(next);
                       }}
+                      onRelease={momentaryBase ? () => {
+                        hintChord({ effectiveBaseType: -1, manualBaseType: -1 });
+                        engine.releaseBaseType(type.value);
+                      } : undefined}
                     />
                   );
                 })}
-                {EXTENSIONS(isDominant).map((ext) => (
-                  <PadButton
-                    key={ext.id}
-                    label={ext.label}
-                    active={!!shown[`ext_${ext.id}`]}
-                    onPress={() => {
-                      hintChord({ [`ext_${ext.id}`]: !shown[`ext_${ext.id}`] });
-                      engine.toggleExtension(ext.id as any);
-                    }}
-                  />
-                ))}
+                {EXTENSIONS(isDominant).map((ext) => {
+                  const on = !!shown[`ext_${ext.id}`];
+                  return (
+                    <PadButton
+                      key={ext.id}
+                      label={ext.label}
+                      active={on}
+                      onPress={() => {
+                        // Momentary extensions toggle on the way down and back
+                        // off on the way up, which is how the desktop pads read
+                        // the same setting.
+                        if (momentaryExt && on) return;
+                        hintChord({ [`ext_${ext.id}`]: !on });
+                        engine.toggleExtension(ext.id as any);
+                      }}
+                      onRelease={momentaryExt ? () => {
+                        hintChord({ [`ext_${ext.id}`]: false });
+                        engine.releaseExtension(ext.id as any);
+                      } : undefined}
+                    />
+                  );
+                })}
               </div>
             )}
           </div>
@@ -399,6 +419,8 @@ export function RemoteApp() {
       {showMore && (
         <MorePanel
           engine={engine}
+          params={params}
+          setParams={setParams}
           instrumentVersion={snapshot.version}
           awake={awake}
           onAwakeChange={async (on) => {
@@ -413,7 +435,9 @@ export function RemoteApp() {
   );
 }
 
-const PadButton: React.FC<{ label: string; active: boolean; onPress: () => void }> = ({ label, active, onPress }) => {
+const PadButton: React.FC<{
+  label: string; active: boolean; onPress: () => void; onRelease?: () => void;
+}> = ({ label, active, onPress, onRelease }) => {
   const anchor = hapticLabelProps();
   // A label where the phone has a haptic to give, a button otherwise. It must
   // not preventDefault: that would stop the label activating, and the tick with it.
@@ -422,6 +446,9 @@ const PadButton: React.FC<{ label: string; active: boolean; onPress: () => void 
     <Tag
       {...anchor}
       onPointerDown={(event: any) => { if (!anchor.htmlFor) event.preventDefault(); onPress(); }}
+      onPointerUp={onRelease}
+      onPointerLeave={onRelease}
+      onPointerCancel={onRelease}
       className={`rounded-sm border-[3px] flex items-center justify-center touch-none transition-colors
         ${active
           ? 'bg-[var(--accent)] border-[var(--accent)] text-black'
@@ -437,9 +464,11 @@ const PadButton: React.FC<{ label: string; active: boolean; onPress: () => void 
  * learn from, and the phone's own business.
  */
 function MorePanel({
-  engine, instrumentVersion, awake, onAwakeChange, onChanged, onClose,
+  engine, params, setParams, instrumentVersion, awake, onAwakeChange, onChanged, onClose,
 }: {
   engine: RemoteEngine;
+  params: OrchidParams;
+  setParams: (next: any) => void;
   instrumentVersion: string;
   awake: boolean;
   onAwakeChange: (on: boolean) => void;
@@ -474,6 +503,26 @@ function MorePanel({
         >
           PANIC
         </button>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[9px] tracking-[0.18em] text-white/40">
+            RANGE — NOTHING LEAVES THE INSTRUMENT OUTSIDE IT
+          </span>
+          <RangeRow
+            label="LOW"
+            value={params.outputRangeLow ?? 0}
+            min={0}
+            max={(params.outputRangeHigh ?? 127) - 12}
+            onChange={(value) => setParams({ ...params, outputRangeLow: value })}
+          />
+          <RangeRow
+            label="HIGH"
+            value={params.outputRangeHigh ?? 127}
+            min={(params.outputRangeLow ?? 0) + 12}
+            max={127}
+            onChange={(value) => setParams({ ...params, outputRangeHigh: value })}
+          />
+        </div>
 
         <div className="flex flex-col gap-2">
           <span className="text-[9px] tracking-[0.18em] text-white/40">
@@ -515,6 +564,35 @@ function MorePanel({
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const noteName = (pitch: number) => `${NOTE_NAMES[pitch % 12]}${Math.floor(pitch / 12) - 1}`;
+
+/** One end of the output range, named as a note rather than a number. */
+function RangeRow({
+  label, value, min, max, onChange,
+}: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-[10px] tracking-[0.16em] text-white/60 w-10 shrink-0">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={127}
+        step={1}
+        value={value}
+        onChange={(event) => {
+          const next = parseInt(event.target.value, 10);
+          // The two ends cannot cross, and a window under an octave cannot be
+          // folded into at all, so they keep twelve semitones apart.
+          onChange(Math.max(min, Math.min(max, next)));
+        }}
+        className="range-sm flex-1 accent-[var(--accent)]"
+      />
+      <span className="text-[11px] text-[var(--accent)] w-10 text-right tabular-nums">{noteName(value)}</span>
     </div>
   );
 }

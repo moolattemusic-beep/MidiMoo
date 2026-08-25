@@ -301,7 +301,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           </div>
           {/* Two handles on one line: everything the app sends is moved by
               octaves until it sits between them, so no part strays into a
-              register it was never meant to reach. */}
+              register it was never meant to reach.
+
+              Both tracks ignore clicks and only the thumbs answer them. They
+              are stacked full-width, so a track that accepted a click would let
+              the upper input win anywhere along it — reaching for the high
+              handle and missing would send the low one to meet it, collapsing
+              the range into the top of the keyboard. */}
           <div className="relative h-[26px]">
             <input
               type="range" min={0} max={127}
@@ -310,7 +316,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
                 const v = Math.min(parseInt(e.target.value, 10), (params.outputRangeHigh ?? 96) - 12);
                 updateParam('outputRangeLow', v);
               }}
-              className="range-sm w-full absolute inset-0 accent-[var(--accent)]"
+              className="range-sm w-full absolute inset-0 accent-[var(--accent)] pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto"
             />
             <input
               type="range" min={0} max={127}

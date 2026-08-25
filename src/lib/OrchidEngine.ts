@@ -1240,6 +1240,14 @@ export class OrchidEngine {
       }
     }
     this.activePitchesMemory = {};
+    // Panic clears every record of what was sounding, so nothing owns a member
+    // channel any more — and the pool has to be told. Without this each panic
+    // stranded the channels of whatever was held at the time: a few chords in,
+    // all fourteen are gone, every note falls back to one channel, and MPE is
+    // dead until the app is restarted. Which made panic, the thing you press
+    // when a note is stuck, the thing that broke expression.
+    this.mpeChannelsAllocated.fill(false);
+    this.soundingAs.clear();
     this.heldKeys.clear();
     this.heldCustomVoicings.clear();
     this.heldChordIntervals.clear();
@@ -2971,12 +2979,30 @@ export class OrchidEngine {
     return Math.max(1, Math.min(127, Math.round(vel)));
   }
 
+  /**
+   * What each note actually went out as.
+   *
+   * RANGE folds a note on its way out, and the fold is a pure function of a
+   * range the player can move. Folding again at note-off therefore answers a
+   * different question than the note-on did: a chord held while the range moves
+   * would be released at a pitch nothing is playing, and would sound for good.
+   * So the note-off sends whatever the note-on sent, rather than working it out
+   * a second time.
+   */
+  private soundingAs: Map<string, number> = new Map();
+
+  private soundingKey(pitch: number, channel?: number): string {
+    return `${channel ?? 1}:${pitch}`;
+  }
+
   private emitNoteOn(pitch: number, velocity: number, delayMs: number = 0, channel?: number, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false, isRaw: boolean = false, isCycleStart: boolean = false) {
     // A glide still running on this channel belongs to the note being replaced;
     // letting it continue would bend the note starting here.
     this.cancelChannelGlide(channel);
     const finalVelocity = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
-    if (this.onOutputNote) this.onOutputNote({ pitch: this.foldToRange(pitch), velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw, isCycleStart });
+    const folded = this.foldToRange(pitch);
+    this.soundingAs.set(this.soundingKey(pitch, channel), folded);
+    if (this.onOutputNote) this.onOutputNote({ pitch: folded, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw, isCycleStart });
     
     // Reset expression and pitch bend on note on, in case channel was reused/glided
     if (this.params.mpeEnabled) {
@@ -3010,10 +3036,13 @@ export class OrchidEngine {
   private emitNoteOff(pitch: number, velocity: number = 0, delayMs: number = 0, channel: number = 1, isInternalSynthOnly: boolean = false, isMidiOnly: boolean = false) {
     // The note is ending; its glide must not outlive it and bend the next one.
     this.cancelChannelGlide(channel);
+    const key = this.soundingKey(pitch, channel);
+    const folded = this.soundingAs.get(key) ?? this.foldToRange(pitch);
+    this.soundingAs.delete(key);
     if (isInternalSynthOnly && !this.params.omnichordSynthMonitor) {
       return; // Fully silent
     }
-    if (this.onOutputNote) this.onOutputNote({ pitch: this.foldToRange(pitch), velocity, isOn: false, delayMs, mpeChannel: channel, isInternalSynthOnly, isMidiOnly });
+    if (this.onOutputNote) this.onOutputNote({ pitch: folded, velocity, isOn: false, delayMs, mpeChannel: channel, isInternalSynthOnly, isMidiOnly });
   }
 
   /**

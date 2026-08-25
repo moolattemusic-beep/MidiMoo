@@ -149,6 +149,19 @@ a generated pad follows register, inversion and the voicing disk like any pasted
 chord rather than being frozen. Three spellings had to be added for it:
 `minMaj7`, `alt7`, and chained bare alterations like `min7b5b13`.
 
+**Panic used to eat the MPE channel pool.** It cleared every record of what was
+sounding but never told `mpeChannelsAllocated`, so the channels of whatever was
+held at the time were stranded. A few panics and all fourteen were gone, every
+note fell back to one channel, and expression stayed dead until the app was
+restarted — which made panic, the thing you press when a note is stuck, the
+thing that broke MPE. Guarded by `mpepool_test`, which walks every route that
+takes a channel and asks for the pool back.
+
+**A note-off sends what the note-on sent.** RANGE folds a note on its way out
+and the fold answers to a range the player can move, so folding a second time at
+note-off could name a pitch nothing is playing: a chord held while the range
+moved never stopped. The emitted pitch is remembered instead.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long
