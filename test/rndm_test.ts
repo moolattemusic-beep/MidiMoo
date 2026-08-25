@@ -3,7 +3,7 @@ import {
   generateSingleChord, getAllCommonChordTones, getImpliedJazzTones,
   getParentScaleNotes, getQualitiesForMood, isForbidden, smartRename, transposeSymbol,
 } from '../src/lib/RndmEngine.ts';
-import { chordIntervalsWithCommonNotes } from '../src/lib/RndmEngine.ts';
+import { chordIntervalsWithCommonNotes, sharedNotes } from '../src/lib/RndmEngine.ts';
 import { parseChordSymbol } from '../src/lib/ChordSymbol.ts';
 
 let pass = 0, fail = 0;
@@ -174,6 +174,37 @@ const seeded = (seed: number) => () => {
     check('transposing moves only the root', transposeSymbol('Cmin7(b9)', 2) === 'Dmin7(b9)', transposeSymbol('Cmin7(b9)', 2));
     check('and wraps round the octave', transposeSymbol('Bmaj7', 1) === 'Cmaj7', transposeSymbol('Bmaj7', 1));
     check('by nothing changes nothing', transposeSymbol('Ebmin9', 0) === 'Ebmin9', '');
+  }
+
+  console.log('\n=== What a set of chords shares ===');
+  {
+    // A preset is a written-out voicing that happens to carry a name. Reading
+    // the name would credit it with tensions nobody played, so it is read as
+    // the notes it actually contains.
+    const preset = [
+      { voicing: [60, 64, 67, 71], symbol: 'Cmaj7' },
+      { voicing: [62, 65, 69, 72], symbol: 'Dmin7' },
+    ];
+    const fromVoicings = sharedNotes(preset);
+    check('a preset shares only notes both actually contain',
+      fromVoicings.join() === 'C', fromVoicings.join());
+    // The same two chords read as symbols are far more generous, which is
+    // exactly the reading a preset must not get.
+    const fromSymbols = sharedNotes([{ symbol: 'Cmaj7' }, { symbol: 'Dmin7' }]);
+    check('read as symbols they appear to share more',
+      fromSymbols.length > fromVoicings.length, `${fromSymbols} vs ${fromVoicings}`);
+  }
+  {
+    check('one chord shares nothing with itself alone', sharedNotes([{ symbol: 'Cmaj7' }]).length === 0, '');
+    check('nothing at all shares nothing', sharedNotes([]).length === 0, '');
+    check('empty pads are ignored rather than counted',
+      sharedNotes([{ voicing: [60, 64, 67] }, {}, { voicing: [60, 65, 69] }]).join() === 'C',
+      sharedNotes([{ voicing: [60, 64, 67] }, {}, { voicing: [60, 65, 69] }]).join());
+    // Octaves are the same note as far as this is concerned.
+    check('a note shared an octave apart still counts',
+      sharedNotes([{ voicing: [60, 64] }, { voicing: [72, 67] }]).join() === 'C', '');
+    check('chords with nothing in common report nothing',
+      sharedNotes([{ voicing: [60, 64, 67] }, { voicing: [61, 66, 68] }]).length === 0, '');
   }
 
   console.log('\n=== Rerolling one chord ===');

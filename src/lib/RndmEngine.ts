@@ -318,6 +318,30 @@ export function chordIntervalsWithCommonNotes(
   return [...new Set(out)].sort((a, b) => a - b);
 }
 
+/**
+ * The notes a set of chords all have in common.
+ *
+ * A chord saved as a voicing is read as the notes it actually contains. Only a
+ * chord that is nothing but a symbol is read as the tones that symbol implies,
+ * since there is nothing else to go on — and that reading is deliberately
+ * generous, counting tensions a player would add. Applying it to a written-out
+ * voicing would describe a chord more open than the one on the pad, which is
+ * why a preset is read as itself.
+ */
+export function sharedNotes(chords: Array<{ voicing?: number[]; symbol?: string }>): string[] {
+  const perChord = chords
+    .map(chord => {
+      if (chord.voicing?.length) {
+        return [...new Set(chord.voicing.map(pitch => NOTES[((pitch % 12) + 12) % 12]))];
+      }
+      return chord.symbol ? getImpliedJazzTones(chord.symbol) : [];
+    })
+    .filter(notes => notes.length > 0);
+
+  if (perChord.length < 2) return [];
+  return perChord[0].filter(note => perChord.every(notes => notes.includes(note)));
+}
+
 /** Move a chord symbol, leaving everything after the root alone. */
 export function transposeSymbol(chord: string, semitones: number): string {
   if (semitones === 0) return chord;

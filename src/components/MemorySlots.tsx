@@ -17,7 +17,7 @@ function transposeSymbol(symbol: string, semitones: number): string {
   return TRANSPOSE_NAMES[((base + semitones) % 12 + 12) % 12] + m[2];
 }
 import { parseProgression } from '../lib/ChordSymbol';
-import { NOTES as RNDM_NOTES, getAllCommonChordTones } from '../lib/RndmEngine';
+import { NOTES as RNDM_NOTES, sharedNotes } from '../lib/RndmEngine';
 
 export type MemorySlot = {
   rootPitch: number;
@@ -104,12 +104,20 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const PadTag: any = hapticFor ? 'label' : 'button';
 
-  // Worked out from what is on the pads, so it answers to transposing, editing
-  // and re-rolling without anything having to remember to update it.
+  /**
+   * The notes every chord on the pads has in common, worked out from the pads
+   * themselves — so it answers to transposing, editing and re-rolling without
+   * anything having to remember to update it.
+   *
+   * A pad saved as a voicing is read as the notes it actually contains. Only a
+   * pad that is nothing but a chord symbol is read as the tones that symbol
+   * implies, since there is nothing else to go on. That matters for presets,
+   * which are written-out voicings carrying a name: reading the name would
+   * describe a chord more generous than the one on the pad.
+   */
   const sharedTones = React.useMemo(() => {
-    const symbols = slots.filter(Boolean).map(slot => slot!.symbol).filter(Boolean) as string[];
-    if (symbols.length < 2) return [];
-    return getAllCommonChordTones(symbols).filter(note => !(rndmRequired ?? []).includes(note));
+    const chords = slots.filter(Boolean).map(slot => ({ voicing: slot!.customVoicing, symbol: slot!.symbol }));
+    return sharedNotes(chords).filter(note => !(rndmRequired ?? []).includes(note));
   }, [slots, rndmRequired]);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
@@ -160,6 +168,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
     });
 
     onUpdateSlots(next);
+    onRndmRequiredChange?.([]);
     setPasteStatus(unreadable.length ? `UNREADABLE: ${unreadable.slice(0, 3).join(' ')}` : null);
     setEditorText(null);
   };
@@ -212,6 +221,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
       };
     });
     onUpdateSlots(next);
+    onRndmRequiredChange?.([]);
   };
   // Reading the clipboard needs the document focused and the permission
   // granted; when that fails there has to be somewhere to paste by hand
@@ -436,15 +446,21 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
         </button>}
       </div>
-      {!hideHeader && (rndmRequired?.length || sharedTones.length > 0) && (
+      {!hideHeader && ((rndmRequired?.length ?? 0) > 0 || sharedTones.length > 0) && (
         <div className="flex items-center gap-2 flex-wrap border-t border-white/10 pt-2">
-          <span className="label-meta !text-[9px] opacity-50">REQUIRED</span>
-          <span className="font-['Space_Mono'] text-[12px] text-[var(--accent)]">
-            {rndmRequired?.length ? rndmRequired.join('  ') : 'NONE'}
-          </span>
+          {(rndmRequired?.length ?? 0) > 0 && (
+            <>
+              <span className="label-meta !text-[9px] opacity-50">REQUIRED</span>
+              <span className="font-['Space_Mono'] text-[12px] text-[var(--accent)]">
+                {rndmRequired!.join('  ')}
+              </span>
+            </>
+          )}
           {sharedTones.length > 0 && (
             <>
-              <span className="label-meta !text-[9px] opacity-50 ml-2">ALSO SHARED</span>
+              <span className={`label-meta !text-[9px] opacity-50 ${(rndmRequired?.length ?? 0) > 0 ? 'ml-2' : ''}`}>
+                {(rndmRequired?.length ?? 0) > 0 ? 'ALSO SHARED' : 'SHARED'}
+              </span>
               <span className="font-['Space_Mono'] text-[12px] text-white/55">{sharedTones.join('  ')}</span>
             </>
           )}

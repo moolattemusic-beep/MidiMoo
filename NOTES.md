@@ -134,6 +134,14 @@ note was. They light locally now and the instrument corrects them a frame or two
 later; the guess is dropped once the two agree, or after 700ms if the message
 never landed.
 
+**A preset is read as itself.** Presets carry a chord symbol as well as their
+notes, and reading the symbol would credit them with tensions nobody played —
+`getImpliedJazzTones` is deliberately generous, which is what makes RNDM's
+selection work and what makes it wrong here. `sharedNotes` reads a pad's voicing
+when it has one and falls back to the symbol only when there is nothing else.
+Loading a preset or pasting a progression also clears RNDM's required notes:
+they describe a set that is no longer on the pads.
+
 **RNDM chooses chords that can hold a note, not chords that state it.** The
 generator is ported from moodsoundcollection.com/pages/rndm. A chord qualifies
 when the common notes belong to the scale it implies *and* land on a degree the
