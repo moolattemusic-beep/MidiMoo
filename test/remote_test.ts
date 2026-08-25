@@ -6,6 +6,7 @@ import { diffParams, fieldChanged, isAllowedCommand } from '../src/lib/RemotePro
 // would resolve from there rather than from this file.
 const require = createRequire(path.join(process.cwd(), 'noop.js'));
 const { HeldGestures, resolveFile } = require('./electron/remote-safety.cjs');
+const { classify, listAddresses, HOTSPOT_PREFIX } = require('./electron/remote-addresses.cjs');
 
 let pass = 0, fail = 0;
 const check = (n: string, c: boolean, d = '') => { if (c) { pass++; console.log('  PASS ', n); } else { fail++; console.log('  FAIL ', n, d); } };
@@ -81,6 +82,39 @@ console.log('\n=== Only listed commands get through ===');
   check('and so is nonsense', !isAllowedCommand(42) && !isAllowedCommand(null), '');
 }
 
+console.log('\n=== Which way in is which ===');
+{
+  // macOS names the port when the phone is tethered, and that is the plainest
+  // signal there is.
+  check('a tethered iPhone is the cable', classify('en6', 'iPhone USB', '172.20.10.2') === 'usb', '');
+  check('an iPad too', classify('en7', 'iPad USB', '172.20.10.2') === 'usb', '');
+  // The hotspot /28 is only ever handed out by the phone, so it stands on its
+  // own when the port has no useful name.
+  check('the hotspot subnet is the cable even unnamed',
+    classify('en9', 'Ethernet Adapter', HOTSPOT_PREFIX + '3') === 'usb', '');
+  check('Wi-Fi is Wi-Fi', classify('en1', 'Wi-Fi', '192.168.1.5') === 'wifi', '');
+  check('older machines call it AirPort', classify('en0', 'AirPort', '192.168.1.5') === 'wifi', '');
+  // A USB Ethernet dongle is not a phone, whatever the word USB suggests.
+  check('a USB ethernet dongle is not the cable',
+    classify('en14', 'USB 10/100/1000 LAN', '192.168.1.9') === 'other', '');
+  check('an unnamed interface is just a network', classify('en20', undefined, '10.0.0.4') === 'other', '');
+}
+// The only asynchronous check here, so the summary waits on it rather than the
+// whole suite being rewritten around one call.
+const addressCheck = listAddresses().then((found: any[]) => {
+  check('this machine reports at least one way in', found.length >= 1, JSON.stringify(found));
+  check('every entry carries a host and a kind',
+    found.every((a: any) => typeof a.host === 'string' && ['usb', 'wifi', 'other'].includes(a.kind)),
+    JSON.stringify(found));
+  // Nothing routes to a link-local address, so offering one would only mislead.
+  check('no link-local addresses are offered',
+    found.every((a: any) => !a.host.startsWith('169.254.')), JSON.stringify(found));
+  const kinds = found.map((a: any) => a.kind);
+  const rank = { usb: 0, wifi: 1, other: 2 } as any;
+  check('the cable would be listed first',
+    kinds.every((k: string, i: number) => i === 0 || rank[kinds[i - 1]] <= rank[k]), kinds.join());
+});
+
 console.log('\n=== Only what changed goes down the wire ===');
 {
   const before = { bpm: 90, colour: 3, matrix: { maj: ['9'] } };
@@ -102,5 +136,7 @@ console.log('\n=== Only what changed goes down the wire ===');
   check('null against a value is changed', fieldChanged(null, { a: 1 }), '');
 }
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+addressCheck.then(() => {
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+});

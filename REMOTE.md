@@ -12,8 +12,9 @@ instrument.
 2. **Click REMOTE** in the top-right of the header, next to the phone icon, and
    switch it on. It is off every time the app starts: the instrument should not
    be listening on the network unless you have asked for it.
-3. **Copy the address** it shows — something like `http://192.168.1.42:7331`.
-   Click it to copy.
+3. **Copy an address** — it lists every way the phone can reach the Mac, best
+   first, and a click copies one. Wi-Fi is the usual one; see below for the
+   cable, which is steadier.
 4. **On the iPhone**, on the same Wi-Fi, open Safari and go to that address.
 5. **Share → Add to Home Screen.** Launch it from the icon after that and it
    opens full-screen with no browser chrome, like an app.
@@ -21,6 +22,29 @@ instrument.
 A green dot next to LINK in the phone's header means it is connected. Amber
 means it is still finding the instrument; red means it lost it and is trying
 again.
+
+## Over the cable, when the timing matters
+
+Wi-Fi is fine for parameters but it is a shared radio: it contends with
+everything else in the room, and the phone's power saving can put a spike in it
+just when you are playing. The cable has neither problem.
+
+There is no direct USB path for a web page — Safari speaks IP and nothing else.
+What the cable gives you instead is a network of its own:
+
+1. Plug the iPhone into the Mac.
+2. On the phone: **Settings → Personal Hotspot → Allow Others to Join**, on.
+3. A **CABLE** entry appears in the REMOTE panel within a few seconds, listed
+   above Wi-Fi. Open that address on the phone instead.
+
+The traffic then goes down the wire rather than through the air — roughly 1–3ms
+instead of 3–10ms, and far steadier, which is the part you feel rhythmically.
+
+One thing to set once: with the hotspot on, macOS may start routing its own
+internet through the phone and spending your cellular data. In **System
+Settings → Network → ⋯ → Set Service Order**, drag Wi-Fi above the iPhone entry.
+The Mac then keeps using Wi-Fi for the internet while the cable carries only the
+remote.
 
 ## Making the address stop changing
 

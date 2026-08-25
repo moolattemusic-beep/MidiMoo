@@ -114,6 +114,14 @@ range mid-chord leaves it sounding for good.
 required by main and imported by the renderer, so the boundary cannot drift. It
 is on the local network: anything not on that list is somebody else's idea.
 
+**There is no USB path for a web page.** Safari speaks IP and nothing else, so
+the cable is reached the only way it can be: a tethered iPhone with Personal
+Hotspot on raises an interface of its own, and the phone talks to the Mac across
+it. `remote-addresses.cjs` works out which interface is which from
+`networksetup -listallhardwareports` — a USB Ethernet dongle is not a phone,
+whatever the word USB suggests — and falls back to Apple's hotspot /28, which
+only ever comes from the phone itself.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long

@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, session, powerSaveBlocker } = require('electron');
 const path = require('node:path');
-const { createRemoteServer, lanAddress } = require('./remote-server.cjs');
+const { createRemoteServer } = require('./remote-server.cjs');
 const ALLOWED_COMMANDS = require('./remote-commands.json');
 
 const isDev = !app.isPackaged;
@@ -26,7 +26,7 @@ const DEV_ICON_PATH = path.join(__dirname, '..', 'build', 'icon.png');
 // on the network every time it is opened.
 const REMOTE_PORT = 7331;
 let remote = null;
-let remoteStatus = { running: false, url: null, devUrl: null, clients: 0 };
+let remoteStatus = { running: false, url: null, addresses: [], clients: 0 };
 
 const DESIGN_WIDTH = 1400;
 const DESIGN_HEIGHT = 1050;
@@ -45,9 +45,9 @@ async function startRemote() {
     // The same built bundle the desktop window loads. Inside the packaged app
     // it lives in the asar, which reads like any other directory.
     distDir: path.join(__dirname, '..', 'dist'),
-    // In development the phone loads from Vite instead, so a change shows up
-    // on the phone without rebuilding. The socket is on this port either way.
-    devUrl: isDev ? `http://${lanAddress()}:3000/?remote=1` : null,
+    // In development the phone loads from Vite instead, so a change shows up on
+    // the phone without rebuilding. The socket is on REMOTE_PORT either way.
+    clientPort: isDev ? 3000 : REMOTE_PORT,
     isAllowed: (fn) => ALLOWED_COMMANDS.includes(fn),
     onCommand: (fn, args) => toRenderer('remote:command', { fn, args }),
     onClientGone: (releases) => toRenderer('remote:client-gone', releases),
@@ -73,7 +73,7 @@ function registerRemoteHandlers() {
 
   ipcMain.handle('remote:stop', async () => {
     if (remote) { await remote.stop(); remote = null; }
-    remoteStatus = { running: false, url: null, devUrl: null, clients: 0 };
+    remoteStatus = { running: false, url: null, addresses: [], clients: 0 };
     return remoteStatus;
   });
 

@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { diffParams, fieldChanged, RemotePatch, RemoteSnapshot } from './RemoteProtocol';
 
+/** One way in: which interface it belongs to, and what to type into the phone. */
+export interface RemoteAddress {
+  host: string;
+  url: string;
+  /** 'usb' is a tethered iPhone — the cable, and the steadier of the two. */
+  kind: 'usb' | 'wifi' | 'other';
+  label: string;
+}
+
 export interface RemoteStatus {
   running: boolean;
   url: string | null;
-  devUrl?: string | null;
+  addresses?: RemoteAddress[];
   clients: number;
   error?: string;
 }

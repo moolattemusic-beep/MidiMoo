@@ -13,6 +13,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { WebSocketServer } = require('ws');
 const { HeldGestures, resolveFile } = require('./remote-safety.cjs');
+const { listAddresses } = require('./remote-addresses.cjs');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -33,25 +34,11 @@ const MIME = {
 const PING_MS = 2000;
 const SILENCE_MS = 5000;
 
-/** The address a phone on the same network can actually reach. */
-function lanAddress() {
-  const preferred = [];
-  const rest = [];
-  for (const [name, addresses] of Object.entries(os.networkInterfaces())) {
-    for (const address of addresses ?? []) {
-      if (address.family !== 'IPv4' || address.internal) continue;
-      // Wi-Fi first: it is the one the phone is almost certainly on.
-      (name.startsWith('en') ? preferred : rest).push(address.address);
-    }
-  }
-  return preferred[0] ?? rest[0] ?? '127.0.0.1';
-}
-
 /**
  * @param {object} options
  * @param {number} options.port
  * @param {string} options.distDir      where the built bundle lives
- * @param {string|null} options.devUrl  in development the phone loads from Vite instead
+ * @param {number} options.clientPort   where the phone loads the page from — Vite in development
  * @param {(fn: string, args: any[]) => void} options.onCommand
  * @param {(releases: Array<{fn: string, args: any[]}>) => void} options.onClientGone
  * @param {() => void} options.onWantsSnapshot
@@ -59,7 +46,12 @@ function lanAddress() {
  * @param {(fn: unknown) => boolean} options.isAllowed
  */
 function createRemoteServer(options) {
-  const { port, distDir, devUrl, onCommand, onClientGone, onWantsSnapshot, onStatus, isAllowed } = options;
+  const { port, distDir, clientPort, onCommand, onClientGone, onWantsSnapshot, onStatus, isAllowed } = options;
+
+  // Refreshed rather than read on demand, so `announce` stays synchronous —
+  // and so plugging the phone in shows up without restarting anything.
+  let addresses = [];
+  let addressTimer = null;
 
   const held = new WeakMap();
   const alive = new WeakMap();
@@ -102,10 +94,17 @@ function createRemoteServer(options) {
 
   const announce = () => onStatus?.({
     running: true,
-    url: `http://${lanAddress()}:${port}`,
-    devUrl,
+    addresses: addresses.map(a => ({ ...a, url: `http://${a.host}:${clientPort}` })),
+    url: addresses[0] ? `http://${addresses[0].host}:${clientPort}` : null,
     clients: sockets.clients.size,
   });
+
+  const refreshAddresses = async () => {
+    const found = await listAddresses();
+    const changed = JSON.stringify(found) !== JSON.stringify(addresses);
+    addresses = found;
+    if (changed) announce();
+  };
 
   sockets.on('connection', (socket) => {
     held.set(socket, new HeldGestures());
@@ -168,24 +167,34 @@ function createRemoteServer(options) {
 
   const stop = () => new Promise((resolve) => {
     clearInterval(heartbeat);
+    if (addressTimer) clearInterval(addressTimer);
     for (const socket of sockets.clients) socket.terminate();
     sockets.close(() => server.close(() => {
-      onStatus?.({ running: false, url: null, devUrl, clients: 0 });
+      onStatus?.({ running: false, url: null, addresses: [], clients: 0 });
       resolve();
     }));
   });
 
   const start = () => new Promise((resolve, reject) => {
     server.once('error', reject);
-    // 0.0.0.0 rather than localhost: the whole point is that another device reaches it.
-    server.listen(port, '0.0.0.0', () => {
+    // 0.0.0.0 rather than localhost: every interface, including the one the
+    // cable raises, which is the whole point of offering USB at all.
+    server.listen(port, '0.0.0.0', async () => {
       server.removeListener('error', reject);
+      await refreshAddresses();
+      // A phone plugged in later should appear without restarting the server.
+      addressTimer = setInterval(refreshAddresses, 4000);
       announce();
-      resolve({ running: true, url: `http://${lanAddress()}:${port}`, devUrl, clients: 0 });
+      resolve({
+        running: true,
+        addresses: addresses.map(a => ({ ...a, url: `http://${a.host}:${clientPort}` })),
+        url: addresses[0] ? `http://${addresses[0].host}:${clientPort}` : null,
+        clients: 0,
+      });
     });
   });
 
-  return { start, stop, broadcast, address: () => `http://${lanAddress()}:${port}` };
+  return { start, stop, broadcast };
 }
 
-module.exports = { createRemoteServer, lanAddress };
+module.exports = { createRemoteServer };
