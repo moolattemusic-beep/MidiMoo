@@ -156,6 +156,12 @@ restarted — and a phone will happily go on talking to a rebuilt instrument wit
 a page from the previous run. Both ends carry the build number and the remote
 says so when they differ, because nothing else about that failure looks wrong.
 
+**The strip is two instruments.** As PITCH it is magnetic — it bends while held
+and springs back to centre, because that is what a bend is. As CC1 it is an
+ordinary slider that stays where it is put, because that is what expression is.
+They rest in different places, so switching moves the strip to the new rest
+rather than leaving it somewhere that now means something else.
+
 **A remote surface must answer to the finger.** Pads used to light from the
 snapshot, so a press waited on the round trip and read as lag however fast the
 note was. They light locally now and the instrument corrects them a frame or two

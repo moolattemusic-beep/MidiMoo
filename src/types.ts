@@ -16,6 +16,8 @@ export interface OrchidParams {
   mpeNewVoice: number;
   /** The strum pad runs over the chord's scale rather than only its own notes. */
   arpeggioScale: boolean;
+  /** The strip beside the pad: 0 sends pitch bend and springs back, 1 sends CC1 and stays put. */
+  arpeggioStripMode: number;
   mpeGlideTimeMs: number;
   mpeGlideMode: number; // 0=Legato (overlap only), 1=Grace window, 2=Hold, 3=Free MOO
   mpeGraceMs: number; // Grace-window length used by mpeGlideMode 1
@@ -184,6 +186,7 @@ export const defaultParams: OrchidParams = {
   mpeBendRange: 48,
   mpeNewVoice: 0,
   arpeggioScale: false,
+  arpeggioStripMode: 0,
   mpeGlideTimeMs: 150,
   mpeGlideMode: 0,
   mpeGraceMs: 250,

@@ -506,6 +506,28 @@ function MorePanel({
 
         <div className="flex flex-col gap-2">
           <span className="text-[9px] tracking-[0.18em] text-white/40">
+            THE STRIP BESIDE THE PAD
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            {([['PITCH BEND', 0], ['CC1', 1]] as const).map(([label, mode]) => (
+              <button
+                key={label}
+                onPointerDown={() => setParams({ ...params, arpeggioStripMode: mode })}
+                className={`analog-btn !py-2 !text-[11px] tracking-[0.14em] ${(params.arpeggioStripMode ?? 0) === mode ? 'active' : ''}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[10px] leading-snug text-white/40">
+            {(params.arpeggioStripMode ?? 0) === 0
+              ? 'Bends while held and springs back to centre when you let go.'
+              : 'An ordinary slider sending the mod wheel. It stays where you put it.'}
+          </span>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-[9px] tracking-[0.18em] text-white/40">
             RANGE — NOTHING LEAVES THE INSTRUMENT OUTSIDE IT
           </span>
           <RangeRow

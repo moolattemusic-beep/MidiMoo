@@ -334,6 +334,27 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
             }}
           ></div>
         </div>
+        <div className="flex justify-between items-center gap-2 min-w-0">
+          <span className="label-meta !text-[10px] whitespace-nowrap">STRIP</span>
+          <div className="flex items-center gap-1 shrink-0">
+            {(['PITCH', 'CC1'] as const).map((label, idx) => (
+              <button
+                key={label}
+                onClick={() => {
+                  const newParams = { ...params, arpeggioStripMode: idx };
+                  setParams(newParams);
+                  if (engine) engine.params = newParams;
+                }}
+                title={idx === 0
+                  ? 'Bends while held and springs back to centre'
+                  : 'An ordinary slider sending the mod wheel, which stays where it is put'}
+                className={`analog-btn !text-[9px] !px-2 !py-[2px] ${(params.arpeggioStripMode ?? 0) === idx ? 'active' : ''}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <div
           className="flex justify-between items-center gap-2 min-w-0"
           title="Landing on the pad sounds a note, rather than only swiping across it"
@@ -396,7 +417,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
       </>)}
       <div className={`flex w-full gap-2 flex-1 min-h-0 ${padOnly ? '' : 'min-h-[240px]'}`}>
         {/* Global Pitch Bend Strip */}
-        <MagneticPitchBend engine={engine} incomingCC={incomingCC} />
+        <MagneticPitchBend engine={engine} incomingCC={incomingCC} mode={params.arpeggioStripMode ?? 0} />
         
         {/* XY Pad */}
         <div 
@@ -469,55 +490,82 @@ const Strings: React.FC<{
   );
 };
 
-function MagneticPitchBend({ engine, incomingCC }: { engine: OrchidEngine | null, incomingCC?: {cc: number, val: number, ch: number, t: number} | null }) {
+/**
+ * The strip beside the pad, in one of two jobs.
+ *
+ * As PITCH it is magnetic: it bends while held and springs back to centre on
+ * release, which is what a bend is for. As CC1 it is an ordinary slider — it
+ * stays where it is put and sends the mod wheel, which is what expression is
+ * for. The two rest in different places, so switching between them puts the
+ * strip at its new rest rather than leaving it somewhere that means nothing.
+ */
+function MagneticPitchBend({ engine, incomingCC, mode }: {
+  engine: OrchidEngine | null,
+  incomingCC?: {cc: number, val: number, ch: number, t: number} | null,
+  mode: number,
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [val, setVal] = useState(64);
+  const isBend = mode !== 1;
+  const rest = isBend ? 64 : 0;
+  const [val, setVal] = useState(rest);
+
+  // Its rest is not the same in both jobs, so it goes to the new one rather
+  // than sitting at a position that means something else now.
+  useEffect(() => {
+    setVal(rest);
+    if (!engine) return;
+    if (isBend) {
+      engine.emitControlChange(126, 64, 8);
+      engine.onOutputNote?.({ pitch: 0, velocity: 0, isOn: false, isPitchBend: true, pitchBendValue: 0, mpeChannel: 8 });
+    } else {
+      engine.emitControlChange(1, 0, 1);
+    }
+  }, [mode]);
   
   useEffect(() => {
     if (incomingCC && incomingCC.ch === 8 && incomingCC.cc === 126) {
-       setVal(incomingCC.val);
-       if (engine) {
-          engine.emitControlChange(126, incomingCC.val, 8);
-          if (engine.onOutputNote) {
-             engine.onOutputNote({
-               pitch: 0, velocity: 0, isOn: false, isPitchBend: true,
-               pitchBendValue: ((incomingCC.val - 64) / 64) * 12, mpeChannel: 8
-             });
-          }
-       }
+      setVal(incomingCC.val);
+      sendRef.current(incomingCC.val);
     }
   }, [incomingCC, engine]);
   
-  const handlePointer = (clientX: number, clientY: number, type: 'down' | 'move' | 'up') => {
-    if (!containerRef.current || !engine) return;
-    
-    if (type === 'up') {
-      setVal(64);
-      engine.emitControlChange(126, 64, 8);
-      if (engine.onOutputNote) {
-         engine.onOutputNote({
-           pitch: 0, velocity: 0, isOn: false, isPitchBend: true,
-           pitchBendValue: 0, mpeChannel: 8
-         });
-      }
+  const sendRef = useRef<(v: number) => void>(() => {});
+  const send = (midiVal: number) => {
+    if (!engine) return;
+    if (!isBend) {
+      // An ordinary controller on the master channel, which is where a synth
+      // listens for the mod wheel.
+      engine.emitControlChange(1, midiVal, 1);
       return;
     }
-    
-    const rect = containerRef.current.getBoundingClientRect();
-    let ny = (clientY - rect.top) / rect.height;
+    engine.emitControlChange(126, midiVal, 8);
+    engine.onOutputNote?.({
+      pitch: 0, velocity: 0, isOn: false, isPitchBend: true,
+      pitchBendValue: ((midiVal - 64) / 64) * 12, mpeChannel: 8,
+    });
+  };
+
+  sendRef.current = send;
+
+  const handlePointer = (clientX: number, clientY: number, type: 'down' | 'move' | 'up') => {
+    if (!containerRef.current || !engine) return;
+
+    // Only a bend springs back. A controller left somewhere was left there.
+    if (type === 'up') {
+      if (!isBend) return;
+      setVal(64);
+      send(64);
+      return;
+    }
+
+    const element = containerRef.current;
+    const rect = element.getBoundingClientRect();
+    let ny = (clientY - rect.top - element.clientTop) / element.clientHeight;
     ny = Math.max(0, Math.min(1, ny));
-    
+
     const midiVal = Math.round((1 - ny) * 127);
     setVal(midiVal);
-    engine.emitControlChange(126, midiVal, 8);
-    // Also emit standard pitch bend on channel 8 (val 0-127 mapped to roughly +/- 2 semitones if range is 2)
-    // Semitones = ((midiVal - 64) / 64) * 12;
-    if (engine.onOutputNote) {
-       engine.onOutputNote({
-         pitch: 0, velocity: 0, isOn: false, isPitchBend: true,
-         pitchBendValue: ((midiVal - 64) / 64) * 12, mpeChannel: 8
-       });
-    }
+    send(midiVal);
   };
 
   return (
@@ -525,33 +573,48 @@ function MagneticPitchBend({ engine, incomingCC }: { engine: OrchidEngine | null
       ref={containerRef}
       onPointerDown={(e) => {
         e.preventDefault();
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        try { (e.target as HTMLElement).setPointerCapture(e.pointerId); } catch { /* gesture already gone */ }
         handlePointer(e.clientX, e.clientY, 'down');
       }}
       onPointerMove={(e) => {
         if (e.buttons > 0) handlePointer(e.clientX, e.clientY, 'move');
       }}
       onPointerUp={(e) => {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* nothing captured */ }
         handlePointer(e.clientX, e.clientY, 'up');
       }}
       onPointerCancel={(e) => {
-        (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+        try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* nothing captured */ }
         handlePointer(e.clientX, e.clientY, 'up');
       }}
       className="w-12 shrink-0 h-full bg-[#12120f] border-[6px] border-[var(--surface)] rounded-md relative touch-none shadow-[inset_0_0_10px_#000]"
     >
-      <div className="absolute top-2 left-0 right-0 label-meta text-white/75 text-[9px] text-center pointer-events-none">PB</div>
-      
-      <div className="absolute left-0 right-0 bg-[var(--accent)] transition-all duration-75 pointer-events-none" style={{
-        bottom: '50%',
-        height: val >= 64 ? `${((val - 64) / 63) * 50}%` : '0%'
-      }} />
-      <div className="absolute left-0 right-0 bg-[var(--accent)] top-[50%] transition-all duration-75 pointer-events-none" style={{
-        height: val < 64 ? `${((64 - val) / 64) * 50}%` : '0%'
-      }} />
-      
-      <div className="absolute top-[50%] left-0 right-0 h-[2px] bg-white -mt-[1px] shadow-[0_0_5px_rgba(255,255,255,0.5)] pointer-events-none" />
+      <div className="absolute top-2 left-0 right-0 label-meta text-white/75 text-[9px] text-center pointer-events-none z-10">
+        {isBend ? 'PB' : 'CC1'}
+      </div>
+
+      {/* Scaled rather than resized. Animating height lays the page out again
+          on every frame, and the transition it carried made the fill trail the
+          finger by three quarters of a frame — the same construction that made
+          the pad's cursor feel late. */}
+      {isBend ? (
+        <>
+          <div
+            className="absolute inset-x-0 top-0 bottom-1/2 bg-[var(--accent)] origin-bottom pointer-events-none"
+            style={{ transform: `scaleY(${val >= 64 ? (val - 64) / 63 : 0})` }}
+          />
+          <div
+            className="absolute inset-x-0 top-1/2 bottom-0 bg-[var(--accent)] origin-top pointer-events-none"
+            style={{ transform: `scaleY(${val < 64 ? (64 - val) / 64 : 0})` }}
+          />
+          <div className="absolute top-[50%] left-0 right-0 h-[2px] bg-white -mt-[1px] shadow-[0_0_5px_rgba(255,255,255,0.5)] pointer-events-none" />
+        </>
+      ) : (
+        <div
+          className="absolute inset-0 bg-[var(--accent)] origin-bottom pointer-events-none"
+          style={{ transform: `scaleY(${val / 127})` }}
+        />
+      )}
     </div>
   );
 }
