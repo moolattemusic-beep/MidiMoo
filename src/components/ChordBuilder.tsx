@@ -61,38 +61,50 @@ export const ChordBuilder: React.FC<Props> = ({
   };
 
   /**
-   * Play a symbol for as long as it takes to hear it, then let it go.
+   * Play some notes for as long as it takes to hear them, then let them go.
    *
-   * Sounded exactly as written rather than played through the instrument: what
-   * is being judged is the chord, and the register, inversion and voicing
-   * controls would all have their say on the way through and answer a question
-   * that was not asked.
+   * Sounded exactly as given rather than played through the instrument: what is
+   * being judged is the chord, and the register, inversion and voicing controls
+   * would all have their say on the way through and answer a question that was
+   * not asked.
    */
-  const audition = (candidate: string) => {
-    const heard = parseChordSymbol(candidate);
-    if (!heard || !engine) return;
+  const audition = (pitches: number[]) => {
+    if (!engine || pitches.length === 0) return;
     silence();
-    engine.startAudition(heard.intervals.map(i => 60 + heard.root + i), memoryVelocity);
+    engine.startAudition(pitches, memoryVelocity);
     stopTimer.current = setTimeout(silence, 900);
+  };
+
+  /** The notes a symbol names, from a comfortable octave. */
+  const pitchesOf = (candidate: string): number[] => {
+    const heard = parseChordSymbol(candidate);
+    return heard ? heard.intervals.map(i => 60 + heard.root + i) : [];
   };
 
   useEffect(() => silence, []);
 
-  // A note played while the root is being chosen names it. Watched for arrivals
-  // rather than read outright, so a chord already down does not choose for you.
+  // A note played names the root, at any point rather than only while it is
+  // being chosen — the chord keeps its shape and moves to the new root, which
+  // is quicker than starting again to try the same voicing somewhere else.
+  // Watched for arrivals rather than read outright, so a chord already down
+  // does not choose for you.
   const previousHeld = useRef<number[]>(heldNotes ?? []);
   useEffect(() => {
     const now = heldNotes ?? [];
     const arrived = now.find(note => !previousHeld.current.includes(note));
     previousHeld.current = now;
-    if (arrived !== undefined && stage === 'root') {
-      setRoot(rootFromPitch(arrived));
-      setStage('quality');
-    }
+    if (arrived === undefined || stage === 'pad') return;
+    setRoot(rootFromPitch(arrived));
+    if (stage === 'root') setStage('quality');
   }, [heldNotes, stage]);
+
+  const keepWhatIsBuilt = () => {
+    if (padIndex !== null && parsed) onCommit(padIndex, symbol);
+  };
 
   const startOn = (index: number) => {
     silence();
+    if (index !== padIndex) keepWhatIsBuilt();
     setPadIndex(index);
     setRoot(''); setQuality(null); setShape(null); setExtensions([]);
     setStage('root');
@@ -135,11 +147,13 @@ export const ChordBuilder: React.FC<Props> = ({
   });
 
   /** Each ring option: what it says, what taking it does, and what it sounds like. */
-  const options: Array<{ id: string; label: string; on?: boolean; take: () => void; hear: string }> =
-    stage === 'root' ? BUILDER_ROOTS.map(name => ({
+  const options: Array<{ id: string; label: string; on?: boolean; take: () => void; hear: number[] }> =
+    stage === 'root' ? BUILDER_ROOTS.map((name, i) => ({
       id: name, label: name,
       take: () => { setRoot(name); setStage('quality'); },
-      hear: `${name}maj`,
+      // A root on its own is a note, not a chord. Hearing a triad here would be
+      // hearing a decision that has not been made yet.
+      hear: [60 + i],
     }))
     : stage === 'quality' ? BUILDER_QUALITIES.map(q => ({
       id: q.id, label: q.label,
@@ -152,12 +166,12 @@ export const ChordBuilder: React.FC<Props> = ({
         else setStage('shape');
       },
       // The plainest chord of that kind, which is what the ring is offering.
-      hear: buildChordSymbol(root, BUILDER_SHAPES[q.id][0]),
+      hear: pitchesOf(buildChordSymbol(root, BUILDER_SHAPES[q.id][0])),
     }))
     : stage === 'shape' ? BUILDER_SHAPES[quality!].map(s => ({
       id: s.id, label: s.label,
       take: () => { setShape(s); setStage('extensions'); },
-      hear: buildChordSymbol(root, s),
+      hear: pitchesOf(buildChordSymbol(root, s)),
     }))
     : BUILDER_EXTENSIONS.map(name => ({
       id: name, label: name,
@@ -165,7 +179,7 @@ export const ChordBuilder: React.FC<Props> = ({
       take: () => setExtensions(previous =>
         previous.includes(name) ? previous.filter(x => x !== name) : [...previous, name]),
       // What it would sound like with this one added, whether or not it is on.
-      hear: buildChordSymbol(root, shape, extensions.includes(name) ? extensions : [...extensions, name]),
+      hear: pitchesOf(buildChordSymbol(root, shape, extensions.includes(name) ? extensions : [...extensions, name])),
     }));
 
   const prompt = stage === 'pad' ? 'CHOOSE A PAD TO BUILD ONTO'
@@ -220,7 +234,7 @@ export const ChordBuilder: React.FC<Props> = ({
                   key={option.id}
                   onClick={option.take}
                   onContextMenu={(event) => { event.preventDefault(); audition(option.hear); }}
-                  title={`${option.hear} — right click to hear it`}
+                  title="Right click to hear it"
                   className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 font-['Space_Mono'] text-[11px] w-[68px] h-[68px] flex items-center justify-center px-1 leading-tight transition-colors ${
                     option.on
                       ? 'bg-[var(--accent)] border-[var(--accent)] text-black'
