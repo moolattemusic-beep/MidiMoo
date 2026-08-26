@@ -228,10 +228,6 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
     onUpdateSlots(next);
     onRndmRequiredChange?.([]);
   };
-  // Reading the clipboard needs the document focused and the permission
-  // granted; when that fails there has to be somewhere to paste by hand
-  // rather than a dead end.
-  const [pasteFallback, setPasteFallback] = useState(false);
 
   const applyProgression = (text: string) => {
     const { chords, rejected } = parseProgression(text);
@@ -256,19 +252,8 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
         ? `${Math.min(chords.length, 8)} PASTED, SKIPPED: ${rejected.slice(0, 3).join(' ')}`
         : `${Math.min(chords.length, 8)} CHORDS PASTED`
     );
-    setPasteFallback(false);
   };
 
-  const pasteProgression = async () => {
-    try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) { setPasteStatus('CLIPBOARD IS EMPTY'); return; }
-      applyProgression(text);
-    } catch {
-      setPasteStatus('PASTE HERE WITH CMD-V');
-      setPasteFallback(true);
-    }
-  };
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
@@ -294,13 +279,24 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
 
   return (
     <div className={`module bg-[var(--surface-deep)] border border-white/10 rounded-sm flex flex-col gap-3 ${padHeight ? 'h-full min-h-0 p-2' : 'p-4'}`}>
+
       {showBuilder && (
         <ChordBuilder
+          engine={engine}
+          slots={slots}
+          memoryVelocity={memoryVelocity}
           heldNotes={heldNotes}
-          onCommit={(symbol) => setEditorText(previous => {
-            const text = (previous ?? '').replace(/\s+$/, '');
-            return text ? `${text} ${symbol}` : symbol;
-          })}
+          onCommit={(index, symbol) => {
+            const parsed = parseProgression(symbol).chords[0];
+            if (!parsed) return;
+            const next = [...slots];
+            next[index] = {
+              rootPitch: 60 + parsed.root, baseType: -1,
+              ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
+              symbol: parsed.symbol, chordIntervals: parsed.intervals,
+            };
+            onUpdateSlots(next);
+          }}
           onClose={() => setShowBuilder(false)}
         />
       )}
@@ -334,13 +330,6 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                 ITS NOTES IN BRACKETS AND COMES BACK UNCHANGED IF LEFT ALONE.
               </p>
               <div className="flex items-center gap-1 shrink-0">
-                <button
-                  onClick={() => setShowBuilder(true)}
-                  className="analog-btn !text-[9px] !px-2 !py-[3px]"
-                  title="Build a chord by choosing rather than typing"
-                >
-                  BUILD
-                </button>
                 <button
                   onClick={() => setShowSymbolHelp(v => !v)}
                   className={`analog-btn !text-[9px] !px-2 !py-[3px] ${showSymbolHelp ? 'active' : ''}`}
@@ -467,7 +456,14 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
              </div>
 
              <div className="flex items-center gap-1 flex-wrap">
-                {onOpenRndm && (
+                <button
+                   onClick={onToggleEditMode}
+                   className={`analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] ${isEditMode ? 'active' : ''}`}
+                   title="Show the ways of filling the pads, and let them be dragged or cleared"
+                >
+                   EDIT
+                </button>
+                {isEditMode && onOpenRndm && (
                    <button
                       onClick={onOpenRndm}
                       className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
@@ -476,6 +472,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                       RNDM
                    </button>
                 )}
+                {isEditMode && (
                 <button
                    onClick={loadPreset}
                    className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
@@ -483,6 +480,8 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                 >
                    PRESET
                 </button>
+                )}
+                {isEditMode && (
                 <button
                    onClick={openEditor}
                    className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
@@ -490,62 +489,37 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                 >
                    TEXT
                 </button>
+                )}
+                {isEditMode && (
                 <button
                    onClick={() => setShowBuilder(true)}
                    className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
-                   title="Build a chord by choosing rather than typing"
+                   title="Build a chord onto a pad by choosing rather than typing"
                 >
                    BUILD
                 </button>
-                {/* Free edit only means anything inside edit mode, so this turns
-                    both on rather than leaving the player to find the second. */}
+                )}
+                {isEditMode && (
                 <button
-                   onClick={() => {
-                      if (!isEditMode) onToggleEditMode();
-                      onToggleFreeEditMode();
-                   }}
-                   className={`analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] ${isEditMode && isFreeEditMode ? 'active' : ''}`}
+                   onClick={onToggleFreeEditMode}
+                   className={`analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] ${isFreeEditMode ? 'active' : ''}`}
                    title="Arm a pad, play the voicing you want, and it is saved exactly as played"
                 >
                    FREE
                 </button>
-                {!hideEdit && (
-                   <button
-                      onClick={onToggleEditMode}
-                      className={`analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] ${isEditMode ? 'active' : ''}`}
-                      title="Drag pads to reorder them, or clear one with its X"
-                   >
-                      ARRANGE
-                   </button>
+                )}
+                {isEditMode && (
+                <button
+                   onClick={() => { onUpdateSlots(slots.map(() => null)); onRndmRequiredChange?.([]); }}
+                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] !border-[#8a2b28] !text-[#ff9b96]"
+                   title="Empty every pad"
+                >
+                   CLEAR
+                </button>
                 )}
              </div>
 
              <div className="flex items-center gap-1 flex-wrap">
-             {isEditMode && (
-                <button
-                   onClick={pasteProgression}
-                   className="analog-btn ml-4 !py-1 !px-2 !text-[9px]"
-                   title="Read chord symbols from the clipboard into the pads"
-                >
-                   PASTE CHORDS
-                </button>
-             )}
-             {isEditMode && pasteFallback && (
-                <input
-                   autoFocus
-                   type="text"
-                   placeholder="Cmaj7 Dm7 G7…"
-                   className="ml-2 bg-black text-[var(--accent)] border border-[#444] px-2 py-1 font-['Space_Mono'] text-[10px] rounded-sm outline-none w-56"
-                   onPaste={(e) => {
-                      const text = e.clipboardData.getData('text');
-                      if (text) { e.preventDefault(); applyProgression(text); }
-                   }}
-                   onKeyDown={(e) => {
-                      if (e.key === 'Enter') applyProgression((e.target as HTMLInputElement).value);
-                      if (e.key === 'Escape') { setPasteFallback(false); setPasteStatus(null); }
-                   }}
-                />
-             )}
              {isEditMode && pasteStatus && (
                 <span className="label-meta !text-[9px] !text-[var(--accent)] ml-2 whitespace-nowrap" title={pasteStatus}>
                    {pasteStatus}

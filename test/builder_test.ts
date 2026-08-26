@@ -85,6 +85,32 @@ console.log('\n=== Assembling the symbol ===');
     buildChordSymbol('C', BUILDER_SHAPES.sus[2], ['b7']));
 }
 
+console.log('\n=== What auditioning plays ===');
+{
+  // Right click hears what is built so far with the option added, so every
+  // option has to name a chord — a spelling that did not parse would simply be
+  // silent, which is worse than being wrong.
+  const unheard: string[] = [];
+  for (const root of BUILDER_ROOTS) {
+    // The root ring offers the plainest chord on that root.
+    if (!parseChordSymbol(`${root}maj`)) unheard.push(`${root}maj`);
+    for (const { id: quality } of BUILDER_QUALITIES) {
+      // The quality ring offers the plainest chord of that kind.
+      const plainest = buildChordSymbol(root, BUILDER_SHAPES[quality as BuilderQuality][0]);
+      if (!parseChordSymbol(plainest)) unheard.push(plainest);
+      for (const shape of BUILDER_SHAPES[quality as BuilderQuality]) {
+        // And the tension ring offers the chord with that tension added.
+        for (const tension of BUILDER_EXTENSIONS) {
+          const withIt = buildChordSymbol(root, shape, [tension]);
+          if (!parseChordSymbol(withIt)) unheard.push(withIt);
+        }
+      }
+    }
+  }
+  check('every option names something that can be played', unheard.length === 0,
+    [...new Set(unheard)].slice(0, 5).join(' '));
+}
+
 console.log('\n=== Naming a root ===');
 {
   check('a letter names a root', rootFromLetter('c') === 'C', '');

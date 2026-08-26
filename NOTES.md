@@ -62,6 +62,12 @@ means different things in different chords: a minor third is not a sharp ninth,
 a flat fifth is not a sharp eleventh, an augmented fifth is not a flat
 thirteenth.
 
+**The builder auditions before it commits.** Right click on a ring option plays
+what is built so far with that option added; left click takes it. Every option
+therefore has to name a chord — a spelling that did not parse would simply be
+silent, which is worse than being wrong — so the suite checks the audition
+spelling of every option at every stage as well as the ones that get committed.
+
 **The chord builder cannot write a symbol the parser rejects.** That is a
 property of its tables rather than a hope about them: `builder_test` assembles
 every root against every shape against every tension and every pair of them —
