@@ -62,6 +62,14 @@ means different things in different chords: a minor third is not a sharp ninth,
 a flat fifth is not a sharp eleventh, an augmented fifth is not a flat
 thirteenth.
 
+**An audition is not a performance.** `startAudition` emits the given pitches
+directly rather than going through `handleMidi`, because that is the instrument:
+it would apply the register, the inversion, the voicing disk and the played
+voicing library on the way through. Every one of those is right when a chord is
+played and wrong when it is being examined — the point is to hear the notes that
+were chosen, not the instrument's reading of them. RANGE still applies, since
+nothing may leave outside it whatever the reason.
+
 **The builder auditions before it commits.** Right click on a ring option plays
 what is built so far with that option added; left click takes it. Every option
 therefore has to name a chord — a spelling that did not parse would simply be

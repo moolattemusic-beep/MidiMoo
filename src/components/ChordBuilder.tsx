@@ -53,25 +53,26 @@ export const ChordBuilder: React.FC<Props> = ({
   const parsed = symbol ? parseChordSymbol(symbol) : null;
 
   // ---- auditioning -------------------------------------------------------
-  const sounding = useRef<{ root: number; intervals: number[] } | null>(null);
   const stopTimer = useRef<any>(null);
 
   const silence = () => {
     clearTimeout(stopTimer.current);
-    const held = sounding.current;
-    sounding.current = null;
-    if (held && engine) {
-      engine.handleMidi(60 + held.root, 0, false, false, false, false, true, undefined, held.intervals);
-    }
+    engine?.stopAudition();
   };
 
-  /** Play a symbol for as long as it takes to hear it, then let it go. */
+  /**
+   * Play a symbol for as long as it takes to hear it, then let it go.
+   *
+   * Sounded exactly as written rather than played through the instrument: what
+   * is being judged is the chord, and the register, inversion and voicing
+   * controls would all have their say on the way through and answer a question
+   * that was not asked.
+   */
   const audition = (candidate: string) => {
     const heard = parseChordSymbol(candidate);
     if (!heard || !engine) return;
     silence();
-    engine.handleMidi(60 + heard.root, memoryVelocity, true, false, false, false, true, undefined, heard.intervals);
-    sounding.current = { root: heard.root, intervals: heard.intervals };
+    engine.startAudition(heard.intervals.map(i => 60 + heard.root + i), memoryVelocity);
     stopTimer.current = setTimeout(silence, 900);
   };
 

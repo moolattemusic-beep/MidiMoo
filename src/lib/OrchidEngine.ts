@@ -1265,6 +1265,7 @@ export class OrchidEngine {
     // when a note is stuck, the thing that broke expression.
     this.mpeChannelsAllocated.fill(false);
     this.soundingAs.clear();
+    this.auditionVoices = [];
     this.heldKeys.clear();
     this.heldCustomVoicings.clear();
     this.heldChordIntervals.clear();
@@ -1985,6 +1986,39 @@ export class OrchidEngine {
    * around it. The pad plays scale notes more quietly and draws them dimmer, so
    * the chord still reads while a line is being run over it.
    */
+  // ---- auditioning -------------------------------------------------------
+  // Notes being heard rather than played: a chord under consideration, sounded
+  // exactly as it was written.
+  private auditionVoices: Array<{ pitch: number; channel?: number }> = [];
+
+  /**
+   * Sound a chord exactly as given.
+   *
+   * Deliberately not `handleMidi`: that is the instrument, and it would apply
+   * the register, the inversion, the voicing disk and the played-voicing
+   * library on the way through. All of those are the right answer when a chord
+   * is being played and the wrong one when it is being examined — the point of
+   * an audition is to hear the notes that were chosen, not the instrument's
+   * reading of them. RANGE still applies, because nothing may leave outside it.
+   */
+  public startAudition(pitches: number[], velocity: number) {
+    this.stopAudition();
+    for (const pitch of pitches) {
+      if (pitch < 0 || pitch > 127) continue;
+      const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
+      this.emitNoteOn(pitch, velocity, 0, channel);
+      this.auditionVoices.push({ pitch, channel });
+    }
+  }
+
+  public stopAudition() {
+    for (const voice of this.auditionVoices) {
+      this.emitNoteOff(voice.pitch, 0, 0, voice.channel);
+      if (voice.channel) this.freeMpeChannel(voice.channel);
+    }
+    this.auditionVoices = [];
+  }
+
   public getArpeggioChordTones(): number[] {
     // Worked out while the pad's notes are gathered, so ask for those first
     // rather than answering from whatever the last caller happened to leave.
