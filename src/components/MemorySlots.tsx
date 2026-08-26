@@ -412,75 +412,115 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
       )}
       <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
         {!hideHeader && (
-          <div className="flex items-center gap-4 flex-wrap">
-             {/* A hand-played voicing normally sits at the exact notes it was
-                 played at. Following the register lets the same voicing be
-                 tried an inversion or a register away without re-recording it. */}
-             <div className="flex items-center gap-2" title="Saved voicings follow the CHORD START slider, inverting as it rises">
-                <span className="label-meta !text-[9px] whitespace-nowrap">FOLLOW REG</span>
-                <div
-                  className={`toggle-switch sm ${followRegister ? 'on' : ''}`}
-                  onClick={onToggleFollowRegister}
-                ></div>
+          <div className="flex flex-col gap-2">
+             {/* Three rows: what the pads do, what they are played at, and the
+                 ways of filling them. They were one wrapping line, which put
+                 transpose between two buttons that belong together. */}
+             <div className="flex items-center gap-5 flex-wrap">
+                {/* A hand-played voicing normally sits at the exact notes it was
+                    played at. Following the register lets the same voicing be
+                    tried an inversion or a register away without re-recording it. */}
+                <div className="flex items-center gap-2" title="Saved voicings follow the CHORD START slider, inverting as it rises">
+                   <span className="label-meta !text-[9px] whitespace-nowrap">FOLLOW REG</span>
+                   <div
+                     className={`toggle-switch sm ${followRegister ? 'on' : ''}`}
+                     onClick={onToggleFollowRegister}
+                   ></div>
+                </div>
+                <div className="flex items-center gap-2" title="On, a pad sounds for as long as it is held. Off, a pad latches: press to start it, press again to stop it">
+                   <span className="label-meta !text-[9px] whitespace-nowrap">MOMENTARY</span>
+                   <div
+                     className={`toggle-switch sm ${momentary ? 'on' : ''}`}
+                     onClick={onToggleMomentary}
+                   ></div>
+                </div>
+                {presetTitle && (
+                   <span className="label-meta !text-[9px] !text-[var(--accent)] truncate ml-auto max-w-[16rem]" title={presetTitle}>
+                      {presetTitle}
+                   </span>
+                )}
              </div>
-             <div className="flex items-center gap-2" title="On, a pad sounds for as long as it is held. Off, a pad latches: press to start it, press again to stop it">
-                <span className="label-meta !text-[9px] whitespace-nowrap">MOMENTARY</span>
-                <div
-                  className={`toggle-switch sm ${momentary ? 'on' : ''}`}
-                  onClick={onToggleMomentary}
-                ></div>
-             </div>
-             <div className="flex items-center gap-2">
-                <span className="text-[10px] text-[#888]">VEL</span>
-                <input 
-                  type="range" min="1" max="127" 
-                  value={memoryVelocity}
-                  onChange={(e) => onMemoryVelocityChange(parseInt(e.target.value))}
-                  className="range-sm w-16 accent-[var(--accent)]"
-                />
-             </div>
-             {onOpenRndm && (
-                <button
-                   onClick={onOpenRndm}
-                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
-                   title="Generate a set of chords from the notes they must all be able to hold"
-                >
-                   RNDM
-                </button>
-             )}
-             <button
-                onClick={openEditor}
-                className="analog-btn !py-1 !px-2 !text-[9px]"
-                title="Type the pads out as text"
-             >
-                EDIT TEXT
-             </button>
 
-             <div className="flex items-center gap-1" title="Move every saved chord">
-                <span className="label-meta !text-[9px] whitespace-nowrap">TRANSPOSE</span>
-                {([['-12', -12], ['-1', -1], ['+1', 1], ['+12', 12]] as const).map(([label, by]) => (
+             <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                   <span className="label-meta !text-[9px]">VEL</span>
+                   <input
+                     type="range" min="1" max="127"
+                     value={memoryVelocity}
+                     onChange={(e) => onMemoryVelocityChange(parseInt(e.target.value))}
+                     className="range-sm !w-24 shrink-0 accent-[var(--accent)]"
+                   />
+                   <span className="label-meta !text-[9px] !text-[var(--accent)] w-6 tabular-nums">{memoryVelocity}</span>
+                </div>
+                <div className="flex items-center gap-1" title="Move every saved chord by a semitone">
+                   <span className="label-meta !text-[9px] whitespace-nowrap">TRANSPOSE</span>
+                   {([['−', -1], ['+', 1]] as const).map(([label, by]) => (
+                      <button
+                         key={label}
+                         onClick={() => transposeAll(by)}
+                         className="analog-btn !text-[11px] !px-3 !py-[2px] leading-none"
+                      >
+                         {label}
+                      </button>
+                   ))}
+                </div>
+             </div>
+
+             <div className="flex items-center gap-1 flex-wrap">
+                {onOpenRndm && (
                    <button
-                      key={label}
-                      onClick={() => transposeAll(by)}
-                      className="analog-btn !text-[9px] !px-[6px] !py-[3px]"
+                      onClick={onOpenRndm}
+                      className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
+                      title="Generate a set of chords from the notes they must all be able to hold"
                    >
-                      {label}
+                      RNDM
                    </button>
-                ))}
+                )}
+                <button
+                   onClick={loadPreset}
+                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
+                   title="Fill the pads with the chords of a randomly chosen progression"
+                >
+                   PRESET
+                </button>
+                <button
+                   onClick={openEditor}
+                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
+                   title="Type the pads out as text"
+                >
+                   TEXT
+                </button>
+                <button
+                   onClick={() => setShowBuilder(true)}
+                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
+                   title="Build a chord by choosing rather than typing"
+                >
+                   BUILD
+                </button>
+                {/* Free edit only means anything inside edit mode, so this turns
+                    both on rather than leaving the player to find the second. */}
+                <button
+                   onClick={() => {
+                      if (!isEditMode) onToggleEditMode();
+                      onToggleFreeEditMode();
+                   }}
+                   className={`analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] ${isEditMode && isFreeEditMode ? 'active' : ''}`}
+                   title="Arm a pad, play the voicing you want, and it is saved exactly as played"
+                >
+                   FREE
+                </button>
+                {!hideEdit && (
+                   <button
+                      onClick={onToggleEditMode}
+                      className={`analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em] ${isEditMode ? 'active' : ''}`}
+                      title="Drag pads to reorder them, or clear one with its X"
+                   >
+                      ARRANGE
+                   </button>
+                )}
              </div>
 
-             <button
-                onClick={loadPreset}
-                className="analog-btn !py-1 !px-2 !text-[9px]"
-                title="Fill the pads with the chords of a randomly chosen progression"
-             >
-                PRESET
-             </button>
-             {presetTitle && (
-                <span className="label-meta !text-[9px] !text-[var(--accent)] whitespace-nowrap" title={presetTitle}>
-                   {presetTitle.length > 28 ? presetTitle.slice(0, 28) + '…' : presetTitle}
-                </span>
-             )}
+             <div className="flex items-center gap-1 flex-wrap">
              {isEditMode && (
                 <button
                    onClick={pasteProgression}
@@ -511,19 +551,11 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                    {pasteStatus}
                 </span>
              )}
-             {isEditMode && (
-                <div className="flex items-center gap-2 ml-4">
-                   <span className="label-meta text-[10px]">FREE EDIT</span>
-                   <div 
-                      className={`toggle-switch ${isFreeEditMode ? 'on' : ''}`}
-                      onClick={onToggleFreeEditMode}
-                   ></div>
-                </div>
-             )}
+             </div>
           </div>
         )}
         {hideHeader && <span />}
-        {!hideEdit && <button 
+        {hideHeader && !hideEdit && <button
           onClick={onToggleEditMode}
           className={`flex items-center justify-center w-6 h-6 rounded-sm border transition-colors ${isEditMode ? 'bg-[var(--accent)] border-[var(--accent)] text-black' : 'bg-transparent border-[#444] text-[#888] hover:text-white hover:border-white'}`}
           title="Edit Memory Slots (Drag to reorder, click X to clear)"
