@@ -249,19 +249,24 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
 
   console.log('\n=== Stacking ===');
   {
-    const { e, on } = rig({ walkStack: 3, walkStackTones: 2, walkHumanize: 0 });
+    // Each voice sets its own distance, so one can be in thirds and the next
+    // in fifths rather than both being multiples of one number.
+    const { e, on } = rig({
+      walkLayer2: true, walkLayer2Tones: 1, walkLayer3: true, walkLayer3Tones: 3, walkHumanize: 0,
+    });
     await holdChord(e, 48, [0, 4, 7]);
     on.length = 0;
     press(e, 72); await sleep(90);
     check('three voices sound', on.length === 3, `${on}`);
-    check('each two tones above the last',
-      on[1] > on[0] && on[2] > on[1], `${on}`);
+    const sorted = [...on].sort((a, b) => a - b);
+    check('spaced as each was asked for, not evenly',
+      sorted[1] - sorted[0] !== sorted[2] - sorted[1], `${sorted}`);
     check('and all of them belong to the chord',
       on.every(p => [0, 4, 7].includes(((p % 12) + 12) % 12)), `${on.map(p => p % 12)}`);
     e.panic();
   }
   {
-    const { e, on } = rig({ walkStack: 1 });
+    const { e, on } = rig({ walkLayer2: false, walkLayer3: false });
     await holdChord(e, 48, [0, 4, 7]);
     on.length = 0;
     press(e, 72); await sleep(80);
@@ -270,7 +275,7 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
   }
   {
     // Humanising is what stops a stack landing as one thick note.
-    const { e } = rig({ walkStack: 3, walkHumanize: 80, velHumanize: 0 });
+    const { e } = rig({ walkLayer2: true, walkLayer3: true, walkHumanize: 80, velHumanize: 0 });
     const struck: Array<{ delay: number; velocity: number }> = [];
     e.onOutputNote = (ev: any) => {
       if (ev.isCC || ev.isPitchBend || ev.isExpression || !ev.isOn) return;
@@ -287,7 +292,7 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
     e.panic();
   }
   {
-    const { e } = rig({ walkStack: 3, walkHumanize: 0, velHumanize: 0 });
+    const { e } = rig({ walkLayer2: true, walkLayer3: true, walkHumanize: 0, velHumanize: 0 });
     const struck: number[] = [];
     e.onOutputNote = (ev: any) => {
       if (ev.isCC || ev.isPitchBend || ev.isExpression || !ev.isOn) return;
@@ -298,6 +303,26 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
     struck.length = 0;
     press(e, 72); await sleep(80);
     check('with humanising off they land together', struck.every(d => d === 0), `${struck}`);
+    e.panic();
+  }
+
+  {
+    // Each voice has its own level, so a stack can be shaded rather than flat.
+    const { e } = rig({
+      walkLayer2: true, walkLayer2Level: 100, walkLayer3: true, walkLayer3Level: 40,
+      walkHumanize: 0, velHumanize: 0,
+    });
+    const struck: number[] = [];
+    e.onOutputNote = (ev: any) => {
+      if (ev.isCC || ev.isPitchBend || ev.isExpression || !ev.isOn) return;
+      struck.push(ev.velocity);
+    };
+    e.handleMidi(48, 100, true, false, false, false, true, undefined, [0, 4, 7]);
+    await sleep(70);
+    struck.length = 0;
+    press(e, 72); await sleep(90);
+    check('a voice set quiet is quieter than one set loud',
+      Math.min(...struck) < Math.max(...struck) * 0.7, `${struck}`);
     e.panic();
   }
 

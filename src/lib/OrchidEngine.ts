@@ -2102,26 +2102,34 @@ export class OrchidEngine {
       : [this.walkCursor];
 
     // Stacked voices are the same walk a few tones higher, so they stay inside
-    // the chord and lead as it does rather than running parallel to it.
-    const layers = Math.max(1, Math.min(3, Math.round(this.params.walkStack ?? 1)));
-    const apart = Math.round(this.params.walkStackTones ?? 2);
+    // the chord and lead as it does rather than running parallel to it. Each
+    // sets its own distance and its own level, so one can be in thirds and the
+    // next in fifths rather than both being multiples of one number.
+    const layers: Array<{ tones: number; level: number }> = [{ tones: 0, level: 100 }];
+    if (this.params.walkLayer2) {
+      layers.push({ tones: Math.round(this.params.walkLayer2Tones ?? 2), level: this.params.walkLayer2Level ?? 85 });
+    }
+    if (this.params.walkLayer3) {
+      layers.push({ tones: Math.round(this.params.walkLayer3Tones ?? 4), level: this.params.walkLayer3Level ?? 70 });
+    }
     const looseness = Math.max(0, Math.min(100, this.params.walkHumanize ?? 0)) / 100;
 
     const previous = this.walkSounding;
     this.walkSounding = [];
-    for (let layer = 0; layer < layers; layer++) {
-      // The ones above are a touch late and a touch softer, which is what stops
-      // a stack sounding like one thick note struck by a machine.
-      const drift = layer === 0 ? 0 : looseness * (12 * layer + Math.random() * 10);
-      const softer = layer === 0 ? 1 : 1 - looseness * (0.18 * layer + Math.random() * 0.12);
-      const level = Math.max(1, Math.min(127, Math.round(velocity * softer)));
+    layers.forEach((layer, index) => {
+      // The ones above are late and softer by a wandering amount, which is what
+      // stops a stack sounding like one thick note struck by a machine. At the
+      // top of the slider it is a roll rather than a chord.
+      const drift = index === 0 ? 0 : looseness * (60 * index + Math.random() * 50);
+      const wander = index === 0 ? 1 : 1 - looseness * Math.random() * 0.5;
+      const level = Math.max(1, Math.min(127, Math.round(velocity * (layer.level / 100) * wander)));
       for (const degree of base) {
-        const pitch = at(degree + layer * apart);
+        const pitch = at(degree + layer.tones);
         const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
         this.emitNoteOn(pitch, level, drift, channel);
         this.walkSounding.push({ pitch, channel });
       }
-    }
+    });
 
     // The note before is let go only once this one has sounded, so a mono synth
     // set to legato never sees a gap and never retriggers its envelope.
@@ -2238,6 +2246,21 @@ export class OrchidEngine {
    * an audition is to hear the notes that were chosen, not the instrument's
    * reading of them. RANGE still applies, because nothing may leave outside it.
    */
+  /**
+   * Bend a channel, as a thing the engine does rather than something a caller
+   * reaches into `onOutputNote` to fake.
+   *
+   * The strip used to build that event itself, which worked on the desktop and
+   * did nothing at all from the phone: `onOutputNote` there belongs to the
+   * remote's own mirror and never leaves the device. A command can travel.
+   */
+  public sendPitchBend(semitones: number, channel: number = 1) {
+    this.onOutputNote?.({
+      pitch: 0, velocity: 0, isOn: false,
+      isPitchBend: true, pitchBendValue: semitones, mpeChannel: channel,
+    } as any);
+  }
+
   public startAudition(pitches: number[], velocity: number) {
     this.stopAudition();
     for (const pitch of pitches) {
@@ -3368,7 +3391,9 @@ export class OrchidEngine {
     // A glide still running on this channel belongs to the note being replaced;
     // letting it continue would bend the note starting here.
     this.cancelChannelGlide(channel);
-    const finalVelocity = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
+    const shaped = this.calculateFinalVelocity(velocity, pitch, this.lastUpdateReason);
+    const trim = Math.max(1, Math.min(127, this.params.outputVelocity ?? 127));
+    const finalVelocity = Math.max(1, Math.min(127, Math.round(shaped * trim / 127)));
     const folded = this.foldToRange(pitch);
     this.soundingAs.set(this.soundingKey(pitch, channel), folded);
     if (this.onOutputNote) this.onOutputNote({ pitch: folded, velocity: finalVelocity, isOn: true, delayMs, mpeChannel: channel, isInternalSynthOnly, isRaw, isCycleStart });

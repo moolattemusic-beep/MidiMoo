@@ -93,10 +93,23 @@ voicing does not begin on its root, so `lastArpRoot` is recorded where the chord
 is built. Free mode never has one — there the keys are the notes — so SCALE
 leaves it on what is actually held rather than inventing a key.
 
-**A stacked walk is the same walk a few tones up.** Not a fixed interval: the
-voices sit a number of *chord tones* apart, so they lead as the chord does
-rather than running parallel to it. LOOSENESS puts the upper ones a little late
-and a little softer, which is what stops a stack landing as one thick note.
+**A stacked walk is the same walk a few tones up.** Not a fixed interval: each
+voice sits its own number of *chord tones* above the first, so one can be in
+thirds and the next in fifths, and they lead as the chord does rather than
+running parallel to it. LOOSENESS puts the upper ones late and softer by a
+wandering amount, far enough at the top of the slider to be a roll.
+
+**Bending is a method on the engine, not an event a caller builds.** The strip
+used to construct the `onOutputNote` event itself, which worked on the desktop
+and did nothing at all from the phone — `onOutputNote` there belongs to the
+remote's own mirror and never leaves the device. `sendPitchBend` is a command,
+and commands travel.
+
+**OUTPUT VELOCITY is the last word.** Applied in `emitNoteOn` after everything
+else has shaped the velocity, so it trims chords, the strum pad, patterns and
+auditions alike. It rests at full, and the strip hands it back to full whenever
+it is given another job — a trim left somewhere quiet would hold the whole
+instrument down with nothing on screen saying so.
 SYNC repeats the last move on a clock rather than waiting to be asked, and turns
 round at either end of the ladder instead of sitting on the top rung.
 

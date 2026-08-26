@@ -349,7 +349,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
                   ? 'Bends while held and springs back to centre'
                   : idx === 1
                     ? 'An ordinary slider sending the mod wheel, which stays where it is put'
-                    : 'Sets how hard the pads play, and stays where it is put'}
+                    : 'Trims how hard everything leaves the instrument. Returns to full when the strip is given another job.'}
                 className={`analog-btn !text-[9px] !px-2 !py-[2px] ${(params.arpeggioStripMode ?? 0) === idx ? 'active' : ''}`}
               >
                 {label}
@@ -423,9 +423,9 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
           engine={engine}
           incomingCC={incomingCC}
           mode={params.arpeggioStripMode ?? 0}
-          velocity={params.memoryVelocity || 100}
+          velocity={params.outputVelocity ?? 127}
           onVelocity={(value) => {
-            const newParams = { ...params, memoryVelocity: value };
+            const newParams = { ...params, outputVelocity: value };
             setParams(newParams);
             if (engine) engine.params = newParams;
           }}
@@ -521,18 +521,21 @@ function MagneticPitchBend({ engine, incomingCC, mode, velocity, onVelocity }: {
   const containerRef = useRef<HTMLDivElement>(null);
   const isBend = mode === 0;
   const isVelocity = mode === 2;
-  const rest = isBend ? 64 : isVelocity ? (velocity ?? 100) : 0;
+  const rest = isBend ? 64 : isVelocity ? (velocity ?? 127) : 0;
   const [val, setVal] = useState(rest);
 
   // Its rest is not the same in both jobs, so it goes to the new one rather
   // than sitting at a position that means something else now.
   useEffect(() => {
-    if (isVelocity) { setVal(velocity ?? 100); return; }
+    if (isVelocity) { setVal(velocity ?? 127); return; }
     setVal(rest);
+    // Leaving the velocity job hands the trim back at full, so a position left
+    // behind cannot keep everything quiet without saying so.
+    onVelocity?.(127);
     if (!engine) return;
     if (isBend) {
       engine.emitControlChange(126, 64, 1);
-      engine.onOutputNote?.({ pitch: 0, velocity: 0, isOn: false, isPitchBend: true, pitchBendValue: 0, mpeChannel: 1 });
+      engine.sendPitchBend(0, 1);
     } else if (mode === 1) {
       engine.emitControlChange(1, 0, 1);
     }
@@ -561,10 +564,7 @@ function MagneticPitchBend({ engine, incomingCC, mode, velocity, onVelocity }: {
       return;
     }
     engine.emitControlChange(126, midiVal, 1);
-    engine.onOutputNote?.({
-      pitch: 0, velocity: 0, isOn: false, isPitchBend: true,
-      pitchBendValue: ((midiVal - 64) / 64) * 12, mpeChannel: 1,
-    });
+    engine.sendPitchBend(((midiVal - 64) / 64) * 12, 1);
   };
 
   sendRef.current = send;

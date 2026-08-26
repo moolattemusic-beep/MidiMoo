@@ -260,27 +260,42 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         </div>
 
         <p className="label-meta mb-2">STACK</p>
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          {[1, 2, 3].map(count => (
-            <button
-              key={count}
-              onClick={() => updateParam('walkStack', count)}
-              className={`analog-btn ${(params.walkStack ?? 1) === count ? 'active' : ''}`}
-            >
-              {count === 1 ? 'ONE' : count === 2 ? 'TWO' : 'THREE'}
-            </button>
-          ))}
-        </div>
-        {(params.walkStack ?? 1) > 1 && (
+        {([
+          ['walkLayer2', 'walkLayer2Tones', 'walkLayer2Level', 'SECOND VOICE'],
+          ['walkLayer3', 'walkLayer3Tones', 'walkLayer3Level', 'THIRD VOICE'],
+        ] as const).map(([onKey, tonesKey, levelKey, label]) => (
+          <div key={label} className="mb-3">
+            <div className="flex justify-between items-center">
+              <span className="label-meta">{label}</span>
+              <div
+                className={`toggle-switch sm ${params[onKey] ? 'on' : ''}`}
+                onClick={() => updateParam(onKey, !params[onKey])}
+              />
+            </div>
+            {params[onKey] && (
+              <div className="fade-in mt-2 pl-3 border-l border-white/10">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="label-meta !text-[10px]">TONES APART</span>
+                  <span className="label-meta !text-[var(--accent)]">{params[tonesKey]}</span>
+                </div>
+                <CustomSlider min={1} max={7} step={1}
+                  value={params[tonesKey] as number}
+                  onChange={(val) => updateParam(tonesKey, val)} />
+                <div className="flex justify-between items-center mb-1 mt-2">
+                  <span className="label-meta !text-[10px]">LEVEL</span>
+                  <span className="label-meta !text-[var(--accent)]">{params[levelKey]}%</span>
+                </div>
+                <CustomSlider min={10} max={130} step={1}
+                  value={params[levelKey] as number}
+                  onChange={(val) => updateParam(levelKey, val)} />
+              </div>
+            )}
+          </div>
+        ))}
+
+        {(params.walkLayer2 || params.walkLayer3) && (
           <div className="fade-in mb-4">
             <div className="flex justify-between items-center mb-2">
-              <span className="label-meta">TONES APART</span>
-              <span className="label-meta !text-[var(--accent)]">{params.walkStackTones ?? 2}</span>
-            </div>
-            <CustomSlider min={1} max={6} step={1}
-              value={params.walkStackTones ?? 2}
-              onChange={(val) => updateParam('walkStackTones', val)} />
-            <div className="flex justify-between items-center mb-2 mt-3">
               <span className="label-meta">LOOSENESS</span>
               <span className="label-meta !text-[var(--accent)]">{params.walkHumanize ?? 0}%</span>
             </div>
@@ -288,10 +303,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
               value={params.walkHumanize ?? 0}
               onChange={(val) => updateParam('walkHumanize', val)} />
             <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
-              THE STACKED VOICES ARE THE SAME WALK A FEW TONES UP, SO THEY LEAD AS THE
-              CHORD DOES RATHER THAN RUNNING PARALLEL TO IT. LOOSENESS PUTS THEM A LITTLE
-              LATE AND A LITTLE SOFTER, WHICH IS WHAT STOPS A STACK LANDING AS ONE THICK
-              NOTE.
+              EACH VOICE IS THE SAME WALK A SET NUMBER OF CHORD TONES UP, SO THEY LEAD AS
+              THE CHORD DOES RATHER THAN RUNNING PARALLEL TO IT — ONE CAN BE IN THIRDS AND
+              THE NEXT IN FIFTHS. LOOSENESS PUTS THE UPPER VOICES LATE AND SOFTER BY A
+              WANDERING AMOUNT; TURNED UP IT IS A ROLL RATHER THAN A CHORD.
             </p>
           </div>
         )}

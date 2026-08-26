@@ -118,6 +118,11 @@ export class RemoteEngine {
     });
   }
 
+  /** Bending has to travel to the instrument; doing it locally bends nothing. */
+  public sendPitchBend(semitones: number, channel = 1) {
+    this.send('sendPitchBend', [semitones, channel]);
+  }
+
   public updateInversion(inversion: number) {
     haptic('step');
     this.send('updateInversion', [inversion]);

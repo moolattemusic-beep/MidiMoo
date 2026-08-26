@@ -12,10 +12,13 @@ export interface OrchidParams {
   walkChord: boolean;
   /** Hold each note until the next has sounded, so the line never breaks. */
   walkLegato: boolean;
-  /** How many voices the walker stacks: 1, 2 or 3. */
-  walkStack: number;
-  /** How many chord tones apart the stacked voices sit. */
-  walkStackTones: number;
+  /** The second and third voices of the stack, each with its own distance and level. */
+  walkLayer2: boolean;
+  walkLayer2Tones: number;
+  walkLayer2Level: number;
+  walkLayer3: boolean;
+  walkLayer3Tones: number;
+  walkLayer3Level: number;
   /** How loosely the stacked voices follow: a little late, a little softer. */
   walkHumanize: number;
   /** Keep walking in time rather than a step per press. */
@@ -153,6 +156,8 @@ export interface OrchidParams {
   // The range everything leaving the app has to fit in. A note outside it is
   // moved by whole octaves until it fits, so nothing is lost and nothing sounds
   // in a register the part was never meant to reach.
+  /** The last word on how hard anything leaves: every velocity is scaled by it. */
+  outputVelocity: number;
   outputRangeLow: number;
   outputRangeHigh: number;
   // How far MODIFY moves the pattern it is given.
@@ -198,8 +203,12 @@ export const defaultParams: OrchidParams = {
   walkSplit: 60,
   walkChord: false,
   walkLegato: false,
-  walkStack: 1,
-  walkStackTones: 2,
+  walkLayer2: false,
+  walkLayer2Tones: 2,
+  walkLayer2Level: 85,
+  walkLayer3: false,
+  walkLayer3Tones: 4,
+  walkLayer3Level: 70,
   walkHumanize: 25,
   walkSync: false,
   walkBpm: 120,
@@ -282,6 +291,7 @@ export const defaultParams: OrchidParams = {
   chordMaxNotes: 6,
   chordColorMatrix: null,
   voicingPlayed: true,
+  outputVelocity: 127,
   outputRangeLow: 24,
   outputRangeHigh: 96,
   patternModifyAmount: 25,

@@ -524,7 +524,7 @@ function MorePanel({
               ? 'Bends while held and springs back to centre when you let go. Sent on the master channel.'
               : (params.arpeggioStripMode ?? 0) === 1
                 ? 'An ordinary slider sending the mod wheel. It stays where you put it.'
-                : 'Sets how hard the pads play. It stays where you put it, and follows the instrument if you change it there.'}
+                : 'Trims how hard everything leaves the instrument, after everything else has had its say. It goes back to full whenever the strip is given another job, so a position left behind cannot quietly hold the whole instrument down.'}
           </span>
         </div>
 
