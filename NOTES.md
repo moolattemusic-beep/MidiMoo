@@ -62,6 +62,12 @@ means different things in different chords: a minor third is not a sharp ninth,
 a flat fifth is not a sharp eleventh, an augmented fifth is not a flat
 thirteenth.
 
+**The chord builder cannot write a symbol the parser rejects.** That is a
+property of its tables rather than a hope about them: `builder_test` assembles
+every root against every shape against every tension and every pair of them —
+some thousands of symbols — and parses each one. Adding a shape to the tables
+without a spelling the parser takes fails the suite rather than the player.
+
 **The symbol reference writes itself.** `chordSymbolReference()` and
 `alterationReference()` are built from the parser's own tables and spelled out
 on C, so the help beside the text field cannot come to describe something the

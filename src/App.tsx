@@ -761,6 +761,7 @@ function App() {
               momentary={params.memoryMomentary !== false}
               onToggleMomentary={() => setParams({ ...params, memoryMomentary: params.memoryMomentary === false })}
               onOpenRndm={() => setShowRndm(true)}
+              heldNotes={physicallyHeldNotes}
               rndmRequired={rndmRequired}
               onRndmRequiredChange={setRndmRequired}
               memoryVelocity={params.memoryVelocity}

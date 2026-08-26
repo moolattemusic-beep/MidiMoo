@@ -17,6 +17,7 @@ function transposeSymbol(symbol: string, semitones: number): string {
   return TRANSPOSE_NAMES[((base + semitones) % 12 + 12) % 12] + m[2];
 }
 import { alterationReference, chordSymbolReference, parseProgression } from '../lib/ChordSymbol';
+import { ChordBuilder } from './ChordBuilder';
 import { NOTES as RNDM_NOTES, sharedNotes } from '../lib/RndmEngine';
 
 export type MemorySlot = {
@@ -65,6 +66,8 @@ interface MemorySlotsProps {
   onOpenRndm?: () => void;
   /** The notes RNDM was told every chord must be able to hold. */
   rndmRequired?: string[];
+  /** What is sounding on the keyboard, so the chord builder can take a root from it. */
+  heldNotes?: number[];
   onRndmRequiredChange?: (notes: string[]) => void;
   /** Lets a caller give the pads the height it has room for. */
   padHeight?: string;
@@ -100,7 +103,7 @@ function formatSlot(slot: MemorySlot, isEditMode: boolean, lastPlayedChord?: Mem
 }
 
 export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onStopSlot, onSaveSlot, onUpdateSlots, lastPlayedChord, hideHeader, isEditMode, onToggleEditMode, activeEditSlotIndex, onSelectEditSlot, memoryVelocity, onMemoryVelocityChange, isFreeEditMode, onToggleFreeEditMode, armedSlotIndex, onArmSlot, followRegister, onToggleFollowRegister, momentary, onToggleMomentary, hideEdit, hapticFor, padHeight,
-  onOpenRndm, rndmRequired, onRndmRequiredChange }: MemorySlotsProps) {
+  onOpenRndm, rndmRequired, onRndmRequiredChange, heldNotes }: MemorySlotsProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const PadTag: any = hapticFor ? 'label' : 'button';
 
@@ -123,6 +126,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
   const [presetTitle, setPresetTitle] = useState<string | null>(null);
   const [editorText, setEditorText] = useState<string | null>(null);
   const [showSymbolHelp, setShowSymbolHelp] = useState(false);
+  const [showBuilder, setShowBuilder] = useState(false);
 
   /**
    * Open the pads as text. What is shown is what is on them — a chord saved by
@@ -290,6 +294,17 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
 
   return (
     <div className={`module bg-[var(--surface-deep)] border border-white/10 rounded-sm flex flex-col gap-3 ${padHeight ? 'h-full min-h-0 p-2' : 'p-4'}`}>
+      {showBuilder && (
+        <ChordBuilder
+          heldNotes={heldNotes}
+          onCommit={(symbol) => setEditorText(previous => {
+            const text = (previous ?? '').replace(/\s+$/, '');
+            return text ? `${text} ${symbol}` : symbol;
+          })}
+          onClose={() => setShowBuilder(false)}
+        />
+      )}
+
       {editorText !== null && (
         <div
           className="fixed inset-0 z-[10000] bg-black/60 flex items-center justify-center p-6"
@@ -319,6 +334,13 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                 ITS NOTES IN BRACKETS AND COMES BACK UNCHANGED IF LEFT ALONE.
               </p>
               <div className="flex items-center gap-1 shrink-0">
+                <button
+                  onClick={() => setShowBuilder(true)}
+                  className="analog-btn !text-[9px] !px-2 !py-[3px]"
+                  title="Build a chord by choosing rather than typing"
+                >
+                  BUILD
+                </button>
                 <button
                   onClick={() => setShowSymbolHelp(v => !v)}
                   className={`analog-btn !text-[9px] !px-2 !py-[3px] ${showSymbolHelp ? 'active' : ''}`}
