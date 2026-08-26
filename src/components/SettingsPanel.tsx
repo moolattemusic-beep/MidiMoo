@@ -168,7 +168,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
     <AccordionContext.Provider value={accordion}>
       <CollapsibleSection title="Global Mapping">
         <div className="grid grid-cols-4 gap-2">
-          {["CLASSIC", "CIRCLE 5TH", "KEY MODE", "FREE MODE"].map((mode, idx) => (
+          {["CLASSIC", "CIRCLE 5TH", "KEY MODE", "FREE MODE", "WALK"].map((mode, idx) => (
             <button
               key={mode}
               onClick={() => updateParam('keyboardMapping', idx)}
@@ -179,6 +179,39 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           ))}
         </div>
         
+        {params.keyboardMapping === 4 && (
+          <div className="fade-in mt-4 flex flex-col gap-3">
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <span className="label-meta">SPLIT</span>
+                <span className="label-meta !text-[var(--accent)]">{noteName(params.walkSplit ?? 60)} AND UP</span>
+              </div>
+              <CustomSlider
+                min={36} max={96} step={1}
+                value={params.walkSplit ?? 60}
+                onChange={(val) => updateParam('walkSplit', val)}
+              />
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="label-meta">WALK THE CHORD</span>
+              <div
+                className={`toggle-switch sm ${params.walkChord ? 'on' : ''}`}
+                title="Move the whole held voicing rather than one note, each voice a rung at a time"
+                onClick={() => updateParam('walkChord', !params.walkChord)}
+              />
+            </div>
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+              THE FIRST KEY ABOVE THE SPLIT IS THE ANCHOR. EVERY KEY AFTER IT MOVES A
+              CURSOR BY AS MANY CHORD TONES AS THERE ARE SCALE STEPS BETWEEN THAT KEY
+              AND THE ANCHOR — A SECOND MOVES ONE, A THIRD TWO — SO THE SAME TWO FINGERS
+              REACH THE FAR END OF THE KEYBOARD. LETTING GO OF THE ANCHOR WHILE OTHER
+              KEYS ARE DOWN HANDS IT TO THE NEWEST OF THEM, WHICH IS HOW A RUN TURNS
+              AROUND. BELOW THE SPLIT THE KEYS ARE CHORDS AS USUAL, AND THE CHORD BEING
+              HELD IS WHAT DECIDES THE TONES — SCALE WIDENS THEM TO ITS SCALE.
+            </p>
+          </div>
+        )}
+
         <div className={`transition-opacity duration-300 ${params.keyboardMapping === 2 ? 'opacity-100 mt-4' : 'opacity-30 mt-4 pointer-events-none'}`}>
           <div className="mb-4">
             <p className="label-meta mb-2">ROOT NOTE</p>

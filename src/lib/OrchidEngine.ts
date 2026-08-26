@@ -128,6 +128,14 @@ export class OrchidEngine {
   // chromatically rather than over the chord.
   private colourClasses: Set<number> = new Set();
   // The chord the strum pad falls back on when nothing is being held.
+  /**
+   * WALK is CLASSIC as far as chords are concerned: it only changes what the
+   * keys above the split do, and everything below one is an ordinary chord key.
+   */
+  private get chordMappingMode(): number {
+    return this.params.keyboardMapping === 4 ? 0 : this.params.keyboardMapping;
+  }
+
   private lastArpClasses: number[] = [];
   // The root the last chord was built on. The pad works in pitch classes and
   // has no root of its own, but a scale cannot be chosen without one.
@@ -744,7 +752,7 @@ export class OrchidEngine {
   public isFreeMooActive(): boolean {
     return this.params.mpeEnabled
       && (this.params.mpeGlideMode || 0) === 3
-      && this.params.keyboardMapping === 3;
+      && this.chordMappingMode === 3;
   }
 
   private mooMaxVoices(): number {
@@ -1266,6 +1274,10 @@ export class OrchidEngine {
     this.mpeChannelsAllocated.fill(false);
     this.soundingAs.clear();
     this.auditionVoices = [];
+    this.walkSounding = [];
+    this.walkHeld = [];
+    this.walkAnchor = null;
+    this.walkCursor = null;
     this.heldKeys.clear();
     this.heldCustomVoicings.clear();
     this.heldChordIntervals.clear();
@@ -1294,11 +1306,11 @@ export class OrchidEngine {
 
   public get currentEffectiveBaseType(): number {
     let effectiveBaseType = -1;
-    if (this.params.keyboardMapping === 2 && this.lastPerformanceKey !== undefined) {
+    if (this.chordMappingMode === 2 && this.lastPerformanceKey !== undefined) {
       const pc = this.lastPerformanceKey % 12;
       const scaleData = this.getScaleData(pc, this.params.keyScale);
       effectiveBaseType = scaleData.type;
-    } else if (this.params.keyboardMapping === 1) {
+    } else if (this.chordMappingMode === 1) {
       effectiveBaseType = 0;
     }
     
@@ -1306,7 +1318,7 @@ export class OrchidEngine {
       effectiveBaseType = this.manualBaseType;
     }
     
-    if (effectiveBaseType === -1 && this.params.keyboardMapping === 0) {
+    if (effectiveBaseType === -1 && this.chordMappingMode === 0) {
       if (this.ext_m7) {
         effectiveBaseType = 1; // Minor
       } else if (this.ext_M7 || this.ext_6 || this.ext_9) {
@@ -1554,12 +1566,12 @@ export class OrchidEngine {
     let diatonicSeventh: 'M7' | 'm7' | null = null;
 
     // Diatonic default if Key Mode
-    if (this.params.keyboardMapping === 2 && perfKey !== undefined) {
+    if (this.chordMappingMode === 2 && perfKey !== undefined) {
       const pc = perfKey % 12;
       const scaleData = this.getScaleData(pc, this.params.keyScale);
       effectiveBaseType = scaleData.type;
       diatonicSeventh = scaleData.seventh;
-    } else if (this.params.keyboardMapping === 1) {
+    } else if (this.chordMappingMode === 1) {
       effectiveBaseType = 0; // Circle of Fifths defaults to major
     }
 
@@ -1571,7 +1583,7 @@ export class OrchidEngine {
     const intervals = [0];
     
     // Single Note fallback if no modifiers held (Classic mode)
-    if (effectiveBaseType === -1 && this.params.keyboardMapping === 0) {
+    if (effectiveBaseType === -1 && this.chordMappingMode === 0) {
       if (!this.ext_m7 && !this.ext_M7 && !this.ext_6 && !this.ext_9) {
         return []; // Indicate pure single note
       }
@@ -1602,7 +1614,7 @@ export class OrchidEngine {
       if (this.ext_6) intervals.push(20);  // b13
       if (this.ext_9) intervals.push(22);  // #13
     } else {
-      const always7 = this.params.alwaysAdd7th && this.params.keyboardMapping === 2;
+      const always7 = this.params.alwaysAdd7th && this.chordMappingMode === 2;
       let active_m7 = this.ext_m7;
       let active_M7 = this.ext_M7;
 
@@ -1905,7 +1917,7 @@ export class OrchidEngine {
       // rather than a chord to look up, so a remembered chord would be a chord
       // that is no longer being played. There the pad follows what is sounding
       // and falls silent with it.
-      const freeMode = this.params.keyboardMapping === 3;
+      const freeMode = this.chordMappingMode === 3;
       if (freeMode || this.lastArpClasses.length === 0) return [];
       pitchClasses = [...this.lastArpClasses];
     } else {
@@ -1986,6 +1998,151 @@ export class OrchidEngine {
    * around it. The pad plays scale notes more quietly and draws them dimmer, so
    * the chord still reads while a line is being run over it.
    */
+  // ---- walking -----------------------------------------------------------
+  /**
+   * The keyboard as a set of moves rather than a set of pitches.
+   *
+   * The first key held is the anchor. Every key pressed after it moves a cursor
+   * by however many chord tones lie between that key and the anchor — so a
+   * third above the anchor moves two tones, whatever a third happens to be in
+   * the chord being held. Press it again and it moves again, which is what
+   * turns two fingers into a run neither of them could reach.
+   *
+   * The tones it walks are the ones the strum pad offers, so the chord in the
+   * left hand decides them, SCALE widens them to that chord's scale, and RANGE
+   * still bounds what leaves.
+   *
+   * Letting go of the anchor while other keys are still down hands the anchor to
+   * the newest of them rather than stopping, which is how a run turns around
+   * without a gap in it.
+   */
+  private walkHeld: number[] = [];
+  private walkAnchor: number | null = null;
+  private walkCursor: number | null = null;
+  /** The held chord as tone positions, so a walked chord moves diatonically. */
+  private walkVoicing: number[] = [];
+  private walkSounding: Array<{ pitch: number; channel?: number }> = [];
+
+  private ladderFrom(classes: Set<number>): number[] {
+    if (classes.size === 0) return [];
+    const ladder: number[] = [];
+    for (let pitch = 0; pitch <= 127; pitch++) if (classes.has(pitch % 12)) ladder.push(pitch);
+    return ladder;
+  }
+
+  /** Every pitch belonging to the tones being walked, ascending — the rungs. */
+  private walkLadder(): number[] {
+    return this.ladderFrom(new Set(this.getArpeggioPitches().map(p => ((p % 12) + 12) % 12)));
+  }
+
+  /**
+   * The ladder distances are measured against, which is not the same one they
+   * are applied to.
+   *
+   * A second above the anchor means one step, a third two — and a second is a
+   * step of the scale, not of whatever the chord happens to contain. Measuring
+   * against the chord would make a key that is not a chord tone worth nothing
+   * at all: on a triad, a second above the anchor would move nowhere. Measured
+   * against the scale and applied to the chord, the same stepwise fingering
+   * gives a scale when the chord is being walked and an arpeggio when it is
+   * restricted to a triad — which is exactly what it is for.
+   */
+  private walkMeasure(): number[] {
+    const classes = new Set(this.getArpeggioPitches().map(p => ((p % 12) + 12) % 12));
+    if (this.lastArpRoot === null || classes.size === 0) return this.ladderFrom(classes);
+    const root = this.lastArpRoot;
+    const relative = new Set([...classes].map(pc => ((pc - root) % 12 + 12) % 12));
+    const scale = new Set(scaleFor(relative).map(step => (root + step) % 12));
+    for (const pc of classes) scale.add(pc);
+    return this.ladderFrom(scale);
+  }
+
+  /** Where a pitch sits on that ladder — the nearest rung at or below it. */
+  private walkDegree(ladder: number[], pitch: number): number {
+    let degree = 0;
+    for (let i = 0; i < ladder.length && ladder[i] <= pitch; i++) degree = i;
+    return degree;
+  }
+
+  private silenceWalk() {
+    for (const voice of this.walkSounding) {
+      this.emitNoteOff(voice.pitch, 0, 0, voice.channel);
+      if (voice.channel) this.freeMpeChannel(voice.channel);
+    }
+    this.walkSounding = [];
+  }
+
+  private soundWalk(ladder: number[], velocity: number) {
+    if (this.walkCursor === null) return;
+    const at = (degree: number) => ladder[Math.max(0, Math.min(ladder.length - 1, degree))];
+
+    const pitches = this.params.walkChord && this.walkVoicing.length > 0
+      // Every voice moves the same number of tones, which is what keeps the
+      // voice leading inside the chord rather than sliding it chromatically.
+      ? [...new Set(this.walkVoicing.map(degree => at(degree + this.walkCursor!)))]
+      : [at(this.walkCursor)];
+
+    const previous = this.walkSounding;
+    this.walkSounding = [];
+    for (const pitch of pitches) {
+      const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
+      this.emitNoteOn(pitch, velocity, 0, channel);
+      this.walkSounding.push({ pitch, channel });
+    }
+    // The note before is let go only once this one has sounded, so a mono synth
+    // set to legato never sees a gap and never retriggers its envelope.
+    for (const voice of previous) {
+      this.emitNoteOff(voice.pitch, 0, 0, voice.channel);
+      if (voice.channel) this.freeMpeChannel(voice.channel);
+    }
+  }
+
+  /** A key above the split. Returns whether it was taken. */
+  private handleWalkKey(pitch: number, velocity: number, isOn: boolean): boolean {
+    const ladder = this.walkLadder();
+
+    if (!isOn) {
+      this.walkHeld = this.walkHeld.filter(held => held !== pitch);
+      if (pitch !== this.walkAnchor) return true;
+      if (this.walkHeld.length > 0) {
+        // The anchor moves to the newest key still down rather than the run
+        // ending, so it can turn around without a gap.
+        this.walkAnchor = this.walkHeld[this.walkHeld.length - 1];
+        return true;
+      }
+      this.walkAnchor = null;
+      this.walkCursor = null;
+      this.walkVoicing = [];
+      if (!this.params.walkLegato) this.silenceWalk();
+      else this.silenceWalk();
+      return true;
+    }
+
+    // Nothing is being held to walk over, so there is nothing to walk on.
+    if (ladder.length === 0) return true;
+
+    if (this.walkAnchor === null || this.walkCursor === null) {
+      this.walkAnchor = pitch;
+      this.walkHeld = [pitch];
+      this.walkCursor = this.walkDegree(ladder, pitch);
+      // Where the chord sits relative to the cursor, kept so a walked chord
+      // keeps its own shape rather than being rebuilt at each step.
+      this.walkVoicing = this.params.walkChord
+        ? [...new Set(this.strumplatePitches.map(entry =>
+            this.walkDegree(ladder, entry.pitch) - this.walkCursor!))].sort((a, b) => a - b)
+        : [];
+      this.soundWalk(ladder, velocity);
+      return true;
+    }
+
+    this.walkHeld = [...this.walkHeld.filter(held => held !== pitch), pitch];
+    const measure = this.walkMeasure();
+    const steps = this.walkDegree(measure, pitch) - this.walkDegree(measure, this.walkAnchor);
+    this.walkCursor = Math.max(0, Math.min(ladder.length - 1, this.walkCursor + steps));
+    this.soundWalk(ladder, velocity);
+    return true;
+  }
+
   // ---- auditioning -------------------------------------------------------
   // Notes being heard rather than played: a chord under consideration, sounded
   // exactly as it was written.
@@ -2399,8 +2556,15 @@ export class OrchidEngine {
     const controlHighBound = controlLowBound + 11;
     let isControlKey = pitch >= controlLowBound && pitch <= controlHighBound;
     
+    // In WALK, a key above the split moves the cursor instead of naming a
+    // pitch, so it never reaches the chord path at all.
+    if (this.params.keyboardMapping === 4 && !isMemoryTrigger && pitch >= (this.params.walkSplit ?? 60)) {
+      this.handleWalkKey(pitch, velocity, isOn);
+      return;
+    }
+
     // In Free Mode, the whole keyboard is performance keys
-    let isFreeMode = this.params.keyboardMapping === 3 && !isMemoryTrigger;
+    let isFreeMode = this.chordMappingMode === 3 && !isMemoryTrigger;
     if (isFreeMode) {
       isControlKey = false;
     }

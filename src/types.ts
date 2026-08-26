@@ -5,7 +5,13 @@ export interface OrchidParams {
   momentaryBase: boolean;
   momentaryExt: boolean;
   alwaysAdd7th: boolean;
-  keyboardMapping: number; // 0=Classic, 1=Circle, 2=Key Mode
+  keyboardMapping: number; // 0=Classic, 1=Circle, 2=Key Mode, 3=Free, 4=Walk
+  /** In WALK, keys at or above this are the cursor; below it they are chord keys as usual. */
+  walkSplit: number;
+  /** Walk the whole held voicing rather than a single note. */
+  walkChord: boolean;
+  /** Hold each note until the next has sounded, so the line never breaks. */
+  walkLegato: boolean;
   keyRoot: number; // 0=C to 11=B
   keyScale: number; // 0=Major, 1=Minor, 2=Melodic Minor
   chordRegisterStart: number; // 24 to 96
@@ -178,6 +184,9 @@ export const defaultParams: OrchidParams = {
   momentaryExt: true,
   alwaysAdd7th: false,
   keyboardMapping: 0,
+  walkSplit: 60,
+  walkChord: false,
+  walkLegato: false,
   keyRoot: 0,
   keyScale: 0,
   chordRegisterStart: 60,
