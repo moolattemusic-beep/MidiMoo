@@ -12,6 +12,17 @@ export interface OrchidParams {
   walkChord: boolean;
   /** Hold each note until the next has sounded, so the line never breaks. */
   walkLegato: boolean;
+  /** How many voices the walker stacks: 1, 2 or 3. */
+  walkStack: number;
+  /** How many chord tones apart the stacked voices sit. */
+  walkStackTones: number;
+  /** How loosely the stacked voices follow: a little late, a little softer. */
+  walkHumanize: number;
+  /** Keep walking in time rather than a step per press. */
+  walkSync: boolean;
+  walkBpm: number;
+  /** Steps per beat: 1 a quarter, 2 an eighth, 3 a triplet eighth, 4 a sixteenth. */
+  walkRate: number;
   keyRoot: number; // 0=C to 11=B
   keyScale: number; // 0=Major, 1=Minor, 2=Melodic Minor
   chordRegisterStart: number; // 24 to 96
@@ -187,6 +198,12 @@ export const defaultParams: OrchidParams = {
   walkSplit: 60,
   walkChord: false,
   walkLegato: false,
+  walkStack: 1,
+  walkStackTones: 2,
+  walkHumanize: 25,
+  walkSync: false,
+  walkBpm: 120,
+  walkRate: 2,
   keyRoot: 0,
   keyScale: 0,
   chordRegisterStart: 60,

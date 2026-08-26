@@ -508,12 +508,12 @@ function MorePanel({
           <span className="text-[9px] tracking-[0.18em] text-white/40">
             THE STRIP BESIDE THE PAD
           </span>
-          <div className="grid grid-cols-2 gap-2">
-            {([['PITCH BEND', 0], ['CC1', 1]] as const).map(([label, mode]) => (
+          <div className="grid grid-cols-3 gap-2">
+            {([['PITCH BEND', 0], ['CC1', 1], ['VELOCITY', 2]] as const).map(([label, mode]) => (
               <button
                 key={label}
                 onPointerDown={() => setParams({ ...params, arpeggioStripMode: mode })}
-                className={`analog-btn !py-2 !text-[11px] tracking-[0.14em] ${(params.arpeggioStripMode ?? 0) === mode ? 'active' : ''}`}
+                className={`analog-btn !py-2 !text-[10px] tracking-[0.12em] ${(params.arpeggioStripMode ?? 0) === mode ? 'active' : ''}`}
               >
                 {label}
               </button>
@@ -521,8 +521,10 @@ function MorePanel({
           </div>
           <span className="text-[10px] leading-snug text-white/40">
             {(params.arpeggioStripMode ?? 0) === 0
-              ? 'Bends while held and springs back to centre when you let go.'
-              : 'An ordinary slider sending the mod wheel. It stays where you put it.'}
+              ? 'Bends while held and springs back to centre when you let go. Sent on the master channel.'
+              : (params.arpeggioStripMode ?? 0) === 1
+                ? 'An ordinary slider sending the mod wheel. It stays where you put it.'
+                : 'Sets how hard the pads play. It stays where you put it, and follows the instrument if you change it there.'}
           </span>
         </div>
 

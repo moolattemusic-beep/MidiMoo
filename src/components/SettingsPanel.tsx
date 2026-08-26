@@ -179,41 +179,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           ))}
         </div>
         
-        {params.keyboardMapping === 4 && (
-          <div className="fade-in mt-4 flex flex-col gap-3">
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <span className="label-meta">SPLIT</span>
-                <span className="label-meta !text-[var(--accent)]">{noteName(params.walkSplit ?? 60)} AND UP</span>
-              </div>
-              <CustomSlider
-                min={36} max={96} step={1}
-                value={params.walkSplit ?? 60}
-                onChange={(val) => updateParam('walkSplit', val)}
-              />
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="label-meta">WALK THE CHORD</span>
-              <div
-                className={`toggle-switch sm ${params.walkChord ? 'on' : ''}`}
-                title="Move the whole held voicing rather than one note, each voice a rung at a time"
-                onClick={() => updateParam('walkChord', !params.walkChord)}
-              />
-            </div>
-            <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
-              PLAYED ON THE WHITE KEYS ABOVE THE SPLIT, WHERE C IS THE ROOT OF
-              WHATEVER CHORD IS HELD — SO A SHAPE IS FINGERED THE SAME IN EVERY KEY.
-              THE FIRST KEY IS THE ANCHOR; EVERY KEY AFTER IT MOVES A CURSOR BY AS MANY
-              CHORD TONES AS THERE ARE WHITE KEYS BETWEEN IT AND THE ANCHOR, SO PRESSING
-              THE SAME KEY AGAIN MOVES AGAIN AND TWO FINGERS REACH THE FAR END OF THE
-              KEYBOARD. LETTING GO OF THE ANCHOR WHILE OTHER KEYS ARE DOWN HANDS IT TO
-              THE NEWEST OF THEM, WHICH IS HOW A RUN TURNS AROUND. THE CHORD BEING HELD
-              DECIDES THE TONES — ON A TRIAD A STEP IS A THIRD, WITH SCALE ON IT IS A
-              SECOND. BLACK KEYS TAKE NO PART.
-            </p>
-          </div>
-        )}
-
         <div className={`transition-opacity duration-300 ${params.keyboardMapping === 2 ? 'opacity-100 mt-4' : 'opacity-30 mt-4 pointer-events-none'}`}>
           <div className="mb-4">
             <p className="label-meta mb-2">ROOT NOTE</p>
@@ -249,6 +214,126 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
           </div>
         </div>
       </CollapsibleSection>
+
+      <CollapsibleSection title="WALK" extraHeader={<div
+            className={`toggle-switch ${params.keyboardMapping === 4 ? 'on' : ''}`}
+            onClick={() => updateParam('keyboardMapping', params.keyboardMapping === 4 ? 0 : 4)}
+          ></div>}>
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-3 leading-relaxed">
+          PLAYED ON THE WHITE KEYS ABOVE THE SPLIT, WHERE C IS THE ROOT OF WHATEVER
+          CHORD IS HELD — SO A SHAPE IS FINGERED THE SAME IN EVERY KEY. THE FIRST KEY IS
+          THE ANCHOR; EVERY KEY AFTER IT MOVES A CURSOR BY AS MANY CHORD TONES AS THERE
+          ARE WHITE KEYS BETWEEN IT AND THE ANCHOR, SO PRESSING THE SAME KEY AGAIN MOVES
+          AGAIN AND TWO FINGERS REACH THE FAR END OF THE KEYBOARD. LETTING GO OF THE
+          ANCHOR WHILE OTHER KEYS ARE DOWN HANDS IT TO THE NEWEST OF THEM, WHICH IS HOW
+          A RUN TURNS AROUND. BLACK KEYS TAKE NO PART.
+        </p>
+
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="label-meta">SPLIT</span>
+            <span className="label-meta !text-[var(--accent)]">{noteName(params.walkSplit ?? 60)} AND UP</span>
+          </div>
+          <CustomSlider min={36} max={96} step={1}
+            value={params.walkSplit ?? 60}
+            onChange={(val) => updateParam('walkSplit', val)} />
+        </div>
+
+        {/* The same switch as the strum pad's, because it is the same setting:
+            what the cursor is allowed to land on. */}
+        <div className="flex justify-between items-center mb-3">
+          <span className="label-meta">SCALE</span>
+          <div
+            className={`toggle-switch sm ${params.arpeggioScale ? 'on' : ''}`}
+            title="Walk the chord's scale rather than only its own notes. Shared with the strum pad — on a triad a step is a third, on its scale a second."
+            onClick={() => updateParam('arpeggioScale', !params.arpeggioScale)}
+          />
+        </div>
+
+        <div className="flex justify-between items-center mb-4">
+          <span className="label-meta">WALK THE CHORD</span>
+          <div
+            className={`toggle-switch sm ${params.walkChord ? 'on' : ''}`}
+            title="Move the whole held voicing rather than one note, each voice a rung at a time"
+            onClick={() => updateParam('walkChord', !params.walkChord)}
+          />
+        </div>
+
+        <p className="label-meta mb-2">STACK</p>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          {[1, 2, 3].map(count => (
+            <button
+              key={count}
+              onClick={() => updateParam('walkStack', count)}
+              className={`analog-btn ${(params.walkStack ?? 1) === count ? 'active' : ''}`}
+            >
+              {count === 1 ? 'ONE' : count === 2 ? 'TWO' : 'THREE'}
+            </button>
+          ))}
+        </div>
+        {(params.walkStack ?? 1) > 1 && (
+          <div className="fade-in mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="label-meta">TONES APART</span>
+              <span className="label-meta !text-[var(--accent)]">{params.walkStackTones ?? 2}</span>
+            </div>
+            <CustomSlider min={1} max={6} step={1}
+              value={params.walkStackTones ?? 2}
+              onChange={(val) => updateParam('walkStackTones', val)} />
+            <div className="flex justify-between items-center mb-2 mt-3">
+              <span className="label-meta">LOOSENESS</span>
+              <span className="label-meta !text-[var(--accent)]">{params.walkHumanize ?? 0}%</span>
+            </div>
+            <CustomSlider min={0} max={100} step={1}
+              value={params.walkHumanize ?? 0}
+              onChange={(val) => updateParam('walkHumanize', val)} />
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
+              THE STACKED VOICES ARE THE SAME WALK A FEW TONES UP, SO THEY LEAD AS THE
+              CHORD DOES RATHER THAN RUNNING PARALLEL TO IT. LOOSENESS PUTS THEM A LITTLE
+              LATE AND A LITTLE SOFTER, WHICH IS WHAT STOPS A STACK LANDING AS ONE THICK
+              NOTE.
+            </p>
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mb-2">
+          <span className="label-meta">SYNC</span>
+          <div
+            className={`toggle-switch sm ${params.walkSync ? 'on' : ''}`}
+            title="Hold the anchor and a key and it keeps walking in time, repeating the last move"
+            onClick={() => updateParam('walkSync', !params.walkSync)}
+          />
+        </div>
+        {params.walkSync && (
+          <div className="fade-in">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="label-meta">BPM</span>
+              <input
+                type="number" min={20} max={300}
+                value={params.walkBpm ?? 120}
+                onChange={(e) => updateParam('walkBpm', Math.max(20, Math.min(300, parseInt(e.target.value, 10) || 120)))}
+                className="w-20 bg-black text-[var(--accent)] border border-[#444] px-2 py-1 font-['Space_Mono'] text-[12px] rounded-sm outline-none"
+              />
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {([['1/4', 1], ['1/8', 2], ['1/8T', 3], ['1/16', 4]] as const).map(([label, rate]) => (
+                <button
+                  key={label}
+                  onClick={() => updateParam('walkRate', rate)}
+                  className={`analog-btn !text-[10px] ${(params.walkRate ?? 2) === rate ? 'active' : ''}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-2 leading-relaxed">
+              HOLD THE ANCHOR AND ONE OTHER KEY AND THE LAST MOVE REPEATS IN TIME. IT
+              TURNS ROUND AT EITHER END RATHER THAN SITTING ON THE TOP RUNG.
+            </p>
+          </div>
+        )}
+      </CollapsibleSection>
+
       <CollapsibleSection title="Register Control">
         <div className="flex justify-between items-center mb-3">
           <span className="label-meta">SILENT</span>

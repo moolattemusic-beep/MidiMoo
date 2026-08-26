@@ -1278,6 +1278,8 @@ export class OrchidEngine {
     this.walkHeld = [];
     this.walkAnchor = null;
     this.walkCursor = null;
+    this.walkLastSteps = 0;
+    this.stopWalkClock();
     this.heldKeys.clear();
     this.heldCustomVoicings.clear();
     this.heldChordIntervals.clear();
@@ -2093,25 +2095,77 @@ export class OrchidEngine {
     if (this.walkCursor === null) return;
     const at = (degree: number) => ladder[Math.max(0, Math.min(ladder.length - 1, degree))];
 
-    const pitches = this.params.walkChord && this.walkVoicing.length > 0
+    const base = this.params.walkChord && this.walkVoicing.length > 0
       // Every voice moves the same number of tones, which is what keeps the
       // voice leading inside the chord rather than sliding it chromatically.
-      ? [...new Set(this.walkVoicing.map(degree => at(degree + this.walkCursor!)))]
-      : [at(this.walkCursor)];
+      ? this.walkVoicing.map(degree => degree + this.walkCursor!)
+      : [this.walkCursor];
+
+    // Stacked voices are the same walk a few tones higher, so they stay inside
+    // the chord and lead as it does rather than running parallel to it.
+    const layers = Math.max(1, Math.min(3, Math.round(this.params.walkStack ?? 1)));
+    const apart = Math.round(this.params.walkStackTones ?? 2);
+    const looseness = Math.max(0, Math.min(100, this.params.walkHumanize ?? 0)) / 100;
 
     const previous = this.walkSounding;
     this.walkSounding = [];
-    for (const pitch of pitches) {
-      const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
-      this.emitNoteOn(pitch, velocity, 0, channel);
-      this.walkSounding.push({ pitch, channel });
+    for (let layer = 0; layer < layers; layer++) {
+      // The ones above are a touch late and a touch softer, which is what stops
+      // a stack sounding like one thick note struck by a machine.
+      const drift = layer === 0 ? 0 : looseness * (12 * layer + Math.random() * 10);
+      const softer = layer === 0 ? 1 : 1 - looseness * (0.18 * layer + Math.random() * 0.12);
+      const level = Math.max(1, Math.min(127, Math.round(velocity * softer)));
+      for (const degree of base) {
+        const pitch = at(degree + layer * apart);
+        const channel = this.params.mpeEnabled ? this.allocateMpeChannel() : undefined;
+        this.emitNoteOn(pitch, level, drift, channel);
+        this.walkSounding.push({ pitch, channel });
+      }
     }
+
     // The note before is let go only once this one has sounded, so a mono synth
     // set to legato never sees a gap and never retriggers its envelope.
     for (const voice of previous) {
       this.emitNoteOff(voice.pitch, 0, 0, voice.channel);
       if (voice.channel) this.freeMpeChannel(voice.channel);
     }
+  }
+
+  // ---- walking in time ---------------------------------------------------
+  /**
+   * With SYNC on, holding the anchor and a key walks by itself: the last move
+   * made repeats in time rather than waiting to be asked again. It is the same
+   * mechanic played by a clock instead of a finger, so everything else — the
+   * ladder, the stack, the chord under it — behaves exactly as it does by hand.
+   */
+  private walkClock: any = null;
+  private walkLastSteps = 0;
+  private walkVelocity = 100;
+
+  private walkStepMs(): number {
+    const bpm = Math.max(20, Math.min(300, this.params.walkBpm ?? 120));
+    const perBeat = Math.max(1, Math.min(4, Math.round(this.params.walkRate ?? 2)));
+    return (60000 / bpm) / perBeat;
+  }
+
+  private stopWalkClock() {
+    if (this.walkClock) { clearInterval(this.walkClock); this.walkClock = null; }
+  }
+
+  private startWalkClock() {
+    this.stopWalkClock();
+    if (!this.params.walkSync || this.walkLastSteps === 0) return;
+    this.walkClock = setInterval(() => {
+      if (this.walkCursor === null || this.walkAnchor === null) { this.stopWalkClock(); return; }
+      const ladder = this.walkLadder();
+      if (ladder.length === 0) return;
+      const next = this.walkCursor + this.walkLastSteps;
+      // Walking off either end turns it round rather than pinning it there,
+      // which is what keeps a held run moving.
+      if (next < 0 || next > ladder.length - 1) this.walkLastSteps = -this.walkLastSteps;
+      this.walkCursor = Math.max(0, Math.min(ladder.length - 1, this.walkCursor + this.walkLastSteps));
+      this.soundWalk(ladder, this.walkVelocity);
+    }, this.walkStepMs());
   }
 
   /** A key above the split. Returns whether it was taken. */
@@ -2130,6 +2184,8 @@ export class OrchidEngine {
       this.walkAnchor = null;
       this.walkCursor = null;
       this.walkVoicing = [];
+      this.walkLastSteps = 0;
+      this.stopWalkClock();
       if (!this.params.walkLegato) this.silenceWalk();
       else this.silenceWalk();
       return true;
@@ -2160,7 +2216,10 @@ export class OrchidEngine {
     if (from === null || to === null) return true;
     const steps = to - from;
     this.walkCursor = Math.max(0, Math.min(ladder.length - 1, this.walkCursor + steps));
+    this.walkLastSteps = steps;
+    this.walkVelocity = velocity;
     this.soundWalk(ladder, velocity);
+    this.startWalkClock();
     return true;
   }
 

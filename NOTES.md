@@ -93,6 +93,13 @@ voicing does not begin on its root, so `lastArpRoot` is recorded where the chord
 is built. Free mode never has one — there the keys are the notes — so SCALE
 leaves it on what is actually held rather than inventing a key.
 
+**A stacked walk is the same walk a few tones up.** Not a fixed interval: the
+voices sit a number of *chord tones* apart, so they lead as the chord does
+rather than running parallel to it. LOOSENESS puts the upper ones a little late
+and a little softer, which is what stops a stack landing as one thick note.
+SYNC repeats the last move on a clock rather than waiting to be asked, and turns
+round at either end of the ladder instead of sitting on the top rung.
+
 **WALK is played on the white keys, and C is the root.** Distances are counted
 in white keys rather than in the chord's own tones, because a key that is not a
 chord tone would otherwise be worth nothing — on a triad, a second above the

@@ -10,6 +10,14 @@ import React from 'react';
  * them; everything inherits currentColor so a section lights up with its text.
  */
 const ICONS: Record<string, React.ReactNode> = {
+  WALK: (
+    <>
+      <path d="M4 12.5h2.5" />
+      <path d="M6 9.5h2.5" />
+      <path d="M8 6.5h2.5" />
+      <path d="M10 3.5h2.5" />
+    </>
+  ),
   // A globe: the mapping applies across the whole keyboard.
   'Global Mapping': (
     <>

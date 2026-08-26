@@ -247,6 +247,97 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
     e.panic();
   }
 
+  console.log('\n=== Stacking ===');
+  {
+    const { e, on } = rig({ walkStack: 3, walkStackTones: 2, walkHumanize: 0 });
+    await holdChord(e, 48, [0, 4, 7]);
+    on.length = 0;
+    press(e, 72); await sleep(90);
+    check('three voices sound', on.length === 3, `${on}`);
+    check('each two tones above the last',
+      on[1] > on[0] && on[2] > on[1], `${on}`);
+    check('and all of them belong to the chord',
+      on.every(p => [0, 4, 7].includes(((p % 12) + 12) % 12)), `${on.map(p => p % 12)}`);
+    e.panic();
+  }
+  {
+    const { e, on } = rig({ walkStack: 1 });
+    await holdChord(e, 48, [0, 4, 7]);
+    on.length = 0;
+    press(e, 72); await sleep(80);
+    check('one is still one', on.length === 1, `${on}`);
+    e.panic();
+  }
+  {
+    // Humanising is what stops a stack landing as one thick note.
+    const { e } = rig({ walkStack: 3, walkHumanize: 80, velHumanize: 0 });
+    const struck: Array<{ delay: number; velocity: number }> = [];
+    e.onOutputNote = (ev: any) => {
+      if (ev.isCC || ev.isPitchBend || ev.isExpression || !ev.isOn) return;
+      struck.push({ delay: ev.delayMs ?? 0, velocity: ev.velocity });
+    };
+    e.handleMidi(48, 100, true, false, false, false, true, undefined, [0, 4, 7]);
+    await sleep(70);
+    struck.length = 0;
+    press(e, 72); await sleep(90);
+    check('the voices above arrive late', struck.some(n => n.delay > 0), JSON.stringify(struck));
+    check('the first is not delayed', struck[0]?.delay === 0, JSON.stringify(struck[0]));
+    check('and they are not all struck alike',
+      new Set(struck.map(n => n.velocity)).size > 1, `${struck.map(n => n.velocity)}`);
+    e.panic();
+  }
+  {
+    const { e } = rig({ walkStack: 3, walkHumanize: 0, velHumanize: 0 });
+    const struck: number[] = [];
+    e.onOutputNote = (ev: any) => {
+      if (ev.isCC || ev.isPitchBend || ev.isExpression || !ev.isOn) return;
+      struck.push(ev.delayMs ?? 0);
+    };
+    e.handleMidi(48, 100, true, false, false, false, true, undefined, [0, 4, 7]);
+    await sleep(70);
+    struck.length = 0;
+    press(e, 72); await sleep(80);
+    check('with humanising off they land together', struck.every(d => d === 0), `${struck}`);
+    e.panic();
+  }
+
+  console.log('\n=== Walking in time ===');
+  {
+    const { e, on } = rig({ walkSync: true, walkBpm: 240, walkRate: 4 });  // 62.5ms a step
+    await holdChord(e, 48, [0, 4, 7]);
+    on.length = 0;
+    press(e, 72); await sleep(30);
+    press(e, 74); await sleep(400);
+    check('it keeps walking while the keys are held', on.length > 4, `${on.length} notes`);
+    const before = on.length;
+    lift(e, 74); lift(e, 72);
+    await sleep(250);
+    check('and stops when they are let go', on.length - before <= 1, `${on.length - before} after`);
+    e.panic();
+  }
+  {
+    const { e, on } = rig({ walkSync: false });
+    await holdChord(e, 48, [0, 4, 7]);
+    on.length = 0;
+    press(e, 72); await sleep(30);
+    press(e, 74); await sleep(350);
+    check('with sync off it waits to be asked', on.length === 2, `${on.length} notes`);
+    e.panic();
+  }
+  {
+    // Held long enough to reach the end of the ladder, it turns round rather
+    // than sitting on the top rung repeating one note.
+    const { e, on } = rig({ walkSync: true, walkBpm: 300, walkRate: 4 });
+    await holdChord(e, 48, [0, 4, 7]);
+    on.length = 0;
+    press(e, 72); await sleep(30);
+    press(e, 76); await sleep(900);
+    lift(e, 76); lift(e, 72);
+    await sleep(80);
+    check('a long run turns round at the top', new Set(on).size > 3 && on.some((p, i) => i > 0 && p < on[i - 1]), `${on.slice(0, 14)}`);
+    e.panic();
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })();

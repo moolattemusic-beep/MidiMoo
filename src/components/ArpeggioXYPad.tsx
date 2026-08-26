@@ -337,7 +337,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
         <div className="flex justify-between items-center gap-2 min-w-0">
           <span className="label-meta !text-[10px] whitespace-nowrap">STRIP</span>
           <div className="flex items-center gap-1 shrink-0">
-            {(['PITCH', 'CC1'] as const).map((label, idx) => (
+            {(['PITCH', 'CC1', 'VEL'] as const).map((label, idx) => (
               <button
                 key={label}
                 onClick={() => {
@@ -347,7 +347,9 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
                 }}
                 title={idx === 0
                   ? 'Bends while held and springs back to centre'
-                  : 'An ordinary slider sending the mod wheel, which stays where it is put'}
+                  : idx === 1
+                    ? 'An ordinary slider sending the mod wheel, which stays where it is put'
+                    : 'Sets how hard the pads play, and stays where it is put'}
                 className={`analog-btn !text-[9px] !px-2 !py-[2px] ${(params.arpeggioStripMode ?? 0) === idx ? 'active' : ''}`}
               >
                 {label}
@@ -417,7 +419,17 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
       </>)}
       <div className={`flex w-full gap-2 flex-1 min-h-0 ${padOnly ? '' : 'min-h-[240px]'}`}>
         {/* Global Pitch Bend Strip */}
-        <MagneticPitchBend engine={engine} incomingCC={incomingCC} mode={params.arpeggioStripMode ?? 0} />
+        <MagneticPitchBend
+          engine={engine}
+          incomingCC={incomingCC}
+          mode={params.arpeggioStripMode ?? 0}
+          velocity={params.memoryVelocity || 100}
+          onVelocity={(value) => {
+            const newParams = { ...params, memoryVelocity: value };
+            setParams(newParams);
+            if (engine) engine.params = newParams;
+          }}
+        />
         
         {/* XY Pad */}
         <div 
@@ -499,28 +511,32 @@ const Strings: React.FC<{
  * for. The two rest in different places, so switching between them puts the
  * strip at its new rest rather than leaving it somewhere that means nothing.
  */
-function MagneticPitchBend({ engine, incomingCC, mode }: {
+function MagneticPitchBend({ engine, incomingCC, mode, velocity, onVelocity }: {
   engine: OrchidEngine | null,
   incomingCC?: {cc: number, val: number, ch: number, t: number} | null,
   mode: number,
+  velocity?: number,
+  onVelocity?: (value: number) => void,
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isBend = mode !== 1;
-  const rest = isBend ? 64 : 0;
+  const isBend = mode === 0;
+  const isVelocity = mode === 2;
+  const rest = isBend ? 64 : isVelocity ? (velocity ?? 100) : 0;
   const [val, setVal] = useState(rest);
 
   // Its rest is not the same in both jobs, so it goes to the new one rather
   // than sitting at a position that means something else now.
   useEffect(() => {
+    if (isVelocity) { setVal(velocity ?? 100); return; }
     setVal(rest);
     if (!engine) return;
     if (isBend) {
-      engine.emitControlChange(126, 64, 8);
-      engine.onOutputNote?.({ pitch: 0, velocity: 0, isOn: false, isPitchBend: true, pitchBendValue: 0, mpeChannel: 8 });
-    } else {
+      engine.emitControlChange(126, 64, 1);
+      engine.onOutputNote?.({ pitch: 0, velocity: 0, isOn: false, isPitchBend: true, pitchBendValue: 0, mpeChannel: 1 });
+    } else if (mode === 1) {
       engine.emitControlChange(1, 0, 1);
     }
-  }, [mode]);
+  }, [mode, isVelocity, velocity]);
   
   useEffect(() => {
     if (incomingCC && incomingCC.ch === 8 && incomingCC.cc === 126) {
@@ -532,16 +548,22 @@ function MagneticPitchBend({ engine, incomingCC, mode }: {
   const sendRef = useRef<(v: number) => void>(() => {});
   const send = (midiVal: number) => {
     if (!engine) return;
+    if (isVelocity) {
+      // Not a controller at all: it sets how hard the pads play, so it changes
+      // the instrument rather than sending anything.
+      onVelocity?.(Math.max(1, midiVal));
+      return;
+    }
     if (!isBend) {
       // An ordinary controller on the master channel, which is where a synth
       // listens for the mod wheel.
       engine.emitControlChange(1, midiVal, 1);
       return;
     }
-    engine.emitControlChange(126, midiVal, 8);
+    engine.emitControlChange(126, midiVal, 1);
     engine.onOutputNote?.({
       pitch: 0, velocity: 0, isOn: false, isPitchBend: true,
-      pitchBendValue: ((midiVal - 64) / 64) * 12, mpeChannel: 8,
+      pitchBendValue: ((midiVal - 64) / 64) * 12, mpeChannel: 1,
     });
   };
 
@@ -590,7 +612,7 @@ function MagneticPitchBend({ engine, incomingCC, mode }: {
       className="w-12 shrink-0 h-full bg-[#12120f] border-[6px] border-[var(--surface)] rounded-md relative touch-none shadow-[inset_0_0_10px_#000]"
     >
       <div className="absolute top-2 left-0 right-0 label-meta text-white/75 text-[9px] text-center pointer-events-none z-10">
-        {isBend ? 'PB' : 'CC1'}
+        {isBend ? 'PB' : isVelocity ? 'VEL' : 'CC1'}
       </div>
 
       {/* Scaled rather than resized. Animating height lays the page out again
