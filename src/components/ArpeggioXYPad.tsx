@@ -316,30 +316,42 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
         </div>
       </div>
 
-      <div className="w-full mb-3">
-        <div className="flex justify-between items-center mb-1">
-          <span className="label-meta !text-[10px] whitespace-nowrap">PATTERN</span>
-          <div className="flex items-center gap-2">
-            <span className="label-meta !text-[10px] whitespace-nowrap" title="Run the pad over the scale the chord implies, not only its own notes. Scale notes sound softer and are drawn dimmer, so the chord still reads.">SCALE</span>
-            <div
-              className={`toggle-switch ${params.arpeggioScale ? 'on' : ''}`}
-              onClick={() => {
-                const newParams = { ...params, arpeggioScale: !params.arpeggioScale };
-                setParams(newParams);
-                if (engine) engine.params = newParams;
-              }}
-            ></div>
-            <span className="label-meta !text-[10px] whitespace-nowrap">TAP TO PLAY</span>
-            <div
-              className={`toggle-switch ${params.arpeggioTapToPlay ? 'on' : ''}`}
-              onClick={() => {
-                const newParams = { ...params, arpeggioTapToPlay: !params.arpeggioTapToPlay };
-                setParams(newParams);
-                if (engine) engine.params = newParams;
-              }}
-            ></div>
-          </div>
+      {/* One switch to a line, label against switch. This column is narrow
+          enough that two of them side by side either ran into the heading
+          beside them or had their labels cut short. */}
+      <div className="w-full flex flex-col gap-1 mb-3">
+        <div
+          className="flex justify-between items-center gap-2 min-w-0"
+          title="Run the pad over the scale the chord implies, not only its own notes. Scale notes sound softer and are drawn dimmer, so the chord still reads."
+        >
+          <span className="label-meta !text-[10px] whitespace-nowrap">SCALE</span>
+          <div
+            className={`toggle-switch sm shrink-0 ${params.arpeggioScale ? 'on' : ''}`}
+            onClick={() => {
+              const newParams = { ...params, arpeggioScale: !params.arpeggioScale };
+              setParams(newParams);
+              if (engine) engine.params = newParams;
+            }}
+          ></div>
         </div>
+        <div
+          className="flex justify-between items-center gap-2 min-w-0"
+          title="Landing on the pad sounds a note, rather than only swiping across it"
+        >
+          <span className="label-meta !text-[10px] whitespace-nowrap">TAP TO PLAY</span>
+          <div
+            className={`toggle-switch sm shrink-0 ${params.arpeggioTapToPlay ? 'on' : ''}`}
+            onClick={() => {
+              const newParams = { ...params, arpeggioTapToPlay: !params.arpeggioTapToPlay };
+              setParams(newParams);
+              if (engine) engine.params = newParams;
+            }}
+          ></div>
+        </div>
+      </div>
+
+      <div className="w-full mb-3">
+        <p className="label-meta !text-[10px] mb-1">PATTERN</p>
         <div className="grid grid-cols-4 gap-1">
           {ARP_PATTERNS.map((name, idx) => (
             <button
@@ -382,7 +394,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
       </div>
 
       </>)}
-      <div className={`flex w-full ${padOnly ? 'gap-2 flex-1 min-h-0' : 'gap-4 h-[240px]'}`}>
+      <div className={`flex w-full gap-2 flex-1 min-h-0 ${padOnly ? '' : 'min-h-[240px]'}`}>
         {/* Global Pitch Bend Strip */}
         <MagneticPitchBend engine={engine} incomingCC={incomingCC} />
         
