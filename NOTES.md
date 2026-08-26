@@ -93,15 +93,15 @@ voicing does not begin on its root, so `lastArpRoot` is recorded where the chord
 is built. Free mode never has one — there the keys are the notes — so SCALE
 leaves it on what is actually held rather than inventing a key.
 
-**WALK measures against one ladder and moves along another.** A second above
-the anchor means one step and a third two — and a second is a step of the
-*scale*, not of whatever the chord happens to contain. Measuring against the
-chord makes a key that is not a chord tone worth nothing: on a triad, a second
-above the anchor would move nowhere. Measured against the scale and applied to
-the chord, the same stepwise fingering gives a scale when the chord is open and
-an arpeggio when it is restricted to a triad, which is the point of it. WALK is
-CLASSIC for everything below the split — `chordMappingMode` is what keeps the
-chord builder from having to know the mapping exists.
+**WALK is played on the white keys, and C is the root.** Distances are counted
+in white keys rather than in the chord's own tones, because a key that is not a
+chord tone would otherwise be worth nothing — on a triad, a second above the
+anchor would move nowhere. Counted this way the same stepwise fingering gives an
+arpeggio on a triad and a scale with SCALE on, and the hand does not have to
+know which. C standing for the root rather than for the note C is what lets a
+shape be fingered the same in every key: the chord moves, the fingering does
+not. WALK is CLASSIC for everything below the split — `chordMappingMode` keeps
+the chord builder from having to know the mapping exists.
 
 **Colour is separate from the arpeggio.** The strum pad plays the notes the
 chord is holding, so turning colour up used to make it run a scale — a major

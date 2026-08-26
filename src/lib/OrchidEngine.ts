@@ -2036,25 +2036,42 @@ export class OrchidEngine {
   }
 
   /**
-   * The ladder distances are measured against, which is not the same one they
-   * are applied to.
+   * Where a white key sits, counting C as nought in every octave. Black keys
+   * are not walk keys and answer null.
    *
-   * A second above the anchor means one step, a third two — and a second is a
-   * step of the scale, not of whatever the chord happens to contain. Measuring
-   * against the chord would make a key that is not a chord tone worth nothing
-   * at all: on a triad, a second above the anchor would move nowhere. Measured
-   * against the scale and applied to the chord, the same stepwise fingering
-   * gives a scale when the chord is being walked and an arpeggio when it is
-   * restricted to a triad — which is exactly what it is for.
+   * Distances are measured in white keys rather than in the chord's own tones,
+   * because a key that is not a chord tone would otherwise be worth nothing —
+   * on a triad, a second above the anchor would move nowhere. Counted this way
+   * the same stepwise fingering gives a scale when the chord is open and an
+   * arpeggio when it is a triad, and the hand does not have to know which.
    */
-  private walkMeasure(): number[] {
-    const classes = new Set(this.getArpeggioPitches().map(p => ((p % 12) + 12) % 12));
-    if (this.lastArpRoot === null || classes.size === 0) return this.ladderFrom(classes);
-    const root = this.lastArpRoot;
-    const relative = new Set([...classes].map(pc => ((pc - root) % 12 + 12) % 12));
-    const scale = new Set(scaleFor(relative).map(step => (root + step) % 12));
-    for (const pc of classes) scale.add(pc);
-    return this.ladderFrom(scale);
+  private static readonly WHITE_DEGREE = [0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6];
+
+  private whiteIndex(pitch: number): number | null {
+    const degree = OrchidEngine.WHITE_DEGREE[((pitch % 12) + 12) % 12];
+    if (degree < 0) return null;
+    return Math.floor(pitch / 12) * 7 + degree;
+  }
+
+  /**
+   * The rung a white key starts the walk on, with C standing for the root of
+   * whatever chord is held — so C is the root in any key, D the tone above it,
+   * and the fingering for a shape is the same wherever the music has gone.
+   */
+  private walkRungFor(pitch: number, ladder: number[]): number {
+    const white = this.whiteIndex(pitch);
+    if (white === null || this.lastArpRoot === null) return this.walkDegree(ladder, pitch);
+    const octave = Math.floor(white / 7);
+    const middleC = octave * 12;
+    // The root nearest that octave's C, which is where C is taken to be.
+    let rootRung = 0;
+    let closest = Infinity;
+    ladder.forEach((rung, index) => {
+      if (((rung % 12) + 12) % 12 !== this.lastArpRoot) return;
+      const distance = Math.abs(rung - middleC);
+      if (distance < closest) { closest = distance; rootRung = index; }
+    });
+    return rootRung + (white - octave * 7);
   }
 
   /** Where a pitch sits on that ladder — the nearest rung at or below it. */
@@ -2120,11 +2137,13 @@ export class OrchidEngine {
 
     // Nothing is being held to walk over, so there is nothing to walk on.
     if (ladder.length === 0) return true;
+    // Black keys take no part: the walker is played on the white ones.
+    if (this.whiteIndex(pitch) === null) return true;
 
     if (this.walkAnchor === null || this.walkCursor === null) {
       this.walkAnchor = pitch;
       this.walkHeld = [pitch];
-      this.walkCursor = this.walkDegree(ladder, pitch);
+      this.walkCursor = this.walkRungFor(pitch, ladder);
       // Where the chord sits relative to the cursor, kept so a walked chord
       // keeps its own shape rather than being rebuilt at each step.
       this.walkVoicing = this.params.walkChord
@@ -2136,8 +2155,10 @@ export class OrchidEngine {
     }
 
     this.walkHeld = [...this.walkHeld.filter(held => held !== pitch), pitch];
-    const measure = this.walkMeasure();
-    const steps = this.walkDegree(measure, pitch) - this.walkDegree(measure, this.walkAnchor);
+    const from = this.whiteIndex(this.walkAnchor);
+    const to = this.whiteIndex(pitch);
+    if (from === null || to === null) return true;
+    const steps = to - from;
     this.walkCursor = Math.max(0, Math.min(ladder.length - 1, this.walkCursor + steps));
     this.soundWalk(ladder, velocity);
     return true;

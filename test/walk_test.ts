@@ -34,6 +34,43 @@ const press = (e: any, pitch: number) => e.handleMidi(pitch, 100, true);
 const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
 
 (async () => {
+  console.log('\n=== C is the root, whatever the chord ===');
+  {
+    // The fingering for a shape should be the same in any key, so C stands for
+    // the root of whatever is held rather than for the note C.
+    for (const [key, intervals, root] of [[48, [0, 4, 7], 0], [50, [0, 3, 7], 2], [55, [0, 4, 7, 10], 7]] as Array<[number, number[], number]>) {
+      const { e, on } = rig();
+      await holdChord(e, key, intervals);
+      on.length = 0;
+      press(e, 72); await sleep(45);
+      check(`C starts on the root of the chord held (${['C','','D','','','','','G'][root]})`,
+        on[0] !== undefined && ((on[0] % 12) + 12) % 12 === root, `${on[0]} pc=${on[0] % 12}, wanted ${root}`);
+      e.panic();
+    }
+  }
+  {
+    const { e, on } = rig();
+    await holdChord(e, 50, [0, 3, 7]);      // D minor
+    on.length = 0;
+    press(e, 72); await sleep(40);          // C is the root, D
+    press(e, 76); await sleep(40);          // E is two white keys up
+    check('two white keys up is two tones up', on[1] > on[0], `${on}`);
+    check('and both belong to the chord',
+      on.every(p => [2, 5, 9].includes(((p % 12) + 12) % 12)), `${on.map(p => p % 12)}`);
+    e.panic();
+  }
+  {
+    const { e, on } = rig();
+    await holdChord(e, 48, [0, 4, 7]);
+    on.length = 0;
+    press(e, 73); await sleep(40);          // a black key
+    check('black keys take no part', on.length === 0, `${on}`);
+    press(e, 72); await sleep(40);
+    press(e, 75); await sleep(40);          // another black key
+    check('and do not move the cursor either', on.length === 1, `${on}`);
+    e.panic();
+  }
+
   console.log('\n=== A key is a move, not a pitch ===');
   {
     const { e, on } = rig();
@@ -42,7 +79,7 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
     press(e, 72); await sleep(40);             // the anchor
     const anchor = on[0];
     press(e, 74); await sleep(40);             // a second above it
-    check('the anchor sounds a chord tone', anchor !== undefined && [0, 4, 7].includes(((anchor % 12) + 12) % 12), `${anchor}`);
+    check('the anchor sounds the root', anchor !== undefined && ((anchor % 12) + 12) % 12 === 0, `${anchor}`);
     // On a triad, one rung is a chord tone away — not a semitone.
     check('a step moves by a chord tone, not a semitone',
       on[1] !== undefined && on[1] - anchor > 2, `${anchor} -> ${on[1]}`);
@@ -105,8 +142,8 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
     e.panic();
   }
   {
-    // With SCALE on it walks the chord's scale instead, so there are more rungs
-    // between the same two keys and each step is smaller.
+    // One white key up is one tone up either way; what changes is which tones
+    // there are. On a triad that is a third, on its scale a second.
     const chordOnly = rig();
     await holdChord(chordOnly.e, 48, [0, 4, 7]);
     chordOnly.on.length = 0;
@@ -121,8 +158,8 @@ const lift = (e: any, pitch: number) => e.handleMidi(pitch, 0, false);
     press(scaled.e, 72); await sleep(40);
     press(scaled.e, 74); await sleep(40);
     const scaleStep = scaled.on[1] - scaled.on[0];
-    check('SCALE puts more rungs between the same two keys', scaleStep < triadStep,
-      `triad ${triadStep}, scale ${scaleStep}`);
+    check('a step on a triad is a third', triadStep === 4, `${triadStep}`);
+    check('and on its scale a second', scaleStep === 2, `${scaleStep}`);
     scaled.e.panic();
   }
 
