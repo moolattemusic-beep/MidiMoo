@@ -218,6 +218,19 @@ note was. They light locally now and the instrument corrects them a frame or two
 later; the guess is dropped once the two agree, or after 700ms if the message
 never landed.
 
+**A chord is not the notes that start together.** A strummed one is spread over
+a moment, so grouping a MIDI file by onset would turn it into six chords of one
+note each. `groupIntoChords` starts a new chord where there is a *gap*: notes go
+on joining the one being built for as long as each arrives within the window of
+the last. The window is on screen at import, because where a chord ends is the
+one part of reading a file that involves judgement.
+
+**A name is only offered if it can be read back.** `nameChordFromPitches` tries
+every pitch class as the root and looks the intervals up in the same table the
+parser reads, then parses its own answer before returning it — a name nothing
+can read would land on a pad as an empty chord. Where two roots both fit, the
+bass wins.
+
 **A preset is read as itself.** Presets carry a chord symbol as well as their
 notes, and reading the symbol would credit them with tensions nobody played —
 `getImpliedJazzTones` is deliberately generous, which is what makes RNDM's

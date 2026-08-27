@@ -221,3 +221,43 @@ export function alterationReference(): Array<{ spelling: string; semitones: numb
     .map(([spelling, semitones]) => ({ spelling, semitones }))
     .sort((a, b) => a.semitones - b.semitones || a.spelling.localeCompare(b.spelling));
 }
+
+/**
+ * Name a chord from the notes themselves.
+ *
+ * Every pitch class is tried as the root and the intervals that follow are
+ * looked up in the same table the parser reads, so a name that comes back here
+ * is a name the parser will accept — which is the only kind worth producing.
+ * Where two roots both fit, the bass wins: a voicing someone played is far more
+ * often in root position than not.
+ */
+export function nameChordFromPitches(pitches: number[]): string | null {
+  if (pitches.length === 0) return null;
+  const sorted = [...pitches].sort((a, b) => a - b);
+  const bass = ((sorted[0] % 12) + 12) % 12;
+  const classes = new Set(sorted.map(p => ((p % 12) + 12) % 12));
+
+  let best: { root: number; name: string; missing: number } | null = null;
+  for (let root = 0; root < 12; root++) {
+    const relative = new Set([...classes].map(pc => ((pc - root) % 12 + 12) % 12));
+    for (const [name, intervals] of QUALITIES) {
+      const wanted = new Set(intervals.map(i => i % 12));
+      // Every note of the chord has to be accounted for; a shape that leaves
+      // one out is a different chord, not this one loosely played.
+      let extra = false;
+      for (const pc of relative) if (!wanted.has(pc)) { extra = true; break; }
+      if (extra) continue;
+      let missing = 0;
+      for (const pc of wanted) if (!relative.has(pc)) missing++;
+      // A name that has to invent two notes is not describing what was played.
+      if (missing > 1) continue;
+      const better = !best || missing < best.missing
+        || (missing === best.missing && root === bass && best.root !== bass);
+      if (better) best = { root, name, missing };
+    }
+  }
+  if (!best) return null;
+  const spelled = NOTE_NAMES[best.root] + (best.name === '' ? 'maj' : best.name);
+  // Only offer it if it reads back as what was played.
+  return parseChordSymbol(spelled) ? spelled : null;
+}

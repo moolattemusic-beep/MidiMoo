@@ -18,6 +18,7 @@ function transposeSymbol(symbol: string, semitones: number): string {
 }
 import { alterationReference, chordSymbolReference, parseProgression } from '../lib/ChordSymbol';
 import { ChordBuilder } from './ChordBuilder';
+import { MidiImportPanel } from './MidiImportPanel';
 import { NOTES as RNDM_NOTES, sharedNotes } from '../lib/RndmEngine';
 
 export type MemorySlot = {
@@ -127,6 +128,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
   const [editorText, setEditorText] = useState<string | null>(null);
   const [showSymbolHelp, setShowSymbolHelp] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   /**
    * Open the pads as text. What is shown is what is on them — a chord saved by
@@ -279,6 +281,15 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
 
   return (
     <div className={`module bg-[var(--surface-deep)] border border-white/10 rounded-sm flex flex-col gap-3 ${padHeight ? 'h-full min-h-0 p-2' : 'p-4'}`}>
+
+      {showImport && (
+        <MidiImportPanel
+          engine={engine}
+          memoryVelocity={memoryVelocity}
+          onImport={(slots) => { onUpdateSlots(slots); onRndmRequiredChange?.([]); }}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {showBuilder && (
         <ChordBuilder
@@ -488,6 +499,15 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                    title="Type the pads out as text"
                 >
                    TEXT
+                </button>
+                )}
+                {isEditMode && (
+                <button
+                   onClick={() => setShowImport(true)}
+                   className="analog-btn !py-1 !px-3 !text-[9px] tracking-[0.14em]"
+                   title="Read the chords out of a MIDI file and choose which land on the pads"
+                >
+                   IMPORT
                 </button>
                 )}
                 {isEditMode && (
