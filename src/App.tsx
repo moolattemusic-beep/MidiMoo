@@ -98,6 +98,7 @@ function App() {
   const [playingSlotIndices, setPlayingSlotIndices] = useState<number[]>([]);
   const [lastPlayedChord, setLastPlayedChord] = useState<MemorySlot | null>(null);
   const [showRndm, setShowRndm] = useState(false);
+  const [bypassed, setBypassed] = useState(false);
   // The notes RNDM was told every chord must be able to hold, kept so the pads
   // can say what is running through them — and moved when they are transposed.
   const [rndmRequired, setRndmRequired] = useState<string[]>(() => {
@@ -451,6 +452,28 @@ function App() {
     resendMpeConfig();
   }, [engine, synth, midiManager, velMod, resendMpeConfig]);
 
+  // A silent stop, distinct from PANIC: nothing sent while engaged, but
+  // nothing is reset either — the keyboard, pads, and arpeggio keep working
+  // exactly as before underneath, so lifting bypass just resumes.
+  const toggleBypass = useCallback(() => {
+    setBypassed(prev => {
+      const next = !prev;
+      if (next) {
+        // Silence whatever is already sounding before closing the gate — a
+        // note stuck on a downstream synth would otherwise never get its
+        // note-off, since every future send from here is dropped.
+        midiManager.panic();
+        midiManager.bypassed = true;
+      } else {
+        midiManager.bypassed = false;
+        // panic() above sent Reset All Controllers, which also cleared the
+        // bend range RPN — restate it now that sends reach the wire again.
+        resendMpeConfig();
+      }
+      return next;
+    });
+  }, [midiManager, resendMpeConfig]);
+
   // The phone remote. It runs commands from a phone against this engine and
   // pushes back whatever changed; nothing about the instrument moves into it.
   const remote = useRemoteHost({
@@ -591,6 +614,18 @@ function App() {
             title="MIDI Panic (Stop All Notes)"
           >
             PANIC
+          </button>
+
+          <button
+            onClick={toggleBypass}
+            className={`analog-btn px-3 h-8 flex items-center justify-center font-bold text-xs shrink-0 ${
+              bypassed
+                ? 'bg-yellow-500 text-black border-yellow-300 hover:bg-yellow-400'
+                : 'bg-red-900/80 text-red-100 hover:bg-red-500 hover:text-white border-red-500'
+            }`}
+            title="Global Bypass — silences all MIDI output until toggled off"
+          >
+            BYPASS
           </button>
 
           {/* One place for the ports, rather than two dropdowns that can each

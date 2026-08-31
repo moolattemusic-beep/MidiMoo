@@ -55,7 +55,12 @@ export class MidiDeviceManager {
    * to look up a single port now sends here instead, so a second destination is
    * just another port on the bus rather than another code path.
    */
+  // Every send in this class ends at outputBus(), so gating it here is a true
+  // global bypass rather than a flag each call site has to remember to check.
+  public bypassed = false;
+
   private outputBus(): OutputBus | null {
+    if (this.bypassed) return null;
     const outs = this.outputs.filter(o => this.selectedOutputIds.has(o.id));
     if (outs.length === 0) return null;
     return {

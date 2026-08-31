@@ -284,6 +284,16 @@ and the fold answers to a range the player can move, so folding a second time at
 note-off could name a pitch nothing is playing: a chord held while the range
 moved never stopped. The emitted pitch is remembered instead.
 
+**Global bypass gates `outputBus()`, not each send method.** Every message the
+class emits — notes, CC, MPE expression, pitch bend, panic itself — already
+funnelled through that one private method, so a single flag there is a true
+bypass rather than a switch each call site has to remember to check. Engaging
+it calls `panic()` first and only *then* sets the flag: a note already
+sounding downstream needs its note-off, and that has to go out before the gate
+closes or it never will. Disengaging resends the MPE bend-range RPN, since the
+panic that engaged bypass also sent Reset All Controllers and wiped it — same
+reasoning as the existing PANIC button's tail call.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long
