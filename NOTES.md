@@ -294,6 +294,27 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A setup carries the sound, not the rig.** SETUPS stores every parameter and
+all eight pads, and deliberately not the MIDI port selection or which socket
+the outboard synth is on. Those describe the room the instrument is standing
+in; recalling a setup should never silently repoint your outputs, least of all
+on a machine where the ports are different ones. Everything about the external
+synth *except* the socket travels, since channel, voice mode and the arp
+settings are part of the sound.
+
+**Recall panics first.** Every parameter moves at once — register, range,
+voicing — and a chord held across that would be voiced by one setup and
+released by another, which is exactly how notes get stranded. With nothing
+held, assigning `engine.params` wholesale is the complete update:
+`updateRegister` and `updateInversion` only set their parameter and re-voice
+what is held, so there is no engine-side state they own separately.
+
+**A setup has to outlive the build that saved it.** `restoreSnapshot` merges
+over `defaultParams`, so a setup saved before a parameter existed comes back
+holding that parameter's default rather than `undefined`. Without it every
+feature added after a setup was saved would quietly break that setup — the
+same class of failure as the renamed section that emptied the settings column.
+
 **A muted instrument looks exactly like a working one.** You play, the pads
 light, the meters move, and nothing comes out — so BYPASS greys the whole
 instrument and frames the window in accent, with a tag saying why. The filter

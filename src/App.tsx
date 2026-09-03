@@ -18,6 +18,11 @@ import { RemotePanel } from './components/RemotePanel';
 import { RndmPanel } from './components/RndmPanel';
 import { remoteHostAvailable, useRemoteHost } from './lib/useRemoteHost';
 import { CollapsiblePanel } from './components/CollapsiblePanel';
+import { SnapshotPanel } from './components/SnapshotPanel';
+import {
+  Snapshot, SNAPSHOT_STORE_KEY, captureSnapshot, parseSnapshots, removeSnapshot,
+  renameSnapshot, restoreSnapshot, withSnapshot, normaliseSlots,
+} from './lib/Snapshots';
 
 // Continuous controllers a player expects to reach every sounding voice: mod
 // wheel, breath, foot, and the MPE timbre slider. CC 11 is deliberately absent
@@ -95,7 +100,19 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [nudgeScale]);
   
-  const [memorySlots, setMemorySlots] = useState<MemorySlot[]>(Array(8).fill(null));
+  // Everything else that decides how the app sounds is written back as it
+  // changes; the pads were the exception, so an evening of RNDM, the builder
+  // and imported chords was thrown away on quit.
+  const [memorySlots, setMemorySlots] = useState<MemorySlot[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('orchid-memory-slots') || 'null');
+      return Array.isArray(saved) ? normaliseSlots(saved) : Array(8).fill(null);
+    } catch { return Array(8).fill(null); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('orchid-memory-slots', JSON.stringify(memorySlots)); }
+    catch { /* a full or disabled store is not worth failing over */ }
+  }, [memorySlots]);
   // Several pads can sound at once, so this is every pad currently lit.
   const [playingSlotIndices, setPlayingSlotIndices] = useState<number[]>([]);
   const [lastPlayedChord, setLastPlayedChord] = useState<MemorySlot | null>(null);
@@ -116,6 +133,24 @@ function App() {
 
   const [isFreeEditMode, setIsFreeEditMode] = useState(false);
   const [showMidiSetup, setShowMidiSetup] = useState(false);
+  const [showSetups, setShowSetups] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>(
+    () => parseSnapshots(localStorage.getItem(SNAPSHOT_STORE_KEY)));
+  // Which setup the instrument is currently showing, so the list can mark it
+  // and saving again offers to replace rather than to add a near-duplicate.
+  const [currentSetup, setCurrentSetup] = useState<string | null>(
+    () => localStorage.getItem('orchid-setup-current'));
+
+  const writeSnapshots = useCallback((next: Snapshot[]) => {
+    setSnapshots(next);
+    try { localStorage.setItem(SNAPSHOT_STORE_KEY, JSON.stringify(next)); }
+    catch { /* a full or disabled store is not worth failing over */ }
+  }, []);
+
+  useEffect(() => {
+    if (currentSetup) localStorage.setItem('orchid-setup-current', currentSetup);
+    else localStorage.removeItem('orchid-setup-current');
+  }, [currentSetup]);
   const [armedSlotIndex, setArmedSlotIndex] = useState<number | null>(null);
   const armedSlotIndexRef = useRef(armedSlotIndex);
   armedSlotIndexRef.current = armedSlotIndex;
@@ -456,6 +491,28 @@ function App() {
     resendMpeConfig();
   }, [engine, synth, midiManager, velMod, modelD, resendMpeConfig]);
 
+  const saveSetup = useCallback((name: string) => {
+    const snap = captureSnapshot(name, params, memorySlots, rndmRequired);
+    writeSnapshots(withSnapshot(snapshots, snap));
+    setCurrentSetup(snap.name);
+  }, [params, memorySlots, rndmRequired, snapshots, writeSnapshots]);
+
+  const recallSetup = useCallback((snap: Snapshot) => {
+    // Every parameter moves at once — register, range, voicing — and a chord
+    // held across that would be voiced by one setup and released by another,
+    // which is how notes get stranded. Stop everything first.
+    panicAll();
+    const state = restoreSnapshot(snap);
+    setParams(state.params);
+    // `updateRegister` and `updateInversion` only set their parameter and
+    // re-voice what is held, and nothing is held after the panic, so handing
+    // the engine the whole object is the complete update.
+    if (engine) engine.params = state.params;
+    setMemorySlots(state.slots);
+    setRndmRequired(state.rndmRequired);
+    setCurrentSetup(snap.name);
+  }, [engine, panicAll]);
+
   // A silent stop, distinct from PANIC: nothing sent while engaged, but
   // nothing is reset either — the keyboard, pads, and arpeggio keep working
   // exactly as before underneath, so lifting bypass just resumes.
@@ -716,6 +773,17 @@ function App() {
               hold a single device. Several inputs play together and several
               outputs can be fed at once. */}
           <button
+            onClick={() => setShowSetups(true)}
+            className="analog-btn px-3 h-8 flex items-center gap-2 shrink-0 !text-[10px] min-w-0"
+            title="Save and recall the whole instrument"
+          >
+            <span className="label-meta !text-[9px]">SETUPS</span>
+            <span className="text-[var(--accent)] font-['Space_Mono'] text-[10px] whitespace-nowrap max-w-[110px] truncate">
+              {currentSetup ?? '—'}
+            </span>
+          </button>
+
+          <button
             onClick={() => setShowMidiSetup(true)}
             className="analog-btn px-3 h-8 flex items-center gap-2 shrink-0 !text-[10px] min-w-0"
             title="Choose which MIDI ports are live"
@@ -958,6 +1026,28 @@ function App() {
       <div className="px-6 lg:px-8 pb-3 shrink-0">
         <PatternEditor params={params} setParams={setParams} engine={engine} />
       </div>
+
+      {showSetups && (
+        <SnapshotPanel
+          snapshots={snapshots}
+          currentName={currentSetup}
+          onSave={saveSetup}
+          onRecall={recallSetup}
+          onRename={(id, name) => {
+            const next = renameSnapshot(snapshots, id, name);
+            writeSnapshots(next);
+            const was = snapshots.find(x => x.id === id);
+            const now = next.find(x => x.id === id);
+            if (was && now && currentSetup === was.name) setCurrentSetup(now.name);
+          }}
+          onDelete={(id) => {
+            const gone = snapshots.find(x => x.id === id);
+            writeSnapshots(removeSnapshot(snapshots, id));
+            if (gone && currentSetup === gone.name) setCurrentSetup(null);
+          }}
+          onClose={() => setShowSetups(false)}
+        />
+      )}
 
       {showMidiSetup && (
         <MidiSetup
