@@ -213,6 +213,49 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
 }
 
+/* BYPASS has to be visible from across the room, because nothing else about a
+   muted instrument looks wrong — you play, the meters move, and no sound comes
+   out. The whole instrument drains of colour and dims; it stays readable and
+   fully operable, since setting things up while muted is half the point.
+   `transform` on this element already makes it the containing block for the
+   modals inside it, so adding a filter changes nothing about their placement. */
+.ui-scale-content {
+  transition: filter 160ms ease;
+}
+
+.ui-scale-content.bypassed {
+  filter: grayscale(0.92) brightness(0.62);
+}
+
+/* The frame sits outside the filtered element so the grey cannot reach it, and
+   takes no pointer events so it neither blocks a control nor disturbs the
+   locked layout. Above the modals, since a mute is worth knowing about while
+   the port list is open too. */
+.bypass-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 3px var(--accent),
+    inset 0 0 90px rgba(240, 160, 32, 0.16);
+}
+
+.bypass-frame-tag {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #000;
+  font-family: 'Space Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  padding: 4px 18px;
+  white-space: nowrap;
+}
+
 /* Parameter help text, hidden by the info toggle in the header. Tagging the
    paragraphs and switching one class beats threading a flag through every
    control. */

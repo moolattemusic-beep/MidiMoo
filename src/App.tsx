@@ -680,7 +680,7 @@ function App() {
         className="ui-scale-sizer"
         style={{ '--ui-scale': uiScale } as React.CSSProperties}
       >
-      <div className={`ui-scale-content ${showHelp ? '' : 'hide-help'}`}>
+      <div className={`ui-scale-content ${showHelp ? '' : 'hide-help'} ${bypassed ? 'bypassed' : ''}`}>
       <header className="bg-[var(--surface)] border-b-[4px] border-[var(--wood)] px-4 lg:px-6 py-3 shadow-md">
         {/* One rail: brand, transport, devices and view controls all live in the
             same rectangle rather than three floating clusters. */}
@@ -993,11 +993,18 @@ function App() {
 
       <footer className="bg-[var(--wood)] px-8 py-1 flex justify-between mt-auto">
         <span className="label-meta !text-black font-bold tracking-[0.2em]">{`MidiMOO v${__APP_VERSION__}`}</span>
-        <span className="label-meta !text-black font-bold tracking-[0.2em]">STATUS: SIGNAL LOCK</span>
+        <span className="label-meta !text-black font-bold tracking-[0.2em]">
+          {bypassed ? 'STATUS: BYPASSED' : 'STATUS: SIGNAL LOCK'}
+        </span>
       </footer>
       </div>
       </div>
       </div>
+      {bypassed && (
+        <div className="bypass-frame" aria-hidden="true">
+          <span className="bypass-frame-tag">MIDI BYPASSED — NOTHING IS BEING SENT</span>
+        </div>
+      )}
     </>
   );
 }

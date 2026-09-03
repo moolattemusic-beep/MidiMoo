@@ -294,6 +294,17 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A muted instrument looks exactly like a working one.** You play, the pads
+light, the meters move, and nothing comes out — so BYPASS greys the whole
+instrument and frames the window in accent, with a tag saying why. The filter
+goes on `.ui-scale-content`, which already carries a `transform` and is
+therefore already the containing block for the fixed-position popups inside it;
+putting the filter on `<main>` instead would re-anchor every one of them to
+main's box. The frame lives outside the filtered element, since a filter cannot
+be undone by a descendant, and takes no pointer events so it neither blocks a
+control nor disturbs the locked layout. Greyscale keeps luminance, so the
+engaged BYPASS button still reads as filled against PANIC's dark.
+
 **Renaming a settings section can empty the whole column.** The top-level list
 drills in — the open section hides its siblings — and which one is open is
 remembered in `localStorage`. Rename it and the stored title matches nothing,
