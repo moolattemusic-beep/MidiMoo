@@ -5,6 +5,7 @@ import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
 import { stageDurationMs } from '../lib/VelocityModulator';
 import { MidiDeviceManager } from '../lib/MidiDeviceManager';
+import { pruneOpenSections } from '../lib/AccordionState';
 
 interface SettingsPanelProps {
   engine: OrchidEngine | null;
@@ -117,7 +118,9 @@ const fmtStage = (p: number) => {
 const AccordionContext = React.createContext<{
   openByGroup: Record<string, string | null>;
   setOpen: (group: string, title: string | null) => void;
-}>({ openByGroup: {}, setOpen: () => {} });
+  /** Say this section exists, so a remembered name can be checked against it. */
+  register: (group: string, title: string) => void;
+}>({ openByGroup: {}, setOpen: () => {}, register: () => {} });
 
 const CollapsibleSection: React.FC<{
   title: string;
@@ -125,8 +128,13 @@ const CollapsibleSection: React.FC<{
   extraHeader?: React.ReactNode;
   group?: string;
 }> = ({ title, children, extraHeader, group = 'root' }) => {
-  const { openByGroup, setOpen } = React.useContext(AccordionContext);
+  const { openByGroup, setOpen, register } = React.useContext(AccordionContext);
   const isOpen = openByGroup[group] === title;
+
+  // Before the early return below, which is a render and not an unmount: a
+  // hidden section still has to report that it exists, or the check for a
+  // stale remembered name would have nothing to check against.
+  React.useEffect(() => { register(group, title); }, [register, group, title]);
 
   const toggle = () => setOpen(group, isOpen ? null : title);
 
@@ -183,7 +191,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
       return next;
     });
   }, []);
-  const accordion = React.useMemo(() => ({ openByGroup, setOpen }), [openByGroup, setOpen]);
+  // Which top-level sections actually exist this build. Filled by the sections
+  // themselves as they mount, so it cannot drift from what is on screen the way
+  // a hand-maintained list would.
+  const knownRoot = React.useRef<Set<string>>(new Set());
+  const register = React.useCallback((group: string, title: string) => {
+    if (group === 'root') knownRoot.current.add(title);
+  }, []);
+
+  // A remembered section that no longer answers to its name hides every
+  // sibling and leaves the column empty, with no header left to click — which
+  // is what renaming MODEL D to EXTERNAL SYNTH did. Child effects run before
+  // this one, so every section has reported in by now.
+  React.useEffect(() => {
+    setOpenByGroup(prev => {
+      const next = pruneOpenSections(prev, knownRoot.current);
+      if (next === prev) return prev;
+      try { localStorage.setItem('orchid-open-sections', JSON.stringify(next)); } catch { /* full or disabled store */ }
+      return next;
+    });
+  }, []);
+
+  const accordion = React.useMemo(() => ({ openByGroup, setOpen, register }), [openByGroup, setOpen, register]);
 
   
   const updateParam = (key: keyof OrchidParams, value: any) => {

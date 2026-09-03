@@ -294,6 +294,16 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**Renaming a settings section can empty the whole column.** The top-level list
+drills in — the open section hides its siblings — and which one is open is
+remembered in `localStorage`. Rename it and the stored title matches nothing,
+so every section hides, and the BACK button that would recover it lives inside
+the section that never renders. Shipping MODEL D → EXTERNAL SYNTH did exactly
+this to anyone who had the section open. Sections now report their own titles
+as they mount and `pruneOpenSections` drops a remembered one that nobody
+answers to, so the list is self-healing rather than depending on nobody ever
+renaming anything.
+
 **EXTERNAL SYNTH has two voice modes and one destination.** MONO runs the
 Model D engine — one voice of the chord, cleanly retriggered, optionally
 arpeggiated. POLY sends the notes as they are, for a synth with voices of its
