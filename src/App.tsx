@@ -449,7 +449,7 @@ function App() {
     synth.panic();
     midiManager.panic();
     modelD.reset();
-    midiManager.panicModelD();
+    midiManager.panicExtSynth();
     velMod.allNotesOff();
     // Panic sends Reset All Controllers, which also clears the bend range the
     // synth was told to use — so restate it straight away.
@@ -467,7 +467,7 @@ function App() {
         // note stuck on a downstream synth would otherwise never get its
         // note-off, since every future send from here is dropped.
         midiManager.panic();
-        midiManager.panicModelD();
+        midiManager.panicExtSynth();
         midiManager.bypassed = true;
       } else {
         midiManager.bypassed = false;
@@ -500,9 +500,9 @@ function App() {
   // directly rather than the bus every other module shares.
   useEffect(() => {
     modelD.onNoteOn = (pitch, velocity, delayMs) =>
-      midiManager.sendModelDNote(pitch, velocity, true, delayMs);
+      midiManager.sendExtSynthNote(pitch, velocity, true, delayMs);
     modelD.onNoteOff = (pitch, delayMs) =>
-      midiManager.sendModelDNote(pitch, 0, false, delayMs);
+      midiManager.sendExtSynthNote(pitch, 0, false, delayMs);
   }, [modelD, midiManager]);
 
   useEffect(() => {
@@ -519,18 +519,19 @@ function App() {
       arpCurveAmount: params.modelDCurveAmount,
       foldbackEnabled: params.modelDFoldback,
     };
-    midiManager.modelDChannel = params.modelDChannel;
+    midiManager.extSynthChannel = params.extSynthChannel;
   }, [modelD, midiManager,
     params.modelDGapMs, params.modelDMaxNotes, params.modelDLowestPriority,
     params.modelDArpOn, params.modelDArpSpeedMs, params.modelDLowestBias,
     params.modelDLowestProb, params.modelDCurveEnabled, params.modelDCurveDelayMs,
-    params.modelDCurveAmount, params.modelDFoldback, params.modelDChannel]);
+    params.modelDCurveAmount, params.modelDFoldback, params.extSynthChannel]);
 
   // Switching the module off has to release the synth as well as stop feeding
   // it, or the last note stays gated open with nothing left to close it.
   useEffect(() => {
-    if (!params.modelDEnabled) { modelD.reset(); midiManager.panicModelD(); }
-  }, [params.modelDEnabled, modelD, midiManager]);
+    modelD.reset();
+    midiManager.panicExtSynth();
+  }, [params.extSynthEnabled, params.extSynthMode, modelD, midiManager]);
 
   useEffect(() => {
     if (engine) {
@@ -540,27 +541,36 @@ function App() {
         // The mono front end taps the same stream the DAW gets, after every
         // other module has had its say — so RANGE, voicing and velocity are
         // already applied and the synth hears what the app is playing.
-        if (params.modelDEnabled && !event.isInternalSynthOnly) {
+        if (params.extSynthEnabled && !event.isInternalSynthOnly) {
           if (event.isCC) {
-            if (params.modelDForwardCC) {
-              midiManager.sendModelD(
-                [0xB0 | ((params.modelDChannel - 1) & 0x0F), event.ccNumber!, event.ccValue!],
+            if (params.extSynthForwardCC) {
+              midiManager.sendExtSynth(
+                [0xB0 | ((params.extSynthChannel - 1) & 0x0F), event.ccNumber!, event.ccValue!],
                 event.delayMs || 0);
             }
           } else if (event.isPitchBend) {
-            // Under MPE every voice bends on its own channel. Only the one
-            // belonging to the note actually sounding is any use to a mono
-            // synth; the rest would fight over the same wheel.
-            if (params.modelDForwardCC && modelD.isSounding
-                && (event.mpeChannel || 1) === modelD.soundingOnChannel) {
+            // Under MPE every voice bends on its own channel, and the synth on
+            // the other end has one wheel. In MONO only the bend belonging to
+            // the note actually sounding is any use; in POLY there is no single
+            // note to follow, so only the master channel's bend goes through.
+            const bendChannel = event.mpeChannel || 1;
+            const wanted = params.extSynthMode === 'poly'
+              ? bendChannel === 1
+              : modelD.isSounding && bendChannel === modelD.soundingOnChannel;
+            if (params.extSynthForwardCC && wanted) {
               const raw = Math.max(0, Math.min(16383,
                 Math.round(8192 + ((event.pitchBendValue || 0) / params.mpeBendRange) * 8192)));
-              midiManager.sendModelD(
-                [0xE0 | ((params.modelDChannel - 1) & 0x0F), raw & 0x7f, (raw >> 7) & 0x7f],
+              midiManager.sendExtSynth(
+                [0xE0 | ((params.extSynthChannel - 1) & 0x0F), raw & 0x7f, (raw >> 7) & 0x7f],
                 event.delayMs || 0);
             }
           } else if (!event.isExpression) {
-            if (event.isOn && event.velocity > 0) {
+            if (params.extSynthMode === 'poly') {
+              // Nothing to decide: the synth has its own voices, so the chord
+              // goes out as it is.
+              midiManager.sendExtSynthNote(
+                event.pitch, event.velocity, event.isOn && event.velocity > 0, event.delayMs || 0);
+            } else if (event.isOn && event.velocity > 0) {
               modelD.noteOn(event.pitch, event.velocity, event.delayMs || 0, event.mpeChannel || 1);
             } else {
               modelD.noteOff(event.pitch, event.delayMs || 0);
@@ -608,7 +618,8 @@ function App() {
       };
     }
   }, [isSynthEnabled, engine, midiManager, synth, modelD,
-    params.modelDEnabled, params.modelDForwardCC, params.modelDChannel, params.mpeBendRange]);
+    params.extSynthEnabled, params.extSynthForwardCC, params.extSynthChannel,
+    params.extSynthMode, params.mpeBendRange]);
 
   const handleEnableAudio = () => {
     if (!isSynthEnabled) {

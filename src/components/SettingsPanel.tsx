@@ -16,6 +16,60 @@ interface SettingsPanelProps {
 }
 
 
+/**
+ * The rigs EXTERNAL SYNTH is set up for. A preset names its port by a fragment
+ * of what the interface calls itself rather than by id, because an id is
+ * assigned by the driver and is different every session.
+ */
+interface ExtSynthPreset {
+  name: string;
+  /** Matched against the port name, case-insensitively. */
+  port: string;
+  blurb: string;
+  params: Partial<OrchidParams>;
+}
+
+const EXT_SYNTH_PRESETS: ExtSynthPreset[] = [
+  {
+    name: 'MODEL D',
+    port: 'scarlett',
+    blurb: 'MONO WITH THE CHORD ARP, THROUGH THE SCARLETT',
+    params: {
+      extSynthMode: 'mono',
+      extSynthChannel: 1,
+      extSynthForwardCC: true,
+      modelDGapMs: 10,
+      modelDMaxNotes: 5,
+      modelDLowestPriority: true,
+      modelDArpOn: true,
+      modelDArpSpeedMs: 40,
+      modelDLowestBias: false,
+      modelDLowestProb: 50,
+      modelDCurveEnabled: true,
+      modelDCurveDelayMs: 500,
+      modelDCurveAmount: 0,
+      modelDFoldback: false,
+    },
+  },
+  {
+    // The OP-1 has its own voices, so it starts poly. MONO is one button away
+    // and keeps the arp settings, which is the point of leaving them set.
+    name: 'OP-1',
+    port: 'op-1',
+    blurb: 'POLY. SWITCH TO MONO FOR THE ARP.',
+    params: {
+      extSynthMode: 'poly',
+      extSynthChannel: 1,
+      extSynthForwardCC: true,
+      modelDGapMs: 10,
+      modelDMaxNotes: 5,
+      modelDLowestPriority: true,
+      modelDArpOn: true,
+      modelDArpSpeedMs: 40,
+    },
+  },
+];
+
 // Sensitivity is a multiplier, so it wants equal proportional steps rather
 // than equal numeric ones — otherwise 1x would sit crammed against the left.
 const SENS_MIN = 1;
@@ -162,6 +216,26 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
       } else {
         engine.params = newParams;
       }
+    }
+  };
+
+  // Says which port a preset could not find, until the next preset or a hand
+  // change of the port. Silent when the device was there.
+  const [presetNote, setPresetNote] = useState<string | null>(null);
+
+  const applyExtSynthPreset = (preset: ExtSynthPreset) => {
+    const next = { ...params, ...preset.params, extSynthEnabled: true };
+    setParams(next);
+    if (engine) engine.params = next;
+
+    const found = midiManager?.findOutputByName(preset.port) ?? null;
+    if (found) {
+      midiManager?.setExtSynthOutput(found);
+      setPresetNote(null);
+    } else {
+      // The rest of the preset still applies: the settings are useful with the
+      // port chosen by hand, and saying nothing would look like it had worked.
+      setPresetNote(`NO PORT MATCHING "${preset.port.toUpperCase()}" — PLUG IT IN, OR PICK ONE BELOW.`);
     }
   };
 
@@ -352,47 +426,82 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection title="MODEL D" extraHeader={<div
-            className={`toggle-switch ${params.modelDEnabled ? 'on' : ''}`}
-            onClick={() => updateParam('modelDEnabled', !params.modelDEnabled)}
+      <CollapsibleSection title="EXTERNAL SYNTH" extraHeader={<div
+            className={`toggle-switch ${params.extSynthEnabled ? 'on' : ''}`}
+            onClick={() => updateParam('extSynthEnabled', !params.extSynthEnabled)}
           ></div>}>
         <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-3 leading-relaxed">
-          A MONO FRONT END FOR AN OUTBOARD SYNTH, ON ITS OWN PORT. IT TAKES WHAT THE APP
-          IS ALREADY PLAYING, KEEPS ONE VOICE OF IT, AND SENDS THAT STRAIGHT TO THE
-          HARDWARE — SO THERE IS NO EXTERNAL INSTRUMENT TRACK TO SET UP AND NOTHING TO
-          ARM BUT THE AUDIO. ONE NOTE HELD SOUNDS AS PLAYED; TWO OR MORE ARPEGGIATE.
+          SENDS WHAT THE APP IS PLAYING STRAIGHT TO A PIECE OF OUTBOARD HARDWARE, ON A
+          PORT OF ITS OWN — SO THERE IS NO INSTRUMENT TRACK TO SET UP AND NOTHING TO ARM
+          BUT THE AUDIO. MONO KEEPS ONE VOICE OF THE CHORD FOR A SYNTH THAT HAS ONE;
+          POLY PASSES IT THROUGH AS PLAYED.
         </p>
 
-        <div className="mb-3">
+        <p className="label-meta mb-1">PRESET</p>
+        <div className="grid grid-cols-2 gap-2 mb-1">
+          {EXT_SYNTH_PRESETS.map(preset => (
+            <button
+              key={preset.name}
+              onClick={() => applyExtSynthPreset(preset)}
+              className="analog-btn"
+              title={`${preset.blurb} — port: ${preset.port}`}
+            >
+              {preset.name}
+            </button>
+          ))}
+        </div>
+        {presetNote && (
+          <p className="label-meta !text-[9px] !text-amber-400 mb-2 leading-tight">{presetNote}</p>
+        )}
+
+        <div className="mb-3 mt-3">
           <p className="label-meta mb-1">SYNTH PORT</p>
           <select
             className="w-full bg-[var(--surface-deep)] border border-white/10 px-2 py-1 text-[11px] font-['Space_Mono'] text-[var(--accent)]"
-            value={midiManager?.modelDOutputId ?? ''}
-            onChange={(e) => midiManager?.setModelDOutput(e.target.value || null)}
+            value={midiManager?.extSynthOutputId ?? ''}
+            onChange={(e) => { setPresetNote(null); midiManager?.setExtSynthOutput(e.target.value || null); }}
           >
             <option value="">— NONE —</option>
             {(midiManager?.outputs ?? []).map(o => (
               <option key={o.id} value={o.id}>{o.name}</option>
             ))}
           </select>
-          {midiManager?.modelDOutputId
-            && midiManager.selectedOutputIds.has(midiManager.modelDOutputId) && (
+          {midiManager?.extSynthOutputId
+            && midiManager.selectedOutputIds.has(midiManager.extSynthOutputId) && (
             <p className="label-meta !text-[9px] !text-red-400 mt-1 leading-tight">
               THIS PORT IS ALSO A MAIN OUTPUT — THE SYNTH WILL GET THE FULL CHORD AS WELL
-              AS THE MONO LINE. UNTICK IT IN PORTS.
+              AS WHAT THIS MODULE SENDS. UNTICK IT IN PORTS.
             </p>
           )}
         </div>
 
-        <div className="flex justify-between items-center mb-3">
+        <p className="label-meta mb-1">VOICE</p>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {([['mono', 'MONO'], ['poly', 'POLY']] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              onClick={() => updateParam('extSynthMode', mode)}
+              className={`analog-btn ${params.extSynthMode === mode ? 'active' : ''}`}
+              title={mode === 'mono'
+                ? 'One voice of the chord, retriggered cleanly. For a monosynth.'
+                : 'The chord as played, untouched. For a synth with its own voices.'}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex justify-between items-center mb-1">
           <span className="label-meta">CHANNEL</span>
-          <span className="label-meta !text-[var(--accent)]">{params.modelDChannel}</span>
+          <span className="label-meta !text-[var(--accent)]">{params.extSynthChannel}</span>
         </div>
         <CustomSlider min={1} max={16} step={1}
-          value={params.modelDChannel}
-          onChange={(val) => updateParam('modelDChannel', val)} />
+          value={params.extSynthChannel}
+          onChange={(val) => updateParam('extSynthChannel', val)} />
 
-        <div className="mb-4 mt-4">
+        {params.extSynthMode === 'mono' && (
+        <div className="fade-in">
+        <div className="mb-4 mt-4 pt-3 border-t border-white/5">
           <div className="flex justify-between items-center mb-2">
             <span className="label-meta">RETRIGGER GAP</span>
             <span className="label-meta !text-[var(--accent)]">{params.modelDGapMs} MS</span>
@@ -510,13 +619,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
             )}
           </div>
         )}
+        </div>
+        )}
+
+        {params.extSynthMode === 'poly' && (
+          <p className="help-text label-meta !text-[0.6rem] opacity-60 mt-3 pt-3 border-t border-white/5 leading-relaxed">
+            THE CHORD GOES OUT AS THE APP PLAYS IT — NOTHING HELD BACK, NOTHING CYCLED.
+            THE STRUM PAD, PATTERNS AND WALK ALL REACH THE SYNTH AS THEY ARE.
+          </p>
+        )}
 
         <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/5">
           <span className="label-meta">FORWARD CC / BEND</span>
           <div
-            className={`toggle-switch sm ${params.modelDForwardCC ? 'on' : ''}`}
-            title="Pass the app's CC and the sounding note's pitch bend on to the synth"
-            onClick={() => updateParam('modelDForwardCC', !params.modelDForwardCC)}
+            className={`toggle-switch sm ${params.extSynthForwardCC ? 'on' : ''}`}
+            title="Pass the app's CC and pitch bend on to the synth"
+            onClick={() => updateParam('extSynthForwardCC', !params.extSynthForwardCC)}
           />
         </div>
       </CollapsibleSection>

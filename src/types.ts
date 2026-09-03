@@ -158,10 +158,17 @@ export interface OrchidParams {
   // in a register the part was never meant to reach.
   /** The last word on how hard anything leaves: every velocity is scaled by it. */
   outputVelocity: number;
-  // MODEL D — the mono front end for an outboard synth on its own port. See
-  // `src/lib/ModelD.ts`; these mirror the Logic Scripter's parameters.
-  modelDEnabled: boolean;
-  modelDChannel: number;
+  // EXTERNAL SYNTH — a port of its own for outboard hardware, so a synth can
+  // be played and recorded without a DAW instrument track in front of it.
+  extSynthEnabled: boolean;
+  extSynthChannel: number;
+  /**
+   * How the chord reaches the synth. MONO keeps one voice of it through the
+   * Model D engine (see `src/lib/ModelD.ts`, a port of the Logic Scripter);
+   * POLY passes the notes through untouched, for a synth that has its own.
+   */
+  extSynthMode: 'mono' | 'poly';
+  // The MONO voice's settings, mirroring the Scripter's parameters.
   modelDGapMs: number;
   modelDMaxNotes: number;
   modelDLowestPriority: boolean;
@@ -174,7 +181,7 @@ export interface OrchidParams {
   modelDCurveAmount: number;
   modelDFoldback: boolean;
   /** Pass the app's CC and pitch bend on to the synth alongside the notes. */
-  modelDForwardCC: boolean;
+  extSynthForwardCC: boolean;
   outputRangeLow: number;
   outputRangeHigh: number;
   // How far MODIFY moves the pattern it is given.
@@ -309,8 +316,9 @@ export const defaultParams: OrchidParams = {
   chordColorMatrix: null,
   voicingPlayed: true,
   outputVelocity: 127,
-  modelDEnabled: false,
-  modelDChannel: 1,
+  extSynthEnabled: false,
+  extSynthMode: 'mono',
+  extSynthChannel: 1,
   modelDGapMs: 10,
   modelDMaxNotes: 5,
   modelDLowestPriority: true,
@@ -322,7 +330,7 @@ export const defaultParams: OrchidParams = {
   modelDCurveDelayMs: 500,
   modelDCurveAmount: 0,
   modelDFoldback: false,
-  modelDForwardCC: true,
+  extSynthForwardCC: true,
   outputRangeLow: 24,
   outputRangeHigh: 96,
   patternModifyAmount: 25,

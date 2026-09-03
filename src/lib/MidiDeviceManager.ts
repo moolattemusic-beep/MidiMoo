@@ -76,7 +76,7 @@ export class MidiDeviceManager {
     };
   }
 
-  private loadSelection(): { inputs: string[]; outputs: string[]; modelD?: string } | null {
+  private loadSelection(): { inputs: string[]; outputs: string[]; extSynth?: string; modelD?: string } | null {
     try {
       const raw = localStorage.getItem(MidiDeviceManager.STORE_KEY);
       if (!raw) return null;
@@ -95,7 +95,7 @@ export class MidiDeviceManager {
       localStorage.setItem(MidiDeviceManager.STORE_KEY, JSON.stringify({
         inputs: name(this.inputs, this.selectedInputIds),
         outputs: name(this.outputs, this.selectedOutputIds),
-        modelD: this.outputs.find(o => o.id === this.modelDOutputId)?.name ?? '',
+        extSynth: this.outputs.find(o => o.id === this.extSynthOutputId)?.name ?? '',
       }));
     } catch { /* a full or disabled store is not worth failing over */ }
   }
@@ -105,26 +105,31 @@ export class MidiDeviceManager {
   // instrument goes on feeding the DAW while the mono front end feeds the
   // hardware, and neither has to know about the other.
 
-  public modelDOutputId: string | null = null;
-  public modelDChannel = 1;
+  public extSynthOutputId: string | null = null;
+  public extSynthChannel = 1;
 
-  private modelDPort(): MIDIOutput | null {
-    if (this.bypassed || !this.modelDOutputId) return null;
-    return this.outputs.find(o => o.id === this.modelDOutputId) ?? null;
+  private extSynthPort(): MIDIOutput | null {
+    if (this.bypassed || !this.extSynthOutputId) return null;
+    return this.outputs.find(o => o.id === this.extSynthOutputId) ?? null;
   }
 
-  public setModelDOutput(id: string | null) {
-    if (this.modelDOutputId && this.modelDOutputId !== id) {
+  /** The first output whose name contains `fragment`, for the presets. */
+  public findOutputByName(fragment: string): string | null {
+    return this.matchByName(this.outputs, [fragment])[0] ?? null;
+  }
+
+  public setExtSynthOutput(id: string | null) {
+    if (this.extSynthOutputId && this.extSynthOutputId !== id) {
       // Silence the port being left, or a note held at the moment of the
       // change has nothing able to release it.
-      const old = this.outputs.find(o => o.id === this.modelDOutputId);
+      const old = this.outputs.find(o => o.id === this.extSynthOutputId);
       if (old) {
         try {
           for (let ch = 0; ch < 16; ch++) old.send([0xB0 | ch, 123, 0]);
         } catch { /* already gone */ }
       }
     }
-    this.modelDOutputId = id;
+    this.extSynthOutputId = id;
     const port = id ? this.outputs.find(o => o.id === id) : null;
     if (port) this.ensureOutputOpen(port);
     this.saveSelection();
@@ -132,8 +137,8 @@ export class MidiDeviceManager {
   }
 
   /** Raw send to the Model D port alone, bypassing every bus-wide modifier. */
-  public sendModelD(data: number[], delayMs = 0) {
-    const port = this.modelDPort();
+  public sendExtSynth(data: number[], delayMs = 0) {
+    const port = this.extSynthPort();
     if (!port) return;
     try {
       if (delayMs > 0) port.send(data, window.performance.now() + delayMs);
@@ -141,13 +146,13 @@ export class MidiDeviceManager {
     } catch { /* the device list will catch up on the next change */ }
   }
 
-  public sendModelDNote(pitch: number, velocity: number, isOn: boolean, delayMs = 0) {
-    const status = (isOn ? 0x90 : 0x80) | ((this.modelDChannel - 1) & 0x0F);
-    this.sendModelD([status, pitch & 0x7f, velocity & 0x7f], delayMs);
+  public sendExtSynthNote(pitch: number, velocity: number, isOn: boolean, delayMs = 0) {
+    const status = (isOn ? 0x90 : 0x80) | ((this.extSynthChannel - 1) & 0x0F);
+    this.sendExtSynth([status, pitch & 0x7f, velocity & 0x7f], delayMs);
   }
 
-  public panicModelD() {
-    const port = this.modelDPort();
+  public panicExtSynth() {
+    const port = this.extSynthPort();
     if (!port) return;
     try {
       for (let ch = 0; ch < 16; ch++) {
@@ -234,18 +239,19 @@ export class MidiDeviceManager {
 
     // The Model D port is remembered by name like the rest, and picked up
     // again whenever the interface it lives on comes back.
-    if (!this.modelDOutputId) {
-      const savedName = this.loadSelection()?.modelD;
+    if (!this.extSynthOutputId) {
+      const saved = this.loadSelection();
+      const savedName = saved?.extSynth || saved?.modelD;
       if (savedName) {
         const found = this.matchByName(this.outputs, [savedName])[0];
-        if (found) this.modelDOutputId = found;
+        if (found) this.extSynthOutputId = found;
       }
     }
 
     // Open the selected outputs now, so the MPE configuration that follows is
     // not sent into a port that is still closed.
     for (const output of this.outputs) {
-      if (this.selectedOutputIds.has(output.id) || output.id === this.modelDOutputId) {
+      if (this.selectedOutputIds.has(output.id) || output.id === this.extSynthOutputId) {
         this.ensureOutputOpen(output);
       }
     }

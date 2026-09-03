@@ -19,7 +19,7 @@ const ICONS: Record<string, React.ReactNode> = {
     </>
   ),
   // Three notes in, one line out: a chord funnelled into a single voice.
-  'MODEL D': (
+  'EXTERNAL SYNTH': (
     <>
       <path d="M2 4h3" />
       <path d="M2 8h3" />

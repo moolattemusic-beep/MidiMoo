@@ -294,6 +294,20 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**EXTERNAL SYNTH has two voice modes and one destination.** MONO runs the
+Model D engine — one voice of the chord, cleanly retriggered, optionally
+arpeggiated. POLY sends the notes as they are, for a synth with voices of its
+own. The mode is read inside the output tap, so its effect has to be in that
+effect's dependency list or the closure keeps sending the old way; and changing
+it panics the port, because whatever the previous mode was holding has nothing
+left able to release it.
+
+**A preset finds its port by name, never by id.** The driver assigns an id per
+session, so a stored one finds nothing next time — the same reason the main port
+selection has always been saved by name. When the device is absent the preset's
+settings still apply and the panel says which port it wanted, because silently
+applying half of it looks like it worked.
+
 **MODEL D is a second destination, not a stage in the chain.** It taps the
 output stream where the DAW gets it — after RANGE, voicing and velocity — and
 sends its one voice to a port of its own, held outside `selectedOutputIds` so
