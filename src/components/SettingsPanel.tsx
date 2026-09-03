@@ -4,12 +4,15 @@ import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
 import { stageDurationMs } from '../lib/VelocityModulator';
+import { MidiDeviceManager } from '../lib/MidiDeviceManager';
 
 interface SettingsPanelProps {
   engine: OrchidEngine | null;
   params: OrchidParams;
   setParams: (p: OrchidParams) => void;
   onResendMpeConfig?: () => void;
+  /** MODEL D picks its own output port, so it needs the device list. */
+  midiManager?: MidiDeviceManager;
 }
 
 
@@ -115,7 +118,7 @@ const CollapsibleSection: React.FC<{
   );
 };
 
-export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, setParams, onResendMpeConfig }) => {
+export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, setParams, onResendMpeConfig, midiManager }) => {
   const [openByGroup, setOpenByGroup] = useState<Record<string, string | null>>(() => {
     try { return JSON.parse(localStorage.getItem('orchid-open-sections') || '{}'); } catch { return {}; }
   });
@@ -347,6 +350,175 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
             </p>
           </div>
         )}
+      </CollapsibleSection>
+
+      <CollapsibleSection title="MODEL D" extraHeader={<div
+            className={`toggle-switch ${params.modelDEnabled ? 'on' : ''}`}
+            onClick={() => updateParam('modelDEnabled', !params.modelDEnabled)}
+          ></div>}>
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-3 leading-relaxed">
+          A MONO FRONT END FOR AN OUTBOARD SYNTH, ON ITS OWN PORT. IT TAKES WHAT THE APP
+          IS ALREADY PLAYING, KEEPS ONE VOICE OF IT, AND SENDS THAT STRAIGHT TO THE
+          HARDWARE — SO THERE IS NO EXTERNAL INSTRUMENT TRACK TO SET UP AND NOTHING TO
+          ARM BUT THE AUDIO. ONE NOTE HELD SOUNDS AS PLAYED; TWO OR MORE ARPEGGIATE.
+        </p>
+
+        <div className="mb-3">
+          <p className="label-meta mb-1">SYNTH PORT</p>
+          <select
+            className="w-full bg-[var(--surface-deep)] border border-white/10 px-2 py-1 text-[11px] font-['Space_Mono'] text-[var(--accent)]"
+            value={midiManager?.modelDOutputId ?? ''}
+            onChange={(e) => midiManager?.setModelDOutput(e.target.value || null)}
+          >
+            <option value="">— NONE —</option>
+            {(midiManager?.outputs ?? []).map(o => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+          {midiManager?.modelDOutputId
+            && midiManager.selectedOutputIds.has(midiManager.modelDOutputId) && (
+            <p className="label-meta !text-[9px] !text-red-400 mt-1 leading-tight">
+              THIS PORT IS ALSO A MAIN OUTPUT — THE SYNTH WILL GET THE FULL CHORD AS WELL
+              AS THE MONO LINE. UNTICK IT IN PORTS.
+            </p>
+          )}
+        </div>
+
+        <div className="flex justify-between items-center mb-3">
+          <span className="label-meta">CHANNEL</span>
+          <span className="label-meta !text-[var(--accent)]">{params.modelDChannel}</span>
+        </div>
+        <CustomSlider min={1} max={16} step={1}
+          value={params.modelDChannel}
+          onChange={(val) => updateParam('modelDChannel', val)} />
+
+        <div className="mb-4 mt-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="label-meta">RETRIGGER GAP</span>
+            <span className="label-meta !text-[var(--accent)]">{params.modelDGapMs} MS</span>
+          </div>
+          <CustomSlider min={0} max={100} step={1}
+            value={params.modelDGapMs}
+            onChange={(val) => updateParam('modelDGapMs', val)} />
+          <p className="help-text label-meta !text-[9px] opacity-60 leading-tight">
+            SILENCE BEFORE THE NEXT NOTE, SO THE ENVELOPE RESTARTS INSTEAD OF SLIDING.
+          </p>
+        </div>
+
+        <div className="mb-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="label-meta">BUFFER SIZE</span>
+            <span className="label-meta !text-[var(--accent)]">{params.modelDMaxNotes} NOTES</span>
+          </div>
+          <CustomSlider min={1} max={10} step={1}
+            value={params.modelDMaxNotes}
+            onChange={(val) => updateParam('modelDMaxNotes', val)} />
+        </div>
+
+        <div className="flex justify-between items-center mb-4">
+          <span className="label-meta">KEEP LOWEST NOTE</span>
+          <div
+            className={`toggle-switch sm ${params.modelDLowestPriority ? 'on' : ''}`}
+            title="When the buffer overflows, drop something other than the bass"
+            onClick={() => updateParam('modelDLowestPriority', !params.modelDLowestPriority)}
+          />
+        </div>
+
+        <div className="flex justify-between items-center mb-3 pt-3 border-t border-white/5">
+          <span className="label-meta">CHORD ARP</span>
+          <div
+            className={`toggle-switch sm ${params.modelDArpOn ? 'on' : ''}`}
+            title="Two or more held notes cycle instead of the last one sounding alone"
+            onClick={() => updateParam('modelDArpOn', !params.modelDArpOn)}
+          />
+        </div>
+
+        {params.modelDArpOn && (
+          <div className="fade-in">
+            <div className="mb-3">
+              <div className="flex justify-between items-center mb-2">
+                <span className="label-meta">ARP SPEED</span>
+                <span className="label-meta !text-[var(--accent)]">{params.modelDArpSpeedMs} MS</span>
+              </div>
+              <CustomSlider min={10} max={200} step={1}
+                value={params.modelDArpSpeedMs}
+                onChange={(val) => updateParam('modelDArpSpeedMs', val)} />
+            </div>
+
+            <div className="flex justify-between items-center mb-2">
+              <span className="label-meta">LOWEST NOTE BIAS</span>
+              <div
+                className={`toggle-switch sm ${params.modelDLowestBias ? 'on' : ''}`}
+                title="Weight the cycle towards the bass, for a pedal tone under the run"
+                onClick={() => updateParam('modelDLowestBias', !params.modelDLowestBias)}
+              />
+            </div>
+            {params.modelDLowestBias && (
+              <div className="fade-in mb-3 pl-3 border-l border-white/10">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="label-meta !text-[10px]">PROBABILITY</span>
+                  <span className="label-meta !text-[var(--accent)]">{params.modelDLowestProb}%</span>
+                </div>
+                <CustomSlider min={0} max={100} step={1}
+                  value={params.modelDLowestProb}
+                  onChange={(val) => updateParam('modelDLowestProb', val)} />
+              </div>
+            )}
+
+            <div className="flex justify-between items-center mb-2 mt-3">
+              <span className="label-meta">CURVE</span>
+              <div
+                className={`toggle-switch sm ${params.modelDCurveEnabled ? 'on' : ''}`}
+                title="Let the arp speed drift as the chord is held"
+                onClick={() => updateParam('modelDCurveEnabled', !params.modelDCurveEnabled)}
+              />
+            </div>
+            {params.modelDCurveEnabled && (
+              <div className="fade-in pl-3 border-l border-white/10">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="label-meta !text-[10px]">AMOUNT</span>
+                  <span className="label-meta !text-[var(--accent)]">
+                    {params.modelDCurveAmount === 0 ? 'STEADY'
+                      : params.modelDCurveAmount > 0 ? `FASTER ${params.modelDCurveAmount}`
+                      : `SLOWER ${-params.modelDCurveAmount}`}
+                  </span>
+                </div>
+                <CustomSlider min={-100} max={100} step={1}
+                  value={params.modelDCurveAmount}
+                  onChange={(val) => updateParam('modelDCurveAmount', val)} />
+
+                <div className="flex justify-between items-center mb-1 mt-2">
+                  <span className="label-meta !text-[10px]">DELAY</span>
+                  <span className="label-meta !text-[var(--accent)]">{params.modelDCurveDelayMs} MS</span>
+                </div>
+                <CustomSlider min={0} max={2000} step={10}
+                  value={params.modelDCurveDelayMs}
+                  onChange={(val) => updateParam('modelDCurveDelayMs', val)} />
+                <p className="help-text label-meta !text-[9px] opacity-60 leading-tight">
+                  HOW LONG THE CHORD RUNS AT ITS SET SPEED BEFORE THE CURVE TAKES HOLD.
+                </p>
+
+                <div className="flex justify-between items-center mt-2">
+                  <span className="label-meta !text-[10px]">FOLDBACK</span>
+                  <div
+                    className={`toggle-switch sm ${params.modelDFoldback ? 'on' : ''}`}
+                    title="At the 25ms floor, turn round and slow down again instead of staying pinned"
+                    onClick={() => updateParam('modelDFoldback', !params.modelDFoldback)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-between items-center mt-4 pt-3 border-t border-white/5">
+          <span className="label-meta">FORWARD CC / BEND</span>
+          <div
+            className={`toggle-switch sm ${params.modelDForwardCC ? 'on' : ''}`}
+            title="Pass the app's CC and the sounding note's pitch bend on to the synth"
+            onClick={() => updateParam('modelDForwardCC', !params.modelDForwardCC)}
+          />
+        </div>
       </CollapsibleSection>
 
       <CollapsibleSection title="Register Control">

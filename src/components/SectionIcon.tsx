@@ -18,6 +18,18 @@ const ICONS: Record<string, React.ReactNode> = {
       <path d="M10 3.5h2.5" />
     </>
   ),
+  // Three notes in, one line out: a chord funnelled into a single voice.
+  'MODEL D': (
+    <>
+      <path d="M2 4h3" />
+      <path d="M2 8h3" />
+      <path d="M2 12h3" />
+      <path d="M5 4c3 0 2 4 5 4" />
+      <path d="M5 12c3 0 2-4 5-4" />
+      <path d="M10 8h4" />
+    </>
+  ),
+
   // A globe: the mapping applies across the whole keyboard.
   'Global Mapping': (
     <>

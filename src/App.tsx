@@ -3,6 +3,7 @@ import { OrchidEngine } from './lib/OrchidEngine';
 import { MidiDeviceManager } from './lib/MidiDeviceManager';
 import { SimpleSynth } from './lib/SimpleSynth';
 import { VelocityModulator } from './lib/VelocityModulator';
+import { ModelD } from './lib/ModelD';
 import { PatternEditor } from './components/PatternEditor';
 import { MidiSetup } from './components/MidiSetup';
 import { OrchidParams, defaultParams, NoteEvent } from './types';
@@ -33,6 +34,7 @@ function App() {
   const [midiManager] = useState(() => new MidiDeviceManager());
   const [velMod] = useState(() => new VelocityModulator(defaultParams));
   const [synth] = useState(() => new SimpleSynth());
+  const [modelD] = useState(() => new ModelD());
   
   const [params, setParams] = useState<OrchidParams>(() => {
     const saved = localStorage.getItem('orchid-params');
@@ -446,11 +448,13 @@ function App() {
     if (engine) engine.panic();
     synth.panic();
     midiManager.panic();
+    modelD.reset();
+    midiManager.panicModelD();
     velMod.allNotesOff();
     // Panic sends Reset All Controllers, which also clears the bend range the
     // synth was told to use — so restate it straight away.
     resendMpeConfig();
-  }, [engine, synth, midiManager, velMod, resendMpeConfig]);
+  }, [engine, synth, midiManager, velMod, modelD, resendMpeConfig]);
 
   // A silent stop, distinct from PANIC: nothing sent while engaged, but
   // nothing is reset either — the keyboard, pads, and arpeggio keep working
@@ -463,6 +467,7 @@ function App() {
         // note stuck on a downstream synth would otherwise never get its
         // note-off, since every future send from here is dropped.
         midiManager.panic();
+        midiManager.panicModelD();
         midiManager.bypassed = true;
       } else {
         midiManager.bypassed = false;
@@ -491,10 +496,77 @@ function App() {
     onPanic: panicAll,
   });
 
+  // MODEL D sends to its own port, so its notes leave through the manager
+  // directly rather than the bus every other module shares.
+  useEffect(() => {
+    modelD.onNoteOn = (pitch, velocity, delayMs) =>
+      midiManager.sendModelDNote(pitch, velocity, true, delayMs);
+    modelD.onNoteOff = (pitch, delayMs) =>
+      midiManager.sendModelDNote(pitch, 0, false, delayMs);
+  }, [modelD, midiManager]);
+
+  useEffect(() => {
+    modelD.params = {
+      gapMs: params.modelDGapMs,
+      maxNotes: params.modelDMaxNotes,
+      lowestNotePriority: params.modelDLowestPriority,
+      arpOn: params.modelDArpOn,
+      baseArpSpeedMs: params.modelDArpSpeedMs,
+      lowestNoteBiasEnabled: params.modelDLowestBias,
+      lowestNoteProb: params.modelDLowestProb,
+      curveEnabled: params.modelDCurveEnabled,
+      curveDelayMs: params.modelDCurveDelayMs,
+      arpCurveAmount: params.modelDCurveAmount,
+      foldbackEnabled: params.modelDFoldback,
+    };
+    midiManager.modelDChannel = params.modelDChannel;
+  }, [modelD, midiManager,
+    params.modelDGapMs, params.modelDMaxNotes, params.modelDLowestPriority,
+    params.modelDArpOn, params.modelDArpSpeedMs, params.modelDLowestBias,
+    params.modelDLowestProb, params.modelDCurveEnabled, params.modelDCurveDelayMs,
+    params.modelDCurveAmount, params.modelDFoldback, params.modelDChannel]);
+
+  // Switching the module off has to release the synth as well as stop feeding
+  // it, or the last note stays gated open with nothing left to close it.
+  useEffect(() => {
+    if (!params.modelDEnabled) { modelD.reset(); midiManager.panicModelD(); }
+  }, [params.modelDEnabled, modelD, midiManager]);
+
   useEffect(() => {
     if (engine) {
       engine.onOutputNote = (event: NoteEvent) => {
         if (isSynthEnabled && !event.isMidiOnly) synth.handleNoteEvent(event);
+
+        // The mono front end taps the same stream the DAW gets, after every
+        // other module has had its say — so RANGE, voicing and velocity are
+        // already applied and the synth hears what the app is playing.
+        if (params.modelDEnabled && !event.isInternalSynthOnly) {
+          if (event.isCC) {
+            if (params.modelDForwardCC) {
+              midiManager.sendModelD(
+                [0xB0 | ((params.modelDChannel - 1) & 0x0F), event.ccNumber!, event.ccValue!],
+                event.delayMs || 0);
+            }
+          } else if (event.isPitchBend) {
+            // Under MPE every voice bends on its own channel. Only the one
+            // belonging to the note actually sounding is any use to a mono
+            // synth; the rest would fight over the same wheel.
+            if (params.modelDForwardCC && modelD.isSounding
+                && (event.mpeChannel || 1) === modelD.soundingOnChannel) {
+              const raw = Math.max(0, Math.min(16383,
+                Math.round(8192 + ((event.pitchBendValue || 0) / params.mpeBendRange) * 8192)));
+              midiManager.sendModelD(
+                [0xE0 | ((params.modelDChannel - 1) & 0x0F), raw & 0x7f, (raw >> 7) & 0x7f],
+                event.delayMs || 0);
+            }
+          } else if (!event.isExpression) {
+            if (event.isOn && event.velocity > 0) {
+              modelD.noteOn(event.pitch, event.velocity, event.delayMs || 0, event.mpeChannel || 1);
+            } else {
+              modelD.noteOff(event.pitch, event.delayMs || 0);
+            }
+          }
+        }
         
         if (event.isPitchBend) {
           midiManager.sendMpePitchBend(event.mpeChannel || 1, event.pitchBendValue || 0, params.mpeBendRange, event.delayMs);
@@ -535,7 +607,8 @@ function App() {
         }
       };
     }
-  }, [isSynthEnabled, engine, midiManager, synth]);
+  }, [isSynthEnabled, engine, midiManager, synth, modelD,
+    params.modelDEnabled, params.modelDForwardCC, params.modelDChannel, params.mpeBendRange]);
 
   const handleEnableAudio = () => {
     if (!isSynthEnabled) {
@@ -739,7 +812,7 @@ function App() {
 
       <main className="grid grid-cols-1 xl:grid-cols-[320px_1fr] px-6 lg:px-8 py-5 gap-8 lg:gap-6 flex-1 min-h-0 overflow-hidden">
         <section className="settings-scroll flex flex-col gap-3 min-h-0 overflow-y-auto pr-1">
-          <SettingsPanel engine={engine} params={params} setParams={setParams} onResendMpeConfig={resendMpeConfig} />
+          <SettingsPanel engine={engine} params={params} setParams={setParams} onResendMpeConfig={resendMpeConfig} midiManager={midiManager} />
         </section>
 
         <section className="flex flex-col gap-8 lg:gap-6 min-h-0 overflow-y-auto">

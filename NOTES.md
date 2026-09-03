@@ -294,6 +294,28 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**MODEL D is a second destination, not a stage in the chain.** It taps the
+output stream where the DAW gets it — after RANGE, voicing and velocity — and
+sends its one voice to a port of its own, held outside `selectedOutputIds` so
+the two never mix. Picking the same port for both is the one way to break it,
+which is why the panel says so when it happens.
+
+**Its sustain layer was dropped on purpose.** The Scripter original eats
+note-offs while the pedal is down, because in Logic it sits in front of the
+keyboard and nothing else is holding those notes. Here the engine has already
+applied sustain by the time MODEL D sees anything, so the same logic a second
+time would have nothing to eat — the note-offs it is watching for never arrive.
+CC 64 is still forwarded, so the synth can do what it likes with the pedal.
+
+**A repeated note used to choke itself.** `killCurrentNote` sent its note-off
+twice — once now, once at `gapMs + 2` — as insurance against a mono synth
+missing one and staying gated open. The second one lands after the *next*
+note-on, which is harmless while the pitch keeps changing and fatal when it
+does not: the note plays for two milliseconds. Only the lowest-note bias can
+pick the same pitch twice running, which is why it sounded like an occasional
+stutter rather than a broken feature. `kill()` now takes the pitch about to
+start and skips the trailing off when they match.
+
 ## Still open
 
 - The strum pad's INVERSION control had no audible effect on voicings long

@@ -158,6 +158,23 @@ export interface OrchidParams {
   // in a register the part was never meant to reach.
   /** The last word on how hard anything leaves: every velocity is scaled by it. */
   outputVelocity: number;
+  // MODEL D — the mono front end for an outboard synth on its own port. See
+  // `src/lib/ModelD.ts`; these mirror the Logic Scripter's parameters.
+  modelDEnabled: boolean;
+  modelDChannel: number;
+  modelDGapMs: number;
+  modelDMaxNotes: number;
+  modelDLowestPriority: boolean;
+  modelDArpOn: boolean;
+  modelDArpSpeedMs: number;
+  modelDLowestBias: boolean;
+  modelDLowestProb: number;
+  modelDCurveEnabled: boolean;
+  modelDCurveDelayMs: number;
+  modelDCurveAmount: number;
+  modelDFoldback: boolean;
+  /** Pass the app's CC and pitch bend on to the synth alongside the notes. */
+  modelDForwardCC: boolean;
   outputRangeLow: number;
   outputRangeHigh: number;
   // How far MODIFY moves the pattern it is given.
@@ -292,6 +309,20 @@ export const defaultParams: OrchidParams = {
   chordColorMatrix: null,
   voicingPlayed: true,
   outputVelocity: 127,
+  modelDEnabled: false,
+  modelDChannel: 1,
+  modelDGapMs: 10,
+  modelDMaxNotes: 5,
+  modelDLowestPriority: true,
+  modelDArpOn: true,
+  modelDArpSpeedMs: 40,
+  modelDLowestBias: false,
+  modelDLowestProb: 50,
+  modelDCurveEnabled: true,
+  modelDCurveDelayMs: 500,
+  modelDCurveAmount: 0,
+  modelDFoldback: false,
+  modelDForwardCC: true,
   outputRangeLow: 24,
   outputRangeHigh: 96,
   patternModifyAmount: 25,
