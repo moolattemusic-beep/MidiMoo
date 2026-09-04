@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  HEX_LAYOUTS, HexOrientation, buildHexBoard, hexNoteFull, hexNoteName, hexPoints,
+  HEX_LAYOUTS, HexBoardSpec, HexOrientation, buildHexBoard, continuousPitch,
+  hexNoteFull, hexNoteName, hexPoints,
 } from '../lib/HexBoard';
 import { haptic, hapticLabelProps } from '../lib/Haptics';
 
@@ -19,6 +20,17 @@ export interface HexSettings {
    * a lifted finger does not cut short.
    */
   noteLengthMs: number;
+  /**
+   * What a finger does after the note has started.
+   *   off — sliding retriggers each hex it crosses, a glissando.
+   *   a   — the note stays, and the finger's travel becomes expression:
+   *         sideways is pitch bend, up and down is MPE timbre.
+   *   b   — the note stays and its pitch follows the finger exactly, so
+   *         sliding towards a hex glides into it and arriving is in tune.
+   */
+  mpeMode: 'off' | 'a' | 'b';
+  /** Semitones of bend at one hex's width sideways, in mode A. */
+  mpeBendPerHex: number;
   /** Dim everything that is not the key's root, to navigate by. */
   markRoot: boolean;
 }
@@ -32,6 +44,8 @@ export const defaultHexSettings: HexSettings = {
   centreNote: 60,
   velocity: 100,
   noteLengthMs: 0,
+  mpeMode: 'off',
+  mpeBendPerHex: 2,
   markRoot: true,
 };
 
@@ -43,6 +57,8 @@ interface HexKeyboardProps {
   onSettings: (next: HexSettings) => void;
   /** Sent exactly as a plugged-in keyboard would: pitch, velocity, on/off. */
   onNote: (pitch: number, velocity: number, isOn: boolean) => void;
+  /** Bend and timbre for whatever a held key is sounding. */
+  onExpression: (sourceKey: number, bendSemitones: number, timbre?: number) => void;
   /** Pitch class the app is in, drawn brighter so the board can be read. */
   keyRoot: number;
   fullScreen: boolean;
@@ -50,7 +66,7 @@ interface HexKeyboardProps {
 }
 
 export const HexKeyboard: React.FC<HexKeyboardProps> = ({
-  settings, onSettings, onNote, keyRoot, fullScreen, onToggleFullScreen,
+  settings, onSettings, onNote, onExpression, keyRoot, fullScreen, onToggleFullScreen,
 }) => {
   const surface = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -67,6 +83,9 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
   // instrument, about once a second.
   const noteRef = useRef(onNote);
   useEffect(() => { noteRef.current = onNote; });
+  // Where each finger landed and what it started, so its travel can be
+  // measured from there rather than from wherever it happens to be now.
+  const origin = useRef<Map<number, { x: number; y: number; pitch: number; sent: number }>>(new Map());
   const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
@@ -83,7 +102,7 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
     () => ({ rotation: settings.rotation, mirrorLR: settings.mirrorLR, mirrorUD: settings.mirrorUD }),
     [settings.rotation, settings.mirrorLR, settings.mirrorUD]);
 
-  const board = useMemo(() => buildHexBoard({
+  const spec: HexBoardSpec = useMemo(() => ({
     width: size.w,
     height: size.h,
     radius: settings.radius,
@@ -91,6 +110,40 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
     orientation,
     centreNote: settings.centreNote,
   }), [size.w, size.h, settings.radius, settings.layoutIndex, settings.centreNote, orientation]);
+
+  const board = useMemo(() => buildHexBoard(spec), [spec]);
+
+  /**
+   * A finger that has moved. Mode B reads the pitch straight off the board at
+   * the finger's position, so arriving over a hex is exactly in tune; mode A
+   * measures how far it has travelled from where it started.
+   */
+  const moved = useCallback((pointerId: number, clientX: number, clientY: number) => {
+    if (settings.mpeMode === 'off') return;
+    const from = origin.current.get(pointerId);
+    const el = surface.current;
+    if (!from || !el) return;
+
+    // Sending on every move would be a message a frame or faster; the ear
+    // cannot hear the difference and the link should not carry it.
+    const now = performance.now();
+    if (now - from.sent < 14) return;
+    from.sent = now;
+
+    const rect = el.getBoundingClientRect();
+    if (settings.mpeMode === 'b') {
+      const here = continuousPitch(clientX - rect.left, clientY - rect.top, spec);
+      onExpression(from.pitch, here - from.pitch);
+      return;
+    }
+
+    const hexWidth = Math.sqrt(3) * Math.max(4, settings.radius);
+    const bend = ((clientX - from.x) / hexWidth) * settings.mpeBendPerHex;
+    // Up is brighter. Two hexes of travel covers the whole range, starting from
+    // the middle so there is somewhere to go in both directions.
+    const timbre = 64 - ((clientY - from.y) / (2 * 2 * Math.max(4, settings.radius))) * 64;
+    onExpression(from.pitch, bend, Math.max(0, Math.min(127, timbre)));
+  }, [settings.mpeMode, settings.radius, settings.mpeBendPerHex, spec, onExpression]);
 
   const relight = useCallback(() => {
     setLit(new Set([...held.current.values(), ...ringing.current.keys()]));
@@ -250,6 +303,40 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
             <span className="text-[11px] text-[var(--accent)] w-8 text-right tabular-nums">{settings.velocity}</span>
           </div>
 
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">SLIDE</span>
+            {([['off', 'GLISS'], ['a', 'MPE A'], ['b', 'MPE B']] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                onPointerDown={() => { haptic('tap'); change({ mpeMode: mode }); }}
+                className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.mpeMode === mode ? 'active' : ''}`}
+                {...hapticLabelProps()}
+              >{label}</button>
+            ))}
+          </div>
+          <p className="text-[8px] leading-tight opacity-50 tracking-[0.06em] -mt-1">
+            {settings.mpeMode === 'off'
+              ? 'SLIDING RETRIGGERS EACH HEX IT CROSSES.'
+              : settings.mpeMode === 'a'
+              ? 'THE NOTE HOLDS; SIDEWAYS BENDS IT, UP AND DOWN IS MPE TIMBRE.'
+              : 'THE NOTE HOLDS AND FOLLOWS THE FINGER, IN TUNE ON ARRIVAL.'}
+          </p>
+
+          {settings.mpeMode === 'a' && (
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">BEND/HEX</span>
+              <input
+                type="range" min={1} max={12} step={1}
+                value={settings.mpeBendPerHex}
+                onChange={(e) => change({ mpeBendPerHex: parseInt(e.target.value, 10) })}
+                className="flex-1"
+              />
+              <span className="text-[11px] text-[var(--accent)] w-12 text-right tabular-nums">
+                {settings.mpeBendPerHex} ST
+              </span>
+            </div>
+          )}
+
           {/* Left of the notch the note lasts as long as the hex is pressed,
               which is what a keyboard does; move it right and each press is a
               one-shot of that length instead. */}
@@ -275,7 +362,15 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
       <div
         ref={surface}
         className="flex-1 min-h-0 relative overflow-hidden bg-[var(--surface-deep)] border border-white/10"
-        style={{ touchAction: 'none' }}
+        style={{
+          touchAction: 'none',
+          // Pressing and sliding across the labels is exactly the gesture iOS
+          // reads as selecting text, and it answers with a highlight and the
+          // magnifier. Nothing here is text to be selected.
+          userSelect: 'none',
+          WebkitUserSelect: 'none',
+          WebkitTouchCallout: 'none',
+        } as React.CSSProperties}
       >
         <svg width={size.w} height={size.h} className="absolute inset-0 select-none">
           {board.cells.map((cell) => {
@@ -295,20 +390,34 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
                   style={{ touchAction: 'none' }}
                   onPointerDown={(e) => {
                     if (dead) return;
-                    // Touch pointers are captured by the element they land on,
-                    // which would stop every other hex ever seeing a finger
-                    // slide onto it. Releasing the capture is what makes a
-                    // glissando across the board possible.
-                    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* synthetic ids */ }
                     e.preventDefault();
+                    if (settings.mpeMode === 'off') {
+                      // A touch pointer is captured by the element it lands on,
+                      // which would stop every other hex ever seeing the finger
+                      // arrive. Letting the capture go is what makes a glissando
+                      // across the board possible.
+                      try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* synthetic ids */ }
+                    } else {
+                      // The opposite in the slide modes: the note belongs to the
+                      // hex it started on however far the finger wanders, so the
+                      // capture is kept and every move comes back here.
+                      try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* synthetic ids */ }
+                      origin.current.set(e.pointerId, {
+                        x: e.clientX, y: e.clientY, pitch: cell.pitch, sent: 0,
+                      });
+                    }
                     start(e.pointerId, cell.pitch);
                   }}
+                  onPointerMove={(e) => moved(e.pointerId, e.clientX, e.clientY)}
                   onPointerEnter={(e) => {
-                    if (dead || !held.current.has(e.pointerId)) return;
+                    // Only the glissando mode retriggers; in the slide modes a
+                    // crossed hex is a destination to bend towards, not a note.
+                    if (dead || settings.mpeMode !== 'off') return;
+                    if (!held.current.has(e.pointerId)) return;
                     start(e.pointerId, cell.pitch);
                   }}
-                  onPointerUp={(e) => stop(e.pointerId)}
-                  onPointerCancel={(e) => stop(e.pointerId)}
+                  onPointerUp={(e) => { origin.current.delete(e.pointerId); stop(e.pointerId); }}
+                  onPointerCancel={(e) => { origin.current.delete(e.pointerId); stop(e.pointerId); }}
                 />
                 {settings.radius >= 22 && !dead && (
                   <text
@@ -316,6 +425,8 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
                     textAnchor="middle"
                     className="pointer-events-none select-none"
                     style={{
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
                       fontFamily: "'Space Mono', monospace",
                       fontSize: Math.max(8, settings.radius * 0.36),
                       fill: isLit ? '#000' : 'rgba(246,243,237,0.72)',

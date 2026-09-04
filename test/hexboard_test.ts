@@ -1,5 +1,5 @@
 import {
-  HEX_LAYOUTS, buildHexBoard, hexSteps, orientLayout, hexNoteFull, hexPoints,
+  HEX_LAYOUTS, buildHexBoard, continuousPitch, hexSteps, orientLayout, hexNoteFull, hexPoints,
 } from '../src/lib/HexBoard.ts';
 
 let pass = 0, fail = 0;
@@ -40,18 +40,30 @@ function main() {
       third - root === 4 && fifth - root === 7, `${third - root}, ${fifth - root}`);
   }
 
-  console.log('\n=== Harmonic Table puts the triad round one hex ===');
+  console.log('\n=== The Lumatone own orientation ===');
   {
+    // Measured from the Lumatone's factory layout files, where every key of the
+    // Harmonic Table agrees on a major third across and a minor third down to
+    // the right, and the Wicki-Hayden on a whole tone across. Getting the
+    // orientation wrong still gives an isomorphic layout with all the right
+    // notes and none of the right shapes, which is the whole point of matching.
     const h = byName('HARMONIC TABLE');
-    check('a fifth up going west', hexSteps(-2, 0, h) === 7, `${hexSteps(-2, 0, h)}`);
-    check('a minor third up going down-left', hexSteps(-1, 1, h) === 3, `${hexSteps(-1, 1, h)}`);
-    check('a major third up going up-left', hexSteps(-1, -1, h) === 4, `${hexSteps(-1, -1, h)}`);
-    // Its defining property: root, major third and fifth meet at one vertex,
-    // so a triad is a single triangle and minor is that triangle inverted.
-    check('major triad is one triangle around a point',
-      hexSteps(-1, -1, h) === 4 && hexSteps(-2, 0, h) === 7);
-    check('minor triad is the triangle the other way up',
-      hexSteps(-1, 1, h) === 3 && hexSteps(-2, 0, h) === 7);
+    check('Lumatone Harmonic Table: a major third across',
+      hexSteps(2, 0, h) === 4, `${hexSteps(2, 0, h)}`);
+    check('and a minor third down-right',
+      hexSteps(1, 1, h) === -3, `${hexSteps(1, 1, h)}`);
+    check('so a fifth down-left', hexSteps(-1, 1, h) === -7, `${hexSteps(-1, 1, h)}`);
+    // Its defining property survives the orientation: root, third and fifth
+    // meet at one point, so major is a triangle and minor is it inverted.
+    check('major triad is one triangle: root, +4 across, +7 up-right',
+      hexSteps(2, 0, h) === 4 && hexSteps(1, -1, h) === 7);
+    check('minor triad is the same triangle inverted: root, +3, +7',
+      hexSteps(-1, -1, h) === 3 && hexSteps(1, -1, h) === 7,
+      `${hexSteps(-1, -1, h)}, ${hexSteps(1, -1, h)}`);
+
+    const w = byName('WICKI-HAYDEN');
+    check('Lumatone Wicki-Hayden: a whole tone across', hexSteps(2, 0, w) === 2);
+    check('and a fifth down-left', hexSteps(-1, 1, w) === -7);
   }
 
   console.log('\n=== Every hex is reachable in one interval, everywhere ===');
@@ -148,6 +160,43 @@ function main() {
     });
     check('moving the centre moves the whole board',
       board.cells.find(c => c.col === 0 && c.row === 0)!.pitch === 72);
+  }
+
+  console.log('\n=== A finger between hexes has a pitch of its own ===');
+  {
+    const spec = {
+      width: 800, height: 500, radius: 34,
+      layout: byName('WICKI-HAYDEN'), orientation: flat, centreNote: 60,
+    };
+    const board = buildHexBoard(spec);
+    const centre = board.cells.find(c => c.col === 0 && c.row === 0)!;
+    check('over a hex it is that hex\'s note',
+      Math.abs(continuousPitch(centre.x, centre.y, spec) - 60) < 1e-9,
+      `${continuousPitch(centre.x, centre.y, spec)}`);
+
+    const east = board.cells.find(c => c.col === 2 && c.row === 0)!;
+    check('over the next hex east it is that one\'s',
+      Math.abs(continuousPitch(east.x, east.y, spec) - 62) < 1e-9,
+      `${continuousPitch(east.x, east.y, spec)}`);
+    check('and halfway between them it is halfway in pitch',
+      Math.abs(continuousPitch((centre.x + east.x) / 2, centre.y, spec) - 61) < 1e-9,
+      `${continuousPitch((centre.x + east.x) / 2, centre.y, spec)}`);
+
+    // Which is what makes mode B land in tune rather than approximately.
+    const target = board.cells.find(c => c.col === -1 && c.row === 1)!;
+    check('sliding to a hex arrives exactly at its note',
+      Math.abs(continuousPitch(target.x, target.y, spec) - target.pitch) < 1e-9);
+    check('and every hex on the board agrees with the continuous reading',
+      board.cells.filter(c => c.pitch >= 0)
+        .every(c => Math.abs(continuousPitch(c.x, c.y, spec) - c.pitch) < 1e-9));
+  }
+  {
+    // Zoom must not change what a note is, only how big it is to hit.
+    const near = { width: 600, height: 400, radius: 20, layout: byName('HARMONIC TABLE'), orientation: flat, centreNote: 60 };
+    const far = { ...near, radius: 70 };
+    check('the centre is the centre note at any zoom',
+      Math.abs(continuousPitch(300, 200, near) - 60) < 1e-9
+      && Math.abs(continuousPitch(300, 200, far) - 60) < 1e-9);
   }
 
   console.log('\n=== Drawing ===');

@@ -2261,6 +2261,32 @@ export class OrchidEngine {
     } as any);
   }
 
+  /**
+   * Expression from a performance key that is being held and moved about — the
+   * hex board's slide modes, where a finger on a key goes on saying something
+   * after the note has started.
+   *
+   * A key may be sounding a whole chord, and under MPE each of its voices has
+   * its own channel, so the movement is applied to every channel that key owns
+   * rather than to a single note. With MPE off they are all channel 1 and this
+   * behaves as an ordinary wheel, which is the right answer there too.
+   */
+  public keyExpression(sourceKey: number, bendSemitones: number, timbre?: number) {
+    const notes = this.activePitchesMemory[sourceKey];
+    if (!notes || notes.length === 0) return;
+    const done = new Set<number>();
+    for (const note of notes) {
+      if (note.isInternalSynthOnly) continue;
+      const channel = note.mpeChannel ?? 1;
+      if (done.has(channel)) continue;
+      done.add(channel);
+      this.sendPitchBend(bendSemitones, channel);
+      if (timbre !== undefined) {
+        this.emitMpeExpression(channel, Math.max(0, Math.min(127, Math.round(timbre))));
+      }
+    }
+  }
+
   public startAudition(pitches: number[], velocity: number) {
     this.stopAudition();
     for (const pitch of pitches) {

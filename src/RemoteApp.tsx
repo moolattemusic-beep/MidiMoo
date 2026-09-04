@@ -87,6 +87,11 @@ export function RemoteApp() {
     (pitch: number, velocity: number, isOn: boolean) => send('handleMidi', [pitch, velocity, isOn]),
     [send]);
 
+  const hexExpression = useCallback(
+    (sourceKey: number, bend: number, timbre?: number) =>
+      send('keyExpression', timbre === undefined ? [sourceKey, bend] : [sourceKey, bend, timbre]),
+    [send]);
+
   useEffect(() => {
     let closed = false;
     const connect = () => {
@@ -315,6 +320,7 @@ export function RemoteApp() {
                 fullScreen={hexFull}
                 onToggleFullScreen={() => setHexFull(v => !v)}
                 onNote={hexNote}
+                onExpression={hexExpression}
               />
             ) : tab === 'pads' ? (
               <MemorySlots

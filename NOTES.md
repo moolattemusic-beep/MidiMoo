@@ -294,6 +294,31 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**An isomorphic layout rotated is a different keyboard to play.** The same
+notes, the same intervals, none of the same shapes — which is the only thing
+that matters if you are trying to carry fingerings over from another
+instrument. The Harmonic Table as the HexBoard firmware states it is the
+Lumatone's turned by four sixths of a revolution. The step values here were
+measured from the Lumatone's own factory `.ltn` files — every key of the
+factory Harmonic Table agreeing on a major third across — rather than taken
+from any prose about it, which contradicted itself on which axis carried the
+fifths.
+
+**The hex board's slide modes swap the capture round.** In GLISS the pointer
+capture is released so other hexes see the finger arrive and retrigger; in the
+MPE modes it is deliberately *kept*, because the note belongs to the hex it
+started on however far the finger travels, and every move has to come back to
+that hex to be turned into expression. Mode B reads the pitch straight off the
+board at the finger's position — the step formula is linear, so it holds for
+fractional coordinates and arriving over a hex is exactly in tune rather than
+approximately.
+
+**Expression goes to a key, not to a note.** `keyExpression` looks up
+`activePitchesMemory[sourceKey]`, which is keyed by the performance key and
+carries each voice's MPE channel, so a slide applies to every channel that key
+owns. A hex may be sounding a whole chord; bending one channel of it would just
+put it out of tune with itself.
+
 **A fresh callback in a dependency array is an unmount.** The hex board
 released every held note about a second into playing it, and the cause was its
 own tidy-up: `useEffect(() => () => releaseAll(), [onNote])`, with the remote

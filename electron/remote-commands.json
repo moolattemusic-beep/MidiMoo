@@ -8,6 +8,7 @@
   "handleArpeggioNoteOn",
   "emitControlChange",
   "sendPitchBend",
+  "keyExpression",
   "updateInversion",
   "wiggleCC",
   "updateRegister",

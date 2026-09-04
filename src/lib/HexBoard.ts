@@ -29,13 +29,21 @@ export interface HexLayout {
 }
 
 /**
- * The twelve-tone layouts, with the firmware's own step values. Wicki-Hayden
- * first because it is the one most people mean by "hex keyboard": a whole tone
- * across, a fifth down-left, so a major chord is a compact triangle.
+ * The twelve-tone layouts. Wicki-Hayden first because it is the one most people
+ * mean by "hex keyboard": a whole tone across, a fifth down-left, so a major
+ * chord is a compact triangle.
+ *
+ * The first two are the Lumatone's, and their step values were measured from
+ * its factory layout files rather than taken from any description of them —
+ * every key of the factory Harmonic Table agrees on a major third across, and
+ * the Wicki-Hayden on a whole tone. That matters because an isomorphic layout
+ * rotated is still the same layout mathematically but a different one under the
+ * hand, and the Harmonic Table as the HexBoard firmware states it is the
+ * Lumatone's turned by four sixths — the same notes, none of the same shapes.
  */
 export const HEX_LAYOUTS: HexLayout[] = [
   { name: 'WICKI-HAYDEN', across: 2, dnLeft: -7 },
-  { name: 'HARMONIC TABLE', across: -7, dnLeft: 3 },
+  { name: 'HARMONIC TABLE', across: 4, dnLeft: -7 },
   { name: 'GERHARD', across: -1, dnLeft: -3 },
   { name: 'JANKO', across: 1, dnLeft: -2 },
   { name: 'BOSANQUET-WILSON', across: -1, dnLeft: -1 },
@@ -159,6 +167,23 @@ export function buildHexBoard(spec: HexBoardSpec): HexBoard {
     }
   }
   return { cells, hexWidth, hexHeight };
+}
+
+/**
+ * The pitch anywhere on the board, not only at the centre of a hex.
+ *
+ * The step formula is linear in the coordinates, so it holds for fractional
+ * ones too — which makes a finger's position a continuous pitch rather than a
+ * series of nearest hexes, and a slide across the board an exact glide.
+ */
+export function continuousPitch(x: number, y: number, spec: HexBoardSpec): number {
+  const r = Math.max(4, spec.radius);
+  const stepX = (Math.sqrt(3) * r) / 2;
+  const stepY = 1.5 * r;
+  const layout = orientLayout(spec.layout, spec.orientation);
+  const col = (x - spec.width / 2) / stepX;
+  const row = (y - spec.height / 2) / stepY;
+  return spec.centreNote + hexSteps(col, row, layout);
 }
 
 /** The six corners of a pointy-top hexagon, as an SVG points string. */
