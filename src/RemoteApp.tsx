@@ -80,6 +80,13 @@ export function RemoteApp() {
 
   const engine = useMemo(() => new RemoteEngine({}, send), [send]);
 
+  // Straight into the same entry point a plugged-in keyboard uses. Stable,
+  // because a fresh callback each render used to look like the hex board
+  // being torn down and released every note a second into playing it.
+  const hexNote = useCallback(
+    (pitch: number, velocity: number, isOn: boolean) => send('handleMidi', [pitch, velocity, isOn]),
+    [send]);
+
   useEffect(() => {
     let closed = false;
     const connect = () => {
@@ -307,10 +314,7 @@ export function RemoteApp() {
                 keyRoot={params.keyRoot ?? 0}
                 fullScreen={hexFull}
                 onToggleFullScreen={() => setHexFull(v => !v)}
-                // Straight into the same entry point a plugged-in keyboard
-                // uses, so the mapping, MPE, RANGE and everything downstream
-                // treat it as one more controller.
-                onNote={(pitch, velocity, isOn) => send('handleMidi', [pitch, velocity, isOn])}
+                onNote={hexNote}
               />
             ) : tab === 'pads' ? (
               <MemorySlots

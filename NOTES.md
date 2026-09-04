@@ -294,6 +294,23 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A fresh callback in a dependency array is an unmount.** The hex board
+released every held note about a second into playing it, and the cause was its
+own tidy-up: `useEffect(() => () => releaseAll(), [onNote])`, with the remote
+passing a new arrow function on every render. Each state push from the
+instrument therefore looked like the board being taken away. Cleanups that mean
+"on unmount" must have an empty dependency list and reach the current callback
+through a ref; the caller was given a stable `useCallback` as well, but the ref
+is what makes the component safe whoever passes to it. Measured rather than
+guessed, by patching `WebSocket.send` in the page and recording what a held
+press actually emitted.
+
+**Timers in a hidden tab are clamped to about a second.** Which looks exactly
+like a note-length bug. When measuring anything timed in the browser pane,
+check `document.hidden` first — a 250ms `setTimeout` measured 917ms — and prove
+timing by recording the delay a component *asks* for rather than the delay it
+gets.
+
 **A hex layout is two numbers.** How many semitones you move going one hex
 east, and how many going one hex down-left; every other key follows. That is
 what isomorphic means in practice — an interval is a direction, so a chord is

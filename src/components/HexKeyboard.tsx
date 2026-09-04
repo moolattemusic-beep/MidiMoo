@@ -13,6 +13,12 @@ export interface HexSettings {
   radius: number;
   centreNote: number;
   velocity: number;
+  /**
+   * 0 holds the note for as long as the hex is pressed, like a keyboard.
+   * Anything else makes each press a one-shot of that many milliseconds, which
+   * a lifted finger does not cut short.
+   */
+  noteLengthMs: number;
   /** Dim everything that is not the key's root, to navigate by. */
   markRoot: boolean;
 }
@@ -25,6 +31,7 @@ export const defaultHexSettings: HexSettings = {
   radius: 34,
   centreNote: 60,
   velocity: 100,
+  noteLengthMs: 0,
   markRoot: true,
 };
 
@@ -50,7 +57,16 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
   // What each finger is currently holding, so lifting one releases only its own
   // note and sliding one moves from hex to hex without dropping the others.
   const held = useRef<Map<number, number>>(new Map());
+  // Notes ringing on their own timer, in one-shot mode, keyed by pitch.
+  const ringing = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const [lit, setLit] = useState<Set<number>>(new Set());
+
+  // The callback identity changes on every render of the remote, and the
+  // release-everything cleanup below must not read that as the board going
+  // away — doing so cut every held note at the next state push from the
+  // instrument, about once a second.
+  const noteRef = useRef(onNote);
+  useEffect(() => { noteRef.current = onNote; });
   const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
@@ -77,11 +93,30 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
   }), [size.w, size.h, settings.radius, settings.layoutIndex, settings.centreNote, orientation]);
 
   const relight = useCallback(() => {
-    setLit(new Set(held.current.values()));
+    setLit(new Set([...held.current.values(), ...ringing.current.keys()]));
   }, []);
 
   const start = useCallback((pointerId: number, pitch: number) => {
     if (pitch < 0) return;
+    const length = settings.noteLengthMs;
+
+    if (length > 0) {
+      // One-shot: the press decides the length, so lifting does not stop it and
+      // sliding across the board leaves a trail of notes ringing out.
+      const already = ringing.current.get(pitch);
+      if (already) { clearTimeout(already); onNote(pitch, 0, false); }
+      held.current.set(pointerId, pitch);
+      onNote(pitch, settings.velocity, true);
+      ringing.current.set(pitch, setTimeout(() => {
+        ringing.current.delete(pitch);
+        noteRef.current(pitch, 0, false);
+        relight();
+      }, length));
+      haptic('tap');
+      relight();
+      return;
+    }
+
     const already = held.current.get(pointerId);
     if (already === pitch) return;
     if (already !== undefined) onNote(already, 0, false);
@@ -89,22 +124,29 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
     onNote(pitch, settings.velocity, true);
     haptic('tap');
     relight();
-  }, [onNote, settings.velocity, relight]);
+  }, [onNote, settings.velocity, settings.noteLengthMs, relight]);
 
   const stop = useCallback((pointerId: number) => {
     const pitch = held.current.get(pointerId);
     if (pitch === undefined) return;
     held.current.delete(pointerId);
-    onNote(pitch, 0, false);
+    // A note on its own timer is left to finish; only a held one is released.
+    if (!ringing.current.has(pitch)) onNote(pitch, 0, false);
     relight();
   }, [onNote, relight]);
 
-  // Every note goes off when the board is put away, or a hex left down would
-  // sound until the next panic.
+  // Every note goes off when the board is genuinely put away, or a hex left
+  // down would sound until the next panic. Deliberately no dependencies: this
+  // must run on unmount and at no other time.
   useEffect(() => () => {
-    for (const pitch of held.current.values()) onNote(pitch, 0, false);
+    for (const pitch of held.current.values()) noteRef.current(pitch, 0, false);
     held.current.clear();
-  }, [onNote]);
+    for (const [pitch, timer] of ringing.current) {
+      clearTimeout(timer);
+      noteRef.current(pitch, 0, false);
+    }
+    ringing.current.clear();
+  }, []);
 
   const change = (patch: Partial<HexSettings>) => onSettings({ ...settings, ...patch });
   const layout = HEX_LAYOUTS[settings.layoutIndex] ?? HEX_LAYOUTS[0];
@@ -206,6 +248,24 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
               className="flex-1"
             />
             <span className="text-[11px] text-[var(--accent)] w-8 text-right tabular-nums">{settings.velocity}</span>
+          </div>
+
+          {/* Left of the notch the note lasts as long as the hex is pressed,
+              which is what a keyboard does; move it right and each press is a
+              one-shot of that length instead. */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">LENGTH</span>
+            <input
+              type="range" min={0} max={4000} step={50}
+              value={settings.noteLengthMs}
+              onChange={(e) => change({ noteLengthMs: parseInt(e.target.value, 10) })}
+              className="flex-1"
+            />
+            <span className="text-[11px] text-[var(--accent)] w-12 text-right tabular-nums">
+              {settings.noteLengthMs === 0 ? 'HOLD'
+                : settings.noteLengthMs >= 1000 ? `${(settings.noteLengthMs / 1000).toFixed(1)}S`
+                : `${settings.noteLengthMs}MS`}
+            </span>
           </div>
         </div>
       )}
