@@ -145,8 +145,12 @@ function main() {
       brief(slideActions(cMaj, cMin, 'off')) === 'stop:C start:Cm',
       brief(slideActions(cMaj, cMin, 'off')));
 
-    check('the timbre mode never changes chord', slideActions(cMaj, gMaj, 'cc74').length === 0);
     check('and sliding nowhere does nothing', slideActions(cMaj, cMaj, 'glide').length === 0);
+    // Sending controllers is no longer a third slide setting but something
+    // that runs alongside them, so gliding and CC are not alternatives.
+    check('gliding is available whatever the axes are doing',
+      slideActions(cMaj, gMaj, 'glide').length === 2
+      && slideActions(cMaj, cMin, 'glide').length === 1);
   }
 
   console.log('\n=== Chords that can hold a chosen note ===');

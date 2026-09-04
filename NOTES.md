@@ -294,6 +294,28 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A DAW cannot learn a controller sent per MPE voice.** Under MPE the voices
+are spread across channels 2-15, so a controller riding them arrives on a
+different channel each time and a mapping made on one never sees it again —
+which is why CC74 and CC1 could be watched arriving in Ableton and still not
+be mapped. They go out on channel 1 by default, which is also where MPE puts
+global controllers, and the MAP button wiggles them on that same channel;
+sending one on a channel the playing does not use is its own version of the
+same bug. PER VOICE is still there for a real MPE instrument, labelled as
+unmappable.
+
+**Gliding and sending controllers are not alternatives.** They were three
+exclusive slide settings, which meant choosing between chords that bend into
+each other and a finger that says something — and asking for the timbre mode
+turned chord changes off altogether, so nothing glided in it at all. Crossing a
+button and moving a finger are separate questions now: SLIDE decides the first,
+SEND CC the second, and both run at once.
+
+**Controller travel is measured from the press, not the last button.** Resetting
+the reference on each chord change pinned the axes to however far the finger had
+come since crossing, so a slow drag down a column moved the controller one step
+and then stopped.
+
 **`sendMpeExpression` sends CC 11, not CC 74.** Which is the glide engine's own
 channel-level controller — so a playing surface writing "MPE expression" was
 arguing with the glide on the same channels, and the label saying CC74 was

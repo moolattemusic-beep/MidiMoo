@@ -68,7 +68,11 @@ export function RemoteApp() {
   const [gridSet, setGridSet] = useState<GridSettings>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('midimoo-grid') || 'null');
-      return saved ? { ...defaultGridSettings, ...saved } : defaultGridSettings;
+      if (!saved) return defaultGridSettings;
+      // The timbre mode used to be a third slide setting rather than something
+      // that runs alongside them; a stored 'cc74' means both.
+      if (saved.slideMode === 'cc74') { saved.slideMode = 'off'; saved.ccEnabled = true; }
+      return { ...defaultGridSettings, ...saved };
     } catch { return defaultGridSettings; }
   });
   // The hex board is still here behind a switch rather than deleted, since it
@@ -112,10 +116,17 @@ export function RemoteApp() {
     [send]);
 
   const gridTimbre = useCallback(
-    (rootPitch: number, ccs: Array<[number, number]>) => send('keyExpression', [rootPitch, null, ccs]),
+    (rootPitch: number, ccs: Array<[number, number]>, perVoice: boolean) => {
+      if (perVoice) { send('keyExpression', [rootPitch, null, ccs]); return; }
+      // Channel 1 — the master channel under MPE, and the only one a DAW can
+      // learn, since the voices themselves are spread across 2-15.
+      for (const [cc, value] of ccs) send('emitControlChange', [cc, Math.round(value), 1]);
+    },
     [send]);
 
-  const gridMapCC = useCallback((cc: number) => send('wiggleCC', [cc]), [send]);
+  // Learned on the same channel the playing sends on, or the mapping would be
+  // made somewhere the controller never appears again.
+  const gridMapCC = useCallback((cc: number) => send('wiggleCC', [cc, 1]), [send]);
 
   const hexExpression = useCallback(
     (sourceKey: number, bend: number, timbre?: number) =>

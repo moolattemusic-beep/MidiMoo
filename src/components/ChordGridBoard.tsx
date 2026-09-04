@@ -11,14 +11,20 @@ export interface GridSettings {
   baseOctave: number;
   velocity: number;
   /**
-   * What a finger does after the chord has started.
-   *   off   — sliding to another button changes chord, struck afresh.
-   *   cc74  — the chord holds and up-and-down movement sends MPE timbre.
-   *   glide — sliding changes chord, and the voices bend into the new one
-   *           instead of being restruck.
+   * What crossing onto another button does: strike it afresh, or bend the
+   * voices into it. Independent of the controllers below, because wanting a
+   * chord to glide and wanting a finger to send CC are not alternatives.
    */
-  slideMode: 'off' | 'cc74' | 'glide';
-  /** Which controller each axis writes to, in the timbre mode. */
+  slideMode: 'off' | 'glide';
+  /** Whether a finger's travel also sends controllers. */
+  ccEnabled: boolean;
+  /**
+   * On each voice's own MPE channel, or all on channel 1. Channel 1 is the
+   * default because it is the one a DAW can learn: under MPE the voices are
+   * spread across channels 2-15 and a mapping made on one of them would never
+   * see the controller again.
+   */
+  ccPerVoice: boolean;
   ccY: number;
   ccX: number;
 }
@@ -29,6 +35,8 @@ export const defaultGridSettings: GridSettings = {
   baseOctave: 4,
   velocity: 100,
   slideMode: 'off',
+  ccEnabled: false,
+  ccPerVoice: false,
   // CC 74 is MPE's own third dimension, and CC 1 the mod wheel. Neither is CC
   // 11, which the glide engine uses on these channels for its own purposes.
   ccY: 74,
@@ -44,8 +52,8 @@ interface ChordGridBoardProps {
    * glides one chord into another that shares its root.
    */
   onChord: (rootPitch: number, velocity: number, isOn: boolean, intervals: number[], isUpdate: boolean) => void;
-  /** Controller values for whatever a held button is sounding. */
-  onExpression: (rootPitch: number, ccs: Array<[number, number]>) => void;
+  /** Controller values. `perVoice` puts them on each sounding voice's channel. */
+  onExpression: (rootPitch: number, ccs: Array<[number, number]>, perVoice: boolean) => void;
   /** Send a controller back and forth so a plugin can learn it. */
   onMapCC: (cc: number) => void;
   fullScreen: boolean;
@@ -67,6 +75,24 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
   // snapping back to the middle, so releasing one button and pressing the next
   // does not put a step in the controller.
   const axis = useRef({ x: 64, y: 64 });
+
+  // What the axes last sent, shown over the board while a finger is moving
+  // them. Without it there is no way to tell which controller is going out or
+  // where it has got to, short of watching the receiving end.
+  const [hud, setHud] = useState<Array<[number, number]> | null>(null);
+  const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // It stays for as long as a finger is on the board, and lingers a moment
+  // after: a readout that expired while the hand was still holding still would
+  // vanish exactly when it was being read.
+  const showHud = useCallback((ccs: Array<[number, number]>) => {
+    if (hudTimer.current) { clearTimeout(hudTimer.current); hudTimer.current = null; }
+    setHud(ccs);
+  }, []);
+  const fadeHud = useCallback(() => {
+    if (hudTimer.current) clearTimeout(hudTimer.current);
+    hudTimer.current = setTimeout(() => setHud(null), 1400);
+  }, []);
+  useEffect(() => () => { if (hudTimer.current) clearTimeout(hudTimer.current); }, []);
 
   const rows = Math.max(1, Math.min(CHORD_ROWS.length, settings.visibleRows));
   const grid = useMemo(
@@ -98,10 +124,12 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     onChord(cell.rootPitch, settings.velocity, true, cell.intervals, isUpdate);
     // Restate where the axes were left, so the new chord starts there instead
     // of at whatever the engine hands a fresh note.
-    if (settings.slideMode === 'cc74') {
-      onExpression(cell.rootPitch, [[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]]);
+    if (settings.ccEnabled) {
+      onExpression(cell.rootPitch,
+        [[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]], settings.ccPerVoice);
     }
-  }, [onChord, onExpression, settings.velocity, settings.slideMode, settings.ccY, settings.ccX]);
+  }, [onChord, onExpression, settings.velocity, settings.ccEnabled, settings.ccPerVoice,
+    settings.ccY, settings.ccX]);
 
   const stopChord = useCallback((cell: GridCell) => {
     onChord(cell.rootPitch, 0, false, cell.intervals, false);
@@ -112,17 +140,21 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
       cell, x, y, baseX: axis.current.x, baseY: axis.current.y, sent: 0,
     });
     startChord(cell);
+    if (settings.ccEnabled) {
+      showHud([[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]]);
+    }
     haptic('tap');
     relight();
-  }, [startChord, relight]);
+  }, [startChord, relight, showHud, settings.ccEnabled, settings.ccY, settings.ccX]);
 
   const release = useCallback((pointerId: number) => {
     const touch = touches.current.get(pointerId);
     if (!touch) return;
     touches.current.delete(pointerId);
     stopChord(touch.cell);
+    if (touches.current.size === 0) fadeHud();
     relight();
-  }, [stopChord, relight]);
+  }, [stopChord, relight, fadeHud]);
 
   const move = useCallback((pointerId: number, clientX: number, clientY: number) => {
     const touch = touches.current.get(pointerId);
@@ -130,19 +162,25 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     if (!touch || !el) return;
     const rect = el.getBoundingClientRect();
 
-    if (settings.slideMode === 'cc74') {
-      // The button is kept; only the travel is heard. Sending on every move
-      // would be a message a frame or faster, which the ear cannot use.
+    if (settings.ccEnabled) {
+      // Sending on every move would be a message a frame or faster, which the
+      // ear cannot use and the link should not carry.
       const now = performance.now();
-      if (now - touch.sent < 14) return;
-      touch.sent = now;
-      // Measured from where the axes were left rather than from the middle, so
-      // a finger continues the gesture the last one finished.
-      const y = Math.max(0, Math.min(127, touch.baseY - ((clientY - touch.y) / (rect.height / 2)) * 64));
-      const x = Math.max(0, Math.min(127, touch.baseX + ((clientX - touch.x) / (rect.width / 2)) * 64));
-      axis.current = { x, y };
-      onExpression(touch.cell.rootPitch, [[settings.ccY, y], [settings.ccX, x]]);
-      return;
+      if (now - touch.sent >= 14) {
+        touch.sent = now;
+        // Measured from where the axes were left rather than from the middle,
+        // so a finger continues the gesture the last one finished.
+        const y = Math.max(0, Math.min(127, touch.baseY - ((clientY - touch.y) / (rect.height / 2)) * 64));
+        const x = Math.max(0, Math.min(127, touch.baseX + ((clientX - touch.x) / (rect.width / 2)) * 64));
+        const moved: Array<[number, number]> = [];
+        if (Math.round(y) !== Math.round(axis.current.y)) moved.push([settings.ccY, y]);
+        if (Math.round(x) !== Math.round(axis.current.x)) moved.push([settings.ccX, x]);
+        axis.current = { x, y };
+        if (moved.length) {
+          onExpression(touch.cell.rootPitch, moved, settings.ccPerVoice);
+          showHud(moved);
+        }
+      }
     }
 
     const hit = cellAt(clientX - rect.left, clientY - rect.top, rect.width, rect.height, COLUMNS, rows);
@@ -158,12 +196,13 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
       else stopChord(action.cell);
     }
     touch.cell = next;
-    touch.x = clientX;
-    touch.y = clientY;
+    // Deliberately not moving the point the travel is measured from: the axes
+    // follow the whole journey of the finger, and resetting it here pinned
+    // them to however far it had come since the last button.
     haptic('tap');
     relight();
-  }, [settings.slideMode, settings.ccX, settings.ccY, byPosition, rows,
-    startChord, stopChord, onExpression, relight]);
+  }, [settings.slideMode, settings.ccEnabled, settings.ccPerVoice, settings.ccX, settings.ccY,
+    byPosition, rows, startChord, stopChord, onExpression, relight, showHud]);
 
   // Deliberately no dependencies: this runs when the board is genuinely put
   // away, and at no other time.
@@ -204,7 +243,7 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
         </button>
         <span className="text-[9px] tracking-[0.16em] opacity-50">
           {settings.slideMode === 'off' ? 'SLIDE: RESTRIKE'
-            : settings.slideMode === 'cc74' ? `Y CC${settings.ccY} / X CC${settings.ccX}` : 'SLIDE: GLIDE'}
+            : 'SLIDE: GLIDE'}{settings.ccEnabled ? ` · Y CC${settings.ccY} X CC${settings.ccX}` : ''}
         </span>
 
         <div className="flex items-center gap-1 ml-auto">
@@ -275,7 +314,7 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
 
           <div className="flex items-center gap-2">
             <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">SLIDE</span>
-            {([['off', 'RESTRIKE'], ['cc74', 'MPE CC'], ['glide', 'MPE GLIDE']] as const).map(([value, label]) => (
+            {([['off', 'RESTRIKE'], ['glide', 'MPE GLIDE']] as const).map(([value, label]) => (
               <button
                 key={value}
                 onPointerDown={() => { haptic('tap'); change({ slideMode: value }); }}
@@ -287,12 +326,27 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
           <p className="text-[8px] leading-tight opacity-50 tracking-[0.06em] -mt-1">
             {settings.slideMode === 'off'
               ? 'SLIDING TO ANOTHER CHORD STRIKES IT AFRESH.'
-              : settings.slideMode === 'cc74'
-              ? `THE CHORD HOLDS. UP AND DOWN SENDS CC${settings.ccY}, SIDE TO SIDE CC${settings.ccX}, ON EACH VOICE'S OWN MPE CHANNEL. BOTH CARRY OVER TO THE NEXT CHORD RATHER THAN SNAPPING BACK.`
-              : 'SLIDING BENDS THE VOICES INTO THE NEW CHORD INSTEAD OF RESTRIKING. NEEDS MPE AND A GLIDE MODE ON.'}
+              : 'SLIDING BENDS THE VOICES INTO THE NEW CHORD, DOWN A COLUMN AS WELL AS ACROSS. NEEDS MPE ON — ANY GLIDE MODE WILL DO.'}
           </p>
 
-          {settings.slideMode === 'cc74' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">AXES</span>
+            <button
+              onPointerDown={() => { haptic('tap'); change({ ccEnabled: !settings.ccEnabled }); }}
+              className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.ccEnabled ? 'active' : ''}`}
+              {...hapticLabelProps()}
+            >SEND CC</button>
+            {settings.ccEnabled && (
+              <button
+                onPointerDown={() => { haptic('tap'); change({ ccPerVoice: !settings.ccPerVoice }); }}
+                className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.ccPerVoice ? 'active' : ''}`}
+                title="Per voice is true MPE but cannot be learned by a DAW"
+                {...hapticLabelProps()}
+              >{settings.ccPerVoice ? 'PER VOICE' : 'CHANNEL 1'}</button>
+            )}
+          </div>
+
+          {settings.ccEnabled && (
             <div className="fade-in flex flex-col gap-2">
               {([['Y', 'ccY', 'UP AND DOWN'], ['X', 'ccX', 'SIDE TO SIDE']] as const).map(([axisName, key, hint]) => (
                 <div key={key} className="flex items-center gap-2">
@@ -314,9 +368,14 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
                   >MAP</button>
                 </div>
               ))}
+              {settings.ccPerVoice && (
+                <p className="text-[8px] leading-tight opacity-50 tracking-[0.06em]">
+                  PER VOICE SPREADS THESE ACROSS MPE CHANNELS 2-15, SO A DAW CANNOT LEARN THEM:
+                  A MAPPING MADE ON ONE CHANNEL NEVER SEES THEM AGAIN. USE CHANNEL 1 TO MAP.
+                </p>
+              )}
             </div>
           )}
-
           <div className="flex items-center gap-2">
             <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">OCTAVE</span>
             <button
@@ -347,7 +406,7 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
           the pointer. */}
       <div
         ref={surface}
-        className="flex-1 min-h-0 grid gap-[2px] bg-[var(--surface-deep)] border border-white/10 p-[2px] overflow-hidden"
+        className="relative flex-1 min-h-0 grid gap-[2px] bg-[var(--surface-deep)] border border-white/10 p-[2px] overflow-hidden"
         style={{
           gridTemplateColumns: `repeat(${COLUMNS}, minmax(0, 1fr))`,
           gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
@@ -373,6 +432,16 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
         onPointerUp={(e) => release(e.pointerId)}
         onPointerCancel={(e) => release(e.pointerId)}
       >
+        {hud && (
+          <div className="absolute top-1 right-1 z-10 pointer-events-none flex flex-col items-end gap-[2px]
+                          bg-black/80 border border-[var(--accent)] px-2 py-1 fade-in">
+            {hud.map(([cc, value]) => (
+              <span key={cc} className="font-['Space_Mono'] text-[11px] text-[var(--accent)] tabular-nums leading-none">
+                CC{cc} · {Math.round(value)}
+              </span>
+            ))}
+          </div>
+        )}
         {CHORD_ROWS.slice(0, rows).map((row, rowIndex) => (
           Array.from({ length: COLUMNS }, (_, column) => {
             const cell = byPosition.get(`${column}:${rowIndex}`);

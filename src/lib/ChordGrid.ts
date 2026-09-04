@@ -143,7 +143,8 @@ export function cellAt(
   return { column, row };
 }
 
-export type SlideMode = 'off' | 'cc74' | 'glide';
+/** What crossing onto another button does. Sending controllers is separate. */
+export type SlideMode = 'off' | 'glide';
 export type SlideAction =
   | { do: 'start'; cell: GridCell }
   /** Same key, new chord: the engine re-voices what is held and glides to it. */
@@ -165,7 +166,6 @@ export type SlideAction =
  * what was just started rather than what it was meant to end.
  */
 export function slideActions(from: GridCell, to: GridCell, mode: SlideMode): SlideAction[] {
-  if (mode === 'cc74') return [];
   if (from === to || (from.column === to.column && from.row === to.row)) return [];
   if (mode === 'glide') {
     // Down a column the root does not change, and the engine keys a held chord
