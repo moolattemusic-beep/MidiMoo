@@ -5,6 +5,7 @@ import { ArpeggioXYPad } from './components/ArpeggioXYPad';
 import { CustomSlider } from './components/CustomSlider';
 import { MemorySlots } from './components/MemorySlots';
 import { HexKeyboard, HexSettings, defaultHexSettings } from './components/HexKeyboard';
+import { ChordGridBoard, GridSettings, defaultGridSettings } from './components/ChordGridBoard';
 import { RemoteEngine } from './lib/RemoteEngine';
 import { isStalePage, REMOTE_PORT, RemoteCommandName, RemoteSnapshot, ServerMessage } from './lib/RemoteProtocol';
 import {
@@ -14,7 +15,7 @@ import {
 import { keepAwake, letSleep, wakeLockSupported, watchVisibility } from './lib/WakeLock';
 
 type Connection = 'connecting' | 'open' | 'lost';
-type Tab = 'chords' | 'pads' | 'hex';
+type Tab = 'chords' | 'pads' | 'grid';
 
 const EMPTY: RemoteSnapshot = {
   version: '', params: {}, engineState: {}, memorySlots: [],
@@ -62,6 +63,23 @@ export function RemoteApp() {
     } catch { return defaultHexSettings; }
   });
   const [hexFull, setHexFull] = useState(false);
+  // The chord board's settings belong to the device it is played on, like the
+  // hex board's: how many rows fit is a fact about the screen.
+  const [gridSet, setGridSet] = useState<GridSettings>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('midimoo-grid') || 'null');
+      return saved ? { ...defaultGridSettings, ...saved } : defaultGridSettings;
+    } catch { return defaultGridSettings; }
+  });
+  // The hex board is still here behind a switch rather than deleted, since it
+  // was asked for two versions ago and is a keystroke away from being wanted.
+  const [useHex, setUseHex] = useState(() => localStorage.getItem('midimoo-board') === 'hex');
+  useEffect(() => {
+    try { localStorage.setItem('midimoo-grid', JSON.stringify(gridSet)); } catch { /* private mode */ }
+  }, [gridSet]);
+  useEffect(() => {
+    try { localStorage.setItem('midimoo-board', useHex ? 'hex' : 'grid'); } catch { /* private mode */ }
+  }, [useHex]);
   useEffect(() => {
     try { localStorage.setItem('midimoo-hex', JSON.stringify(hex)); } catch { /* private mode */ }
   }, [hex]);
@@ -85,6 +103,16 @@ export function RemoteApp() {
   // being torn down and released every note a second into playing it.
   const hexNote = useCallback(
     (pitch: number, velocity: number, isOn: boolean) => send('handleMidi', [pitch, velocity, isOn]),
+    [send]);
+
+  // The same route a memory pad takes: a root, and the notes to build on it.
+  const gridChord = useCallback(
+    (rootPitch: number, velocity: number, isOn: boolean, intervals: number[]) =>
+      send('handleMidi', [rootPitch, velocity, isOn, false, false, false, true, undefined, intervals]),
+    [send]);
+
+  const gridTimbre = useCallback(
+    (rootPitch: number, timbre: number) => send('keyExpression', [rootPitch, null, timbre]),
     [send]);
 
   const hexExpression = useCallback(
@@ -266,7 +294,7 @@ export function RemoteApp() {
 
       {/* Which bank is showing, and the two things that are not played. */}
       <div className="flex items-center gap-1 px-2 pt-2 pb-1 shrink-0">
-        {([['pads', 'PADS'], ['chords', 'CHORDS'], ['hex', 'HEX']] as const).map(([id, label]) => (
+        {([['pads', 'PADS'], ['chords', 'CHORDS'], ['grid', 'GRID']] as const).map(([id, label]) => (
           <button
             key={id}
             onPointerDown={() => { haptic('tap'); setTab(id); }}
@@ -275,6 +303,16 @@ export function RemoteApp() {
             {label}
           </button>
         ))}
+
+        {tab === 'grid' && (
+          <button
+            onPointerDown={() => { haptic('tap'); setUseHex(v => !v); }}
+            className={`analog-btn !px-3 !py-[6px] !text-[11px] tracking-[0.18em] ${useHex ? 'active' : ''}`}
+            title="The isomorphic hex board instead of the chord buttons"
+          >
+            HEX
+          </button>
+        )}
 
         {tab === 'chords' && (
           <button
@@ -312,7 +350,16 @@ export function RemoteApp() {
       >
         <div className="flex-1 min-h-0 flex flex-col gap-2">
           <div className="flex-1 min-h-0 flex flex-col">
-            {tab === 'hex' ? (
+            {tab === 'grid' && !useHex ? (
+              <ChordGridBoard
+                settings={gridSet}
+                onSettings={setGridSet}
+                onChord={gridChord}
+                onExpression={gridTimbre}
+                fullScreen={hexFull}
+                onToggleFullScreen={() => setHexFull(v => !v)}
+              />
+            ) : tab === 'grid' ? (
               <HexKeyboard
                 settings={hex}
                 onSettings={setHex}

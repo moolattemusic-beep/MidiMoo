@@ -2271,7 +2271,7 @@ export class OrchidEngine {
    * rather than to a single note. With MPE off they are all channel 1 and this
    * behaves as an ordinary wheel, which is the right answer there too.
    */
-  public keyExpression(sourceKey: number, bendSemitones: number, timbre?: number) {
+  public keyExpression(sourceKey: number, bendSemitones?: number | null, timbre?: number | null) {
     const notes = this.activePitchesMemory[sourceKey];
     if (!notes || notes.length === 0) return;
     const done = new Set<number>();
@@ -2280,8 +2280,13 @@ export class OrchidEngine {
       const channel = note.mpeChannel ?? 1;
       if (done.has(channel)) continue;
       done.add(channel);
-      this.sendPitchBend(bendSemitones, channel);
-      if (timbre !== undefined) {
+      // Either half can be left out. A board that only sends timbre must not
+      // also be flattening the bend to zero on every move, which would fight
+      // whatever the glide engine is doing to the same channel.
+      if (bendSemitones !== undefined && bendSemitones !== null) {
+        this.sendPitchBend(bendSemitones, channel);
+      }
+      if (timbre !== undefined && timbre !== null) {
         this.emitMpeExpression(channel, Math.max(0, Math.min(127, Math.round(timbre))));
       }
     }

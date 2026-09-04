@@ -294,6 +294,22 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**The chord grid's qualities are symbols, not intervals.** Each row is a suffix
+the app's own parser reads, so the board cannot come to disagree with the text
+field or the chord builder about what m7b5 means. A test parses every root
+against every quality, which is what stops a button that looks like a chord and
+plays silence.
+
+**Sliding on the chord grid is an ordering problem.** RESTRIKE stops the old
+chord then strikes the new one; GLIDE starts the new one *first*, because that
+overlap is what the glide engine reads as one chord becoming another and bends
+the voices across instead of striking them. The exception is two buttons in the
+same column: the engine keys a held chord by its root, so the new chord has
+already replaced the old one there and the note-off would kill what was just
+started. Moving down a column went silent until that was found. The ordering
+lives in `slideActions` where a test can hold it, rather than inside a pointer
+handler where it cannot.
+
 **An isomorphic layout rotated is a different keyboard to play.** The same
 notes, the same intervals, none of the same shapes — which is the only thing
 that matters if you are trying to carry fingerings over from another
