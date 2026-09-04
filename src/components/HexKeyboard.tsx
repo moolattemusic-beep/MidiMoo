@@ -1,0 +1,274 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  HEX_LAYOUTS, HexOrientation, buildHexBoard, hexNoteFull, hexNoteName, hexPoints,
+} from '../lib/HexBoard';
+import { haptic, hapticLabelProps } from '../lib/Haptics';
+
+export interface HexSettings {
+  layoutIndex: number;
+  rotation: number;
+  mirrorLR: boolean;
+  mirrorUD: boolean;
+  /** Circumradius of a hexagon in pixels. The zoom control moves this. */
+  radius: number;
+  centreNote: number;
+  velocity: number;
+  /** Dim everything that is not the key's root, to navigate by. */
+  markRoot: boolean;
+}
+
+export const defaultHexSettings: HexSettings = {
+  layoutIndex: 0,
+  rotation: 0,
+  mirrorLR: false,
+  mirrorUD: false,
+  radius: 34,
+  centreNote: 60,
+  velocity: 100,
+  markRoot: true,
+};
+
+const RADIUS_MIN = 16;
+const RADIUS_MAX = 90;
+
+interface HexKeyboardProps {
+  settings: HexSettings;
+  onSettings: (next: HexSettings) => void;
+  /** Sent exactly as a plugged-in keyboard would: pitch, velocity, on/off. */
+  onNote: (pitch: number, velocity: number, isOn: boolean) => void;
+  /** Pitch class the app is in, drawn brighter so the board can be read. */
+  keyRoot: number;
+  fullScreen: boolean;
+  onToggleFullScreen: () => void;
+}
+
+export const HexKeyboard: React.FC<HexKeyboardProps> = ({
+  settings, onSettings, onNote, keyRoot, fullScreen, onToggleFullScreen,
+}) => {
+  const surface = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  // What each finger is currently holding, so lifting one releases only its own
+  // note and sliding one moves from hex to hex without dropping the others.
+  const held = useRef<Map<number, number>>(new Map());
+  const [lit, setLit] = useState<Set<number>>(new Set());
+  const [showSetup, setShowSetup] = useState(false);
+
+  useEffect(() => {
+    const el = surface.current;
+    if (!el) return;
+    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fullScreen]);
+
+  const orientation: HexOrientation = useMemo(
+    () => ({ rotation: settings.rotation, mirrorLR: settings.mirrorLR, mirrorUD: settings.mirrorUD }),
+    [settings.rotation, settings.mirrorLR, settings.mirrorUD]);
+
+  const board = useMemo(() => buildHexBoard({
+    width: size.w,
+    height: size.h,
+    radius: settings.radius,
+    layout: HEX_LAYOUTS[settings.layoutIndex] ?? HEX_LAYOUTS[0],
+    orientation,
+    centreNote: settings.centreNote,
+  }), [size.w, size.h, settings.radius, settings.layoutIndex, settings.centreNote, orientation]);
+
+  const relight = useCallback(() => {
+    setLit(new Set(held.current.values()));
+  }, []);
+
+  const start = useCallback((pointerId: number, pitch: number) => {
+    if (pitch < 0) return;
+    const already = held.current.get(pointerId);
+    if (already === pitch) return;
+    if (already !== undefined) onNote(already, 0, false);
+    held.current.set(pointerId, pitch);
+    onNote(pitch, settings.velocity, true);
+    haptic('tap');
+    relight();
+  }, [onNote, settings.velocity, relight]);
+
+  const stop = useCallback((pointerId: number) => {
+    const pitch = held.current.get(pointerId);
+    if (pitch === undefined) return;
+    held.current.delete(pointerId);
+    onNote(pitch, 0, false);
+    relight();
+  }, [onNote, relight]);
+
+  // Every note goes off when the board is put away, or a hex left down would
+  // sound until the next panic.
+  useEffect(() => () => {
+    for (const pitch of held.current.values()) onNote(pitch, 0, false);
+    held.current.clear();
+  }, [onNote]);
+
+  const change = (patch: Partial<HexSettings>) => onSettings({ ...settings, ...patch });
+  const layout = HEX_LAYOUTS[settings.layoutIndex] ?? HEX_LAYOUTS[0];
+
+  return (
+    <div className={`flex flex-col gap-2 min-h-0 ${fullScreen ? 'fixed inset-0 z-40 bg-[var(--surface-deep)] p-2' : 'flex-1'}`}>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          onPointerDown={() => { haptic('tap'); setShowSetup(v => !v); }}
+          className={`analog-btn !px-3 !py-[6px] !text-[10px] tracking-[0.14em] ${showSetup ? 'active' : ''}`}
+          {...hapticLabelProps()}
+        >
+          {layout.name}
+        </button>
+
+        <div className="flex items-center gap-1 ml-auto">
+          <button
+            onPointerDown={() => { haptic('step'); change({ radius: Math.max(RADIUS_MIN, settings.radius - 5) }); }}
+            className="analog-btn !px-3 !py-[6px] !text-[13px] leading-none"
+            {...hapticLabelProps()}
+          >−</button>
+          <span className="text-[10px] text-[var(--accent)] w-10 text-center tabular-nums">
+            {Math.round((settings.radius / defaultHexSettings.radius) * 100)}%
+          </span>
+          <button
+            onPointerDown={() => { haptic('step'); change({ radius: Math.min(RADIUS_MAX, settings.radius + 5) }); }}
+            className="analog-btn !px-3 !py-[6px] !text-[13px] leading-none"
+            {...hapticLabelProps()}
+          >+</button>
+          <button
+            onPointerDown={() => { haptic('tap'); onToggleFullScreen(); }}
+            className={`analog-btn !px-3 !py-[6px] !text-[10px] ml-1 ${fullScreen ? 'active' : ''}`}
+            {...hapticLabelProps()}
+          >{fullScreen ? 'EXIT' : 'FULL'}</button>
+        </div>
+      </div>
+
+      {showSetup && (
+        <div className="shrink-0 flex flex-col gap-2 p-2 border border-white/10 bg-[var(--surface)] max-h-[46%] overflow-y-auto">
+          <div className="grid grid-cols-2 gap-1">
+            {HEX_LAYOUTS.map((l, i) => (
+              <button
+                key={l.name}
+                onPointerDown={() => { haptic('tap'); change({ layoutIndex: i }); }}
+                className={`analog-btn !px-2 !py-[6px] !text-[9px] tracking-[0.08em] ${i === settings.layoutIndex ? 'active' : ''}`}
+                {...hapticLabelProps()}
+              >{l.name}</button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">TURN</span>
+            <button
+              onPointerDown={() => { haptic('step'); change({ rotation: (settings.rotation + 5) % 6 }); }}
+              className="analog-btn !px-3 !py-[6px] !text-[11px]" {...hapticLabelProps()}
+            >↺</button>
+            <button
+              onPointerDown={() => { haptic('step'); change({ rotation: (settings.rotation + 1) % 6 }); }}
+              className="analog-btn !px-3 !py-[6px] !text-[11px]" {...hapticLabelProps()}
+            >↻</button>
+            <button
+              onPointerDown={() => { haptic('tap'); change({ mirrorLR: !settings.mirrorLR }); }}
+              className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.mirrorLR ? 'active' : ''}`}
+              {...hapticLabelProps()}
+            >FLIP ↔</button>
+            <button
+              onPointerDown={() => { haptic('tap'); change({ mirrorUD: !settings.mirrorUD }); }}
+              className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.mirrorUD ? 'active' : ''}`}
+              {...hapticLabelProps()}
+            >FLIP ↕</button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">CENTRE</span>
+            <button
+              onPointerDown={() => { haptic('step'); change({ centreNote: Math.max(12, settings.centreNote - 12) }); }}
+              className="analog-btn !px-3 !py-[6px] !text-[11px]" {...hapticLabelProps()}
+            >OCT −</button>
+            <span className="text-[11px] text-[var(--accent)] w-10 text-center tabular-nums">
+              {hexNoteFull(settings.centreNote)}
+            </span>
+            <button
+              onPointerDown={() => { haptic('step'); change({ centreNote: Math.min(115, settings.centreNote + 12) }); }}
+              className="analog-btn !px-3 !py-[6px] !text-[11px]" {...hapticLabelProps()}
+            >OCT +</button>
+            <button
+              onPointerDown={() => { haptic('tap'); change({ markRoot: !settings.markRoot }); }}
+              className={`analog-btn !px-3 !py-[6px] !text-[9px] ml-auto ${settings.markRoot ? 'active' : ''}`}
+              {...hapticLabelProps()}
+            >MARK KEY</button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">VELOCITY</span>
+            <input
+              type="range" min={1} max={127} step={1}
+              value={settings.velocity}
+              onChange={(e) => change({ velocity: parseInt(e.target.value, 10) })}
+              className="flex-1"
+            />
+            <span className="text-[11px] text-[var(--accent)] w-8 text-right tabular-nums">{settings.velocity}</span>
+          </div>
+        </div>
+      )}
+
+      {/* The board. `touch-action: none` is what stops iOS treating a played
+          chord as a pinch or a scroll and cancelling the notes underneath. */}
+      <div
+        ref={surface}
+        className="flex-1 min-h-0 relative overflow-hidden bg-[var(--surface-deep)] border border-white/10"
+        style={{ touchAction: 'none' }}
+      >
+        <svg width={size.w} height={size.h} className="absolute inset-0 select-none">
+          {board.cells.map((cell) => {
+            const dead = cell.pitch < 0;
+            const isLit = !dead && lit.has(cell.pitch);
+            const isRoot = !dead && settings.markRoot && cell.pitch % 12 === ((keyRoot % 12) + 12) % 12;
+            return (
+              <g key={`${cell.col}:${cell.row}`}>
+                <polygon
+                  points={hexPoints(cell.x, cell.y, settings.radius * 0.94)}
+                  fill={dead ? 'rgba(255,255,255,0.02)'
+                    : isLit ? 'var(--accent)'
+                    : isRoot ? 'rgba(240,160,32,0.22)'
+                    : 'rgba(255,255,255,0.06)'}
+                  stroke={isLit ? 'var(--accent)' : 'rgba(255,255,255,0.14)'}
+                  strokeWidth={1}
+                  style={{ touchAction: 'none' }}
+                  onPointerDown={(e) => {
+                    if (dead) return;
+                    // Touch pointers are captured by the element they land on,
+                    // which would stop every other hex ever seeing a finger
+                    // slide onto it. Releasing the capture is what makes a
+                    // glissando across the board possible.
+                    try { (e.target as Element).releasePointerCapture(e.pointerId); } catch { /* synthetic ids */ }
+                    e.preventDefault();
+                    start(e.pointerId, cell.pitch);
+                  }}
+                  onPointerEnter={(e) => {
+                    if (dead || !held.current.has(e.pointerId)) return;
+                    start(e.pointerId, cell.pitch);
+                  }}
+                  onPointerUp={(e) => stop(e.pointerId)}
+                  onPointerCancel={(e) => stop(e.pointerId)}
+                />
+                {settings.radius >= 22 && !dead && (
+                  <text
+                    x={cell.x} y={cell.y + 4}
+                    textAnchor="middle"
+                    className="pointer-events-none select-none"
+                    style={{
+                      fontFamily: "'Space Mono', monospace",
+                      fontSize: Math.max(8, settings.radius * 0.36),
+                      fill: isLit ? '#000' : 'rgba(246,243,237,0.72)',
+                    }}
+                  >
+                    {settings.radius >= 34 ? hexNoteFull(cell.pitch) : hexNoteName(cell.pitch)}
+                  </text>
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </div>
+  );
+};

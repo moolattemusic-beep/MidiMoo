@@ -294,6 +294,31 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A hex layout is two numbers.** How many semitones you move going one hex
+east, and how many going one hex down-left; every other key follows. That is
+what isomorphic means in practice — an interval is a direction, so a chord is
+the same shape wherever it is played. Coordinates are doubled-width (col
+advances by two along a row, odd rows offset by one), which makes the six
+neighbours E/W and the four diagonals, and the hexagons pointy-top. The halving
+in `hexSteps` is always exact because a hex's row and column share a parity.
+
+**The hex board is an input, not an output.** It calls `handleMidi`, the same
+entry point a plugged-in keyboard reaches, which was already in the remote's
+command whitelist — so CLASSIC turns a hex into a chord, FREE plays the note,
+and WALK, patterns, MPE, RANGE and EXTERNAL SYNTH all apply without knowing it
+exists. Nothing about it needed a new command or a new parameter.
+
+**Its settings live on the phone, not in the instrument.** Zoom exists because a
+phone and an iPad want different hex sizes, which makes these properties of the
+device rather than of the sound — so they are in the remote's own
+`localStorage` and deliberately not in a SETUP.
+
+**Touch pointers capture themselves.** A finger landing on an SVG hex gets
+implicit pointer capture, so no other hex would ever see it enter and a slide
+across the board would sound one note. `releasePointerCapture` on pointerdown is
+what makes a glissando work; `touch-action: none` is what stops iOS deciding a
+two-finger chord was a pinch and cancelling both notes.
+
 **A setup carries the sound, not the rig.** SETUPS stores every parameter and
 all eight pads, and deliberately not the MIDI port selection or which socket
 the outboard synth is on. Those describe the room the instrument is standing

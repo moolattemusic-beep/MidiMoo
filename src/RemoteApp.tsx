@@ -4,6 +4,7 @@ import { OrchidParams } from './types';
 import { ArpeggioXYPad } from './components/ArpeggioXYPad';
 import { CustomSlider } from './components/CustomSlider';
 import { MemorySlots } from './components/MemorySlots';
+import { HexKeyboard, HexSettings, defaultHexSettings } from './components/HexKeyboard';
 import { RemoteEngine } from './lib/RemoteEngine';
 import { isStalePage, REMOTE_PORT, RemoteCommandName, RemoteSnapshot, ServerMessage } from './lib/RemoteProtocol';
 import {
@@ -13,7 +14,7 @@ import {
 import { keepAwake, letSleep, wakeLockSupported, watchVisibility } from './lib/WakeLock';
 
 type Connection = 'connecting' | 'open' | 'lost';
-type Tab = 'chords' | 'pads';
+type Tab = 'chords' | 'pads' | 'hex';
 
 const EMPTY: RemoteSnapshot = {
   version: '', params: {}, engineState: {}, memorySlots: [],
@@ -51,6 +52,19 @@ export function RemoteApp() {
   const [snapshot, setSnapshot] = useState<RemoteSnapshot>(EMPTY);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState<Tab>('pads');
+  // The hex board's settings belong to the device it is played on, not to the
+  // instrument: the zoom exists precisely because a phone and an iPad want
+  // different sizes, so they are kept here rather than sent to the desktop.
+  const [hex, setHex] = useState<HexSettings>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('midimoo-hex') || 'null');
+      return saved ? { ...defaultHexSettings, ...saved } : defaultHexSettings;
+    } catch { return defaultHexSettings; }
+  });
+  const [hexFull, setHexFull] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem('midimoo-hex', JSON.stringify(hex)); } catch { /* private mode */ }
+  }, [hex]);
   const [showMore, setShowMore] = useState(false);
   const [awake, setAwake] = useState(false);
   const [, redraw] = useState(0);
@@ -240,7 +254,7 @@ export function RemoteApp() {
 
       {/* Which bank is showing, and the two things that are not played. */}
       <div className="flex items-center gap-1 px-2 pt-2 pb-1 shrink-0">
-        {([['pads', 'PADS'], ['chords', 'CHORDS']] as const).map(([id, label]) => (
+        {([['pads', 'PADS'], ['chords', 'CHORDS'], ['hex', 'HEX']] as const).map(([id, label]) => (
           <button
             key={id}
             onPointerDown={() => { haptic('tap'); setTab(id); }}
@@ -286,7 +300,19 @@ export function RemoteApp() {
       >
         <div className="flex-1 min-h-0 flex flex-col gap-2">
           <div className="flex-1 min-h-0 flex flex-col">
-            {tab === 'pads' ? (
+            {tab === 'hex' ? (
+              <HexKeyboard
+                settings={hex}
+                onSettings={setHex}
+                keyRoot={params.keyRoot ?? 0}
+                fullScreen={hexFull}
+                onToggleFullScreen={() => setHexFull(v => !v)}
+                // Straight into the same entry point a plugged-in keyboard
+                // uses, so the mapping, MPE, RANGE and everything downstream
+                // treat it as one more controller.
+                onNote={(pitch, velocity, isOn) => send('handleMidi', [pitch, velocity, isOn])}
+              />
+            ) : tab === 'pads' ? (
               <MemorySlots
                 engine={engine as unknown as OrchidEngine}
                 slots={snapshot.memorySlots}
