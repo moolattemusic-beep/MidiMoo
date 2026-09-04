@@ -19,6 +19,18 @@ export interface GridSettings {
   /** Whether a finger's travel also sends controllers. */
   ccEnabled: boolean;
   /**
+   * On, a chord sounds while its button is held. Off, a press latches it: the
+   * same button again lets it go, another button takes over from it.
+   */
+  momentary: boolean;
+  /**
+   * How long a chord goes on sounding after it is let go. Press the next one
+   * inside that and it glides from this one; miss it and it strikes fresh.
+   */
+  graceMs: number;
+  /** Send the controllers back to the middle when the grace window runs out. */
+  graceCcReset: boolean;
+  /**
    * On each voice's own MPE channel, or all on channel 1. Channel 1 is the
    * default because it is the one a DAW can learn: under MPE the voices are
    * spread across channels 2-15 and a mapping made on one of them would never
@@ -37,6 +49,9 @@ export const defaultGridSettings: GridSettings = {
   slideMode: 'off',
   ccEnabled: false,
   ccPerVoice: false,
+  momentary: true,
+  graceMs: 150,
+  graceCcReset: false,
   // CC 74 is MPE's own third dimension, and CC 1 the mod wheel. Neither is CC
   // 11, which the glide engine uses on these channels for its own purposes.
   ccY: 74,
@@ -113,11 +128,18 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
 
   // The callback identity changes on every render of the remote; the cleanup
   // below means "on unmount" and must not read that as the board going away.
+  // A chord still sounding after its finger left, waiting out the grace window.
+  const pending = useRef<{ cell: GridCell; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // The chord a press has latched on, when the board is not momentary.
+  const latched = useRef<GridCell | null>(null);
+
   const chordRef = useRef(onChord);
   useEffect(() => { chordRef.current = onChord; });
 
   const relight = useCallback(() => {
-    setLit(new Set([...touches.current.values()].map(t => `${t.cell.column}:${t.cell.row}`)));
+    const on = new Set([...touches.current.values()].map(t => `${t.cell.column}:${t.cell.row}`));
+    if (latched.current) on.add(`${latched.current.column}:${latched.current.row}`);
+    setLit(on);
   }, []);
 
   const startChord = useCallback((cell: GridCell, isUpdate = false) => {
@@ -135,26 +157,109 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     onChord(cell.rootPitch, 0, false, cell.intervals, false);
   }, [onChord]);
 
+  /** Put the axes back where they rest, and say so. */
+  const resetAxes = useCallback(() => {
+    axis.current = { x: 64, y: 64 };
+    if (!settings.ccEnabled) return;
+    onExpression(0, [[settings.ccY, 64], [settings.ccX, 64]], false);
+    showHud([[settings.ccY, 64], [settings.ccX, 64]]);
+    fadeHud();
+  }, [settings.ccEnabled, settings.ccY, settings.ccX, onExpression, showHud, fadeHud]);
+
+  /**
+   * Let a chord go, after the grace window rather than at once.
+   *
+   * Holding the release is what makes a glide between two separate presses
+   * possible at all: the old chord has to still be sounding when the new one
+   * arrives for the engine to have anything to bend across from.
+   */
+  const letGo = useCallback((cell: GridCell) => {
+    const finish = () => {
+      stopChord(cell);
+      pending.current = null;
+      if (settings.graceCcReset) resetAxes();
+    };
+    if (settings.graceMs <= 0) { finish(); return; }
+    if (pending.current) { clearTimeout(pending.current.timer); stopChord(pending.current.cell); }
+    pending.current = { cell, timer: setTimeout(finish, settings.graceMs) };
+  }, [stopChord, settings.graceMs, settings.graceCcReset, resetAxes]);
+
+  /**
+   * Take a chord, from silence or from whatever is still ringing.
+   *
+   * A chord inside its grace window is not gone yet, so this is the same
+   * question as sliding between two buttons — which `slideActions` already
+   * answers, including the same-root case the engine wants stated as an update.
+   */
+  const takeChord = useCallback((cell: GridCell) => {
+    const waiting = pending.current;
+    if (waiting) {
+      clearTimeout(waiting.timer);
+      pending.current = null;
+      if (waiting.cell === cell) return; // still sounding; simply keep it
+      for (const action of slideActions(waiting.cell, cell, settings.slideMode)) {
+        if (action.do === 'start') startChord(action.cell);
+        else if (action.do === 'update') startChord(action.cell, true);
+        else stopChord(action.cell);
+      }
+      return;
+    }
+    startChord(cell);
+  }, [settings.slideMode, startChord, stopChord]);
+
   const press = useCallback((pointerId: number, cell: GridCell, x: number, y: number) => {
+    // Latched: a press takes the chord over from whatever is held, and the same
+    // button twice lets it go.
+    if (!settings.momentary) {
+      const held = latched.current;
+      if (held && held.column === cell.column && held.row === cell.row) {
+        latched.current = null;
+        letGo(cell);
+        relight();
+        haptic('release');
+        return;
+      }
+      if (held) {
+        for (const action of slideActions(held, cell, settings.slideMode)) {
+          if (action.do === 'start') startChord(action.cell);
+          else if (action.do === 'update') startChord(action.cell, true);
+          else stopChord(action.cell);
+        }
+      } else {
+        takeChord(cell);
+      }
+      latched.current = cell;
+      touches.current.set(pointerId, {
+        cell, x, y, baseX: axis.current.x, baseY: axis.current.y, sent: 0,
+      });
+      if (settings.ccEnabled) showHud([[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]]);
+      haptic('tap');
+      relight();
+      return;
+    }
+
     touches.current.set(pointerId, {
       cell, x, y, baseX: axis.current.x, baseY: axis.current.y, sent: 0,
     });
-    startChord(cell);
+    takeChord(cell);
     if (settings.ccEnabled) {
       showHud([[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]]);
     }
     haptic('tap');
     relight();
-  }, [startChord, relight, showHud, settings.ccEnabled, settings.ccY, settings.ccX]);
+  }, [settings.momentary, settings.slideMode, settings.ccEnabled, settings.ccY, settings.ccX,
+    takeChord, letGo, startChord, stopChord, relight, showHud]);
 
   const release = useCallback((pointerId: number) => {
     const touch = touches.current.get(pointerId);
     if (!touch) return;
     touches.current.delete(pointerId);
-    stopChord(touch.cell);
+    // Latched, the finger leaving means nothing: the chord is held by the
+    // button, not by the hand.
+    if (settings.momentary) letGo(touch.cell);
     if (touches.current.size === 0) fadeHud();
     relight();
-  }, [stopChord, relight, fadeHud]);
+  }, [settings.momentary, letGo, relight, fadeHud]);
 
   const move = useCallback((pointerId: number, clientX: number, clientY: number) => {
     const touch = touches.current.get(pointerId);
@@ -183,6 +288,16 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
       }
     }
 
+    // In GLIDE a held finger says nothing about which chord is playing. Dragging
+    // across the board used to walk through every button it crossed, which on a
+    // twelve by twelve grid is a cascade of chord changes nobody asked for — so
+    // the chord is decided by presses, and the finger only moves the
+    // controllers. RESTRIKE keeps the old behaviour, where crossing a button is
+    // the point.
+    if (settings.slideMode === 'glide') return;
+    // A latched chord belongs to its button too, not to the finger.
+    if (!settings.momentary) return;
+
     const hit = cellAt(clientX - rect.left, clientY - rect.top, rect.width, rect.height, COLUMNS, rows);
     if (!hit) return;
     const next = byPosition.get(`${hit.column}:${hit.row}`);
@@ -201,8 +316,9 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     // them to however far it had come since the last button.
     haptic('tap');
     relight();
-  }, [settings.slideMode, settings.ccEnabled, settings.ccPerVoice, settings.ccX, settings.ccY,
-    byPosition, rows, startChord, stopChord, onExpression, relight, showHud]);
+  }, [settings.slideMode, settings.momentary, settings.ccEnabled, settings.ccPerVoice,
+    settings.ccX, settings.ccY, byPosition, rows, startChord, stopChord,
+    onExpression, relight, showHud]);
 
   // Deliberately no dependencies: this runs when the board is genuinely put
   // away, and at no other time.
@@ -211,6 +327,17 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
       chordRef.current(touch.cell.rootPitch, 0, false, touch.cell.intervals, false);
     }
     touches.current.clear();
+    if (pending.current) {
+      clearTimeout(pending.current.timer);
+      const cell = pending.current.cell;
+      chordRef.current(cell.rootPitch, 0, false, cell.intervals, false);
+      pending.current = null;
+    }
+    if (latched.current) {
+      const cell = latched.current;
+      chordRef.current(cell.rootPitch, 0, false, cell.intervals, false);
+      latched.current = null;
+    }
   }, []);
 
   const holding = useMemo(() => {
@@ -232,7 +359,7 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
           className={`analog-btn !px-3 !py-[6px] !text-[10px] tracking-[0.14em] ${showSetup ? 'active' : ''}`}
           {...hapticLabelProps()}
         >
-          {settings.order === 'fifths' ? 'FIFTHS' : 'CHROMATIC'}
+          GRID OPTIONS
         </button>
         <button
           onPointerDown={() => { haptic('tap'); setShowRndm(v => !v); }}
@@ -243,7 +370,9 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
         </button>
         <span className="text-[9px] tracking-[0.16em] opacity-50">
           {settings.slideMode === 'off' ? 'SLIDE: RESTRIKE'
-            : 'SLIDE: GLIDE'}{settings.ccEnabled ? ` · Y CC${settings.ccY} X CC${settings.ccX}` : ''}
+            : 'SLIDE: GLIDE'}
+          {settings.momentary ? '' : ' · LATCH'}
+          {settings.ccEnabled ? ` · Y CC${settings.ccY} X CC${settings.ccX}` : ''}
         </span>
 
         <div className="flex items-center gap-1 ml-auto">
@@ -326,8 +455,50 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
           <p className="text-[8px] leading-tight opacity-50 tracking-[0.06em] -mt-1">
             {settings.slideMode === 'off'
               ? 'SLIDING TO ANOTHER CHORD STRIKES IT AFRESH.'
-              : 'SLIDING BENDS THE VOICES INTO THE NEW CHORD, DOWN A COLUMN AS WELL AS ACROSS. NEEDS MPE ON — ANY GLIDE MODE WILL DO.'}
+              : 'PRESSING THE NEXT CHORD BENDS THE VOICES INTO IT. A HELD FINGER ONLY MOVES THE AXES — IT DOES NOT WALK THROUGH THE BUTTONS IT CROSSES. NEEDS MPE ON; ANY GLIDE MODE WILL DO.'}
           </p>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">HOLD</span>
+            <button
+              onPointerDown={() => { haptic('tap'); change({ momentary: !settings.momentary }); }}
+              className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.momentary ? 'active' : ''}`}
+              title="On, a chord sounds while held. Off, a press latches it until pressed again."
+              {...hapticLabelProps()}
+            >{settings.momentary ? 'MOMENTARY' : 'LATCH'}</button>
+
+            <span className="text-[9px] tracking-[0.18em] opacity-70 ml-3">GRACE</span>
+            <input
+              type="range" min={0} max={1000} step={10}
+              value={settings.graceMs}
+              onChange={(e) => change({ graceMs: parseInt(e.target.value, 10) })}
+              className="flex-1"
+            />
+            <span className="text-[11px] text-[var(--accent)] w-12 text-right tabular-nums">
+              {settings.graceMs === 0 ? 'OFF' : `${settings.graceMs}MS`}
+            </span>
+          </div>
+          <p className="text-[8px] leading-tight opacity-50 tracking-[0.06em] -mt-1">
+            HOW LONG A CHORD GOES ON SOUNDING AFTER IT IS LET GO. PRESS THE NEXT ONE INSIDE
+            THAT AND IT GLIDES FROM THIS ONE; MISS IT AND IT STRIKES FRESH.
+          </p>
+
+          {settings.ccEnabled && settings.graceMs > 0 && (
+            <div className="fade-in flex items-center gap-2">
+              <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">GRACE CC</span>
+              <button
+                onPointerDown={() => { haptic('tap'); change({ graceCcReset: !settings.graceCcReset }); }}
+                className={`analog-btn !px-3 !py-[6px] !text-[9px] ${settings.graceCcReset ? 'active' : ''}`}
+                title="Send the axes back to the middle when the grace window runs out"
+                {...hapticLabelProps()}
+              >GRACE CC RESET</button>
+              <span className="text-[8px] opacity-50 tracking-[0.06em]">
+                {settings.graceCcReset
+                  ? 'THE AXES RETURN TO 64 WHEN THE WINDOW CLOSES.'
+                  : 'THE AXES STAY WHERE THEY WERE LEFT.'}
+              </span>
+            </div>
+          )}
 
           <div className="flex items-center gap-2">
             <span className="text-[9px] tracking-[0.18em] opacity-70 w-16">AXES</span>

@@ -294,6 +294,19 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A held finger does not choose the chord in GLIDE.** Dragging used to walk
+through every button it crossed, which on a twelve by twelve grid is a cascade
+of chord changes nobody wants. The chord is decided by presses; the finger only
+moves the axes. RESTRIKE keeps the old behaviour, where crossing a button is
+the point of the gesture.
+
+**The grace window is a delayed note-off.** Which is what makes a glide between
+two separate presses possible at all: the old chord has to still be sounding
+when the new one arrives, or the engine has nothing to bend across from. A
+chord inside its window is not gone, so taking a new one is the same question
+as sliding between two buttons — `slideActions` answers both, including the
+same-root case the engine wants stated as an update.
+
 **A DAW cannot learn a controller sent per MPE voice.** Under MPE the voices
 are spread across channels 2-15, so a controller riding them arrives on a
 different channel each time and a mapping made on one never sees it again —
