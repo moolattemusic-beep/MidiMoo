@@ -1,5 +1,6 @@
 import {
-  CHORD_ROWS, buildChordGrid, cellAt, rootClasses, rootName, slideActions,
+  CHORD_ROWS, buildChordGrid, cellAt, cellHoldsNotes, rootClasses, rootName,
+  scaleClassesOf, slideActions,
 } from '../src/lib/ChordGrid.ts';
 import { parseChordSymbol } from '../src/lib/ChordSymbol.ts';
 
@@ -132,15 +133,53 @@ function main() {
 
     // Down a column the root does not change, and the engine keys a held chord
     // by its root — so the note-off would kill the chord just started.
-    check('gliding within a column does not release, which would kill it',
-      brief(slideActions(cMaj, cMin, 'glide')) === 'start:Cm',
+    // Down a column the root does not change, so this is not two chords
+    // overlapping but one being re-stated — which is the engine's update path,
+    // and it glides. Sent as a fresh note-on it only restruck.
+    check('gliding within a column re-states the held chord instead',
+      brief(slideActions(cMaj, cMin, 'glide')) === 'update:Cm',
       brief(slideActions(cMaj, cMin, 'glide')));
+    check('and never leaves a stray release to kill it',
+      !slideActions(cMaj, cMin, 'glide').some(a => a.do === 'stop'));
     check('but restriking within a column still releases first',
       brief(slideActions(cMaj, cMin, 'off')) === 'stop:C start:Cm',
       brief(slideActions(cMaj, cMin, 'off')));
 
     check('the timbre mode never changes chord', slideActions(cMaj, gMaj, 'cc74').length === 0);
     check('and sliding nowhere does nothing', slideActions(cMaj, cMaj, 'glide').length === 0);
+  }
+
+  console.log('\n=== Chords that can hold a chosen note ===');
+  {
+    const grid = buildChordGrid(spec);
+    const cell = (rootClass: number, label: string) =>
+      grid.find(c => c.rootClass === rootClass && CHORD_ROWS[c.row].label === label)!;
+
+    // A chord always carries its own notes, whatever its scale says.
+    const cMaj = cell(0, 'MAJ');
+    check('a chord holds its own notes',
+      [0, 4, 7].every(n => scaleClassesOf(cMaj).has(n)), [...scaleClassesOf(cMaj)].join());
+    check('C major holds E', cellHoldsNotes(cMaj, [4]));
+    check('C major does not hold E flat', !cellHoldsNotes(cMaj, [3]));
+
+    const cMin = cell(0, 'MIN');
+    check('C minor holds E flat', cellHoldsNotes(cMin, [3]));
+    check('and not the natural third', !cellHoldsNotes(cMin, [4]));
+
+    check('every note asked for has to be there, not just one',
+      cellHoldsNotes(cMaj, [0, 4, 7]) && !cellHoldsNotes(cMaj, [4, 3]));
+
+    // The point of the thing: which chords could carry a melody note.
+    const holdsG = grid.filter(c => cellHoldsNotes(c, [7]));
+    check('plenty of chords can hold a G under a melody',
+      holdsG.length > 20 && holdsG.length < grid.length,
+      `${holdsG.length} of ${grid.length}`);
+    check('and G major is among them',
+      holdsG.some(c => c.rootClass === 7 && CHORD_ROWS[c.row].label === 'MAJ'));
+
+    check('asking for nothing highlights nothing', !cellHoldsNotes(cMaj, []));
+    check('an impossible pair holds nowhere',
+      grid.filter(c => cellHoldsNotes(c, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])).length === 0);
   }
 
   console.log('\n=== Naming ===');

@@ -14,6 +14,7 @@
  */
 
 import { parseChordSymbol } from './ChordSymbol';
+import { scaleFor } from './ChordColour';
 
 export interface ChordRow {
   /** What the button says. */
@@ -145,6 +146,8 @@ export function cellAt(
 export type SlideMode = 'off' | 'cc74' | 'glide';
 export type SlideAction =
   | { do: 'start'; cell: GridCell }
+  /** Same key, new chord: the engine re-voices what is held and glides to it. */
+  | { do: 'update'; cell: GridCell }
   | { do: 'stop'; cell: GridCell };
 
 /**
@@ -165,9 +168,42 @@ export function slideActions(from: GridCell, to: GridCell, mode: SlideMode): Sli
   if (mode === 'cc74') return [];
   if (from === to || (from.column === to.column && from.row === to.row)) return [];
   if (mode === 'glide') {
+    // Down a column the root does not change, and the engine keys a held chord
+    // by its root — so this is not two chords overlapping but one chord being
+    // re-stated. That is what the engine's update path is for, and it glides
+    // the voices across exactly as it does when a modifier changes under a
+    // held key. Sending it as a fresh note-on instead only restruck it.
     return from.rootPitch === to.rootPitch
-      ? [{ do: 'start', cell: to }]
+      ? [{ do: 'update', cell: to }]
       : [{ do: 'start', cell: to }, { do: 'stop', cell: from }];
   }
   return [{ do: 'stop', cell: from }, { do: 'start', cell: to }];
+}
+
+/**
+ * The pitch classes of a chord's underlying scale.
+ *
+ * The same chord-scale relationship the strum pad and WALK use, so a chord
+ * highlighted here is one the rest of the app agrees carries those notes.
+ */
+export function scaleClassesOf(cell: GridCell): Set<number> {
+  const relative = new Set(cell.intervals.map(i => ((i % 12) + 12) % 12));
+  const scale = scaleFor(relative);
+  const out = new Set<number>();
+  for (const step of scale) out.add(((step + cell.rootClass) % 12 + 12) % 12);
+  // A chord always carries its own notes, whatever the scale says about them.
+  for (const i of relative) out.add(((i + cell.rootClass) % 12 + 12) % 12);
+  return out;
+}
+
+/**
+ * Whether a chord can hold every one of the given notes — the question RNDM
+ * asks when it looks for a progression that keeps a melody note under it.
+ * With nothing chosen, nothing is highlighted rather than everything: an
+ * unasked question has no answer.
+ */
+export function cellHoldsNotes(cell: GridCell, notes: number[]): boolean {
+  if (notes.length === 0) return false;
+  const scale = scaleClassesOf(cell);
+  return notes.every(n => scale.has(((n % 12) + 12) % 12));
 }

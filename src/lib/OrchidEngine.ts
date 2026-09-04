@@ -2271,7 +2271,11 @@ export class OrchidEngine {
    * rather than to a single note. With MPE off they are all channel 1 and this
    * behaves as an ordinary wheel, which is the right answer there too.
    */
-  public keyExpression(sourceKey: number, bendSemitones?: number | null, timbre?: number | null) {
+  public keyExpression(
+    sourceKey: number,
+    bendSemitones?: number | null,
+    ccs?: Array<[number, number]> | null,
+  ) {
     const notes = this.activePitchesMemory[sourceKey];
     if (!notes || notes.length === 0) return;
     const done = new Set<number>();
@@ -2286,8 +2290,13 @@ export class OrchidEngine {
       if (bendSemitones !== undefined && bendSemitones !== null) {
         this.sendPitchBend(bendSemitones, channel);
       }
-      if (timbre !== undefined && timbre !== null) {
-        this.emitMpeExpression(channel, Math.max(0, Math.min(127, Math.round(timbre))));
+      // Named controllers rather than the expression path: that one sends CC
+      // 11, which the glide engine is already using on these very channels,
+      // so a surface writing to it would be arguing with the glide.
+      if (ccs) {
+        for (const [cc, value] of ccs) {
+          this.emitControlChange(cc, Math.max(0, Math.min(127, Math.round(value))), channel);
+        }
       }
     }
   }

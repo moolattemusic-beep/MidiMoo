@@ -107,17 +107,19 @@ export function RemoteApp() {
 
   // The same route a memory pad takes: a root, and the notes to build on it.
   const gridChord = useCallback(
-    (rootPitch: number, velocity: number, isOn: boolean, intervals: number[]) =>
-      send('handleMidi', [rootPitch, velocity, isOn, false, false, false, true, undefined, intervals]),
+    (rootPitch: number, velocity: number, isOn: boolean, intervals: number[], isUpdate: boolean) =>
+      send('handleMidi', [rootPitch, velocity, isOn, false, isUpdate, false, true, undefined, intervals]),
     [send]);
 
   const gridTimbre = useCallback(
-    (rootPitch: number, timbre: number) => send('keyExpression', [rootPitch, null, timbre]),
+    (rootPitch: number, ccs: Array<[number, number]>) => send('keyExpression', [rootPitch, null, ccs]),
     [send]);
+
+  const gridMapCC = useCallback((cc: number) => send('wiggleCC', [cc]), [send]);
 
   const hexExpression = useCallback(
     (sourceKey: number, bend: number, timbre?: number) =>
-      send('keyExpression', timbre === undefined ? [sourceKey, bend] : [sourceKey, bend, timbre]),
+      send('keyExpression', timbre === undefined ? [sourceKey, bend] : [sourceKey, bend, [[74, timbre]]]),
     [send]);
 
   useEffect(() => {
@@ -356,6 +358,7 @@ export function RemoteApp() {
                 onSettings={setGridSet}
                 onChord={gridChord}
                 onExpression={gridTimbre}
+                onMapCC={gridMapCC}
                 fullScreen={hexFull}
                 onToggleFullScreen={() => setHexFull(v => !v)}
               />

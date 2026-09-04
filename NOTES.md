@@ -294,6 +294,25 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**`sendMpeExpression` sends CC 11, not CC 74.** Which is the glide engine's own
+channel-level controller — so a playing surface writing "MPE expression" was
+arguing with the glide on the same channels, and the label saying CC74 was
+simply wrong. `keyExpression` now takes the controller numbers it is to send
+and emits them as ordinary CCs, which is also what makes them mappable.
+
+**A chord gliding into one that shares its root is an update, not an overlap.**
+The engine keys a held chord by its root pitch, so major to minor on the same
+root is one chord being re-stated rather than two sounding at once — and
+`handleMidi`'s `isUpdate` is exactly that path, gliding the voices as it does
+when a modifier changes under a held key. Sent as a fresh note-on it only
+restruck, which is what "everything glides except down a column" turned out to
+mean.
+
+**A controller that snaps back to the middle puts a step in the sound.** The
+grid's two axes keep their values between chords: a new press restates where
+they were left rather than letting the engine's own note-on default decide, so
+lifting a finger and pressing the next button does not jump.
+
 **The chord grid's qualities are symbols, not intervals.** Each row is a suffix
 the app's own parser reads, so the board cannot come to disagree with the text
 field or the chord builder about what m7b5 means. A test parses every root

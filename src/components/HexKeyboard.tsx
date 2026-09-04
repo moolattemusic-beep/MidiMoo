@@ -318,7 +318,7 @@ export const HexKeyboard: React.FC<HexKeyboardProps> = ({
             {settings.mpeMode === 'off'
               ? 'SLIDING RETRIGGERS EACH HEX IT CROSSES.'
               : settings.mpeMode === 'a'
-              ? 'THE NOTE HOLDS; SIDEWAYS BENDS IT, UP AND DOWN IS MPE TIMBRE.'
+              ? 'THE NOTE HOLDS; SIDEWAYS BENDS IT, UP AND DOWN SENDS CC74.'
               : 'THE NOTE HOLDS AND FOLLOWS THE FINGER, IN TUNE ON ARRIVAL.'}
           </p>
 
