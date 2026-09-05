@@ -294,6 +294,21 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**The axes are a store, not React state.** The chord grid and the XY pad move
+the same two numbers and cannot each keep a copy, or grabbing one after the
+other would jump the value. Putting them in state instead would re-render a
+hundred and forty-four buttons seventy times a second to move two numbers,
+which is what made the old floating readout flicker — so only the readout
+subscribes, through `useSyncExternalStore`. Its snapshot has to be stable while
+nothing changes, or that hook spins.
+
+**A pad is a place; a finger already holding a chord only has travel.** The XY
+pad sets the axes outright from where it is touched, because a finger landing
+halfway up should mean halfway. Dragging a chord button cannot do that — the
+finger is busy holding a chord and started wherever the chord is — so there it
+offers displacement from the press instead. Two different mappings onto one
+pair of values, deliberately.
+
 **A held finger does not choose the chord in GLIDE.** Dragging used to walk
 through every button it crossed, which on a twelve by twelve grid is a cascade
 of chord changes nobody wants. The chord is decided by presses; the finger only

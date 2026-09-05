@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   CHORD_ROWS, GridCell, RootOrder, buildChordGrid, cellAt, cellHoldsNotes, rootName, slideActions,
 } from '../lib/ChordGrid';
 import { haptic, hapticLabelProps } from '../lib/Haptics';
+import { AXIS_REST, AxisStore } from '../lib/AxisStore';
 
 export interface GridSettings {
   order: RootOrder;
@@ -71,14 +72,35 @@ interface ChordGridBoardProps {
   onExpression: (rootPitch: number, ccs: Array<[number, number]>, perVoice: boolean) => void;
   /** Send a controller back and forth so a plugin can learn it. */
   onMapCC: (cc: number) => void;
+  /** Shared with the XY pad, so the two never disagree about where they are. */
+  axisStore: AxisStore;
   fullScreen: boolean;
   onToggleFullScreen: () => void;
 }
 
 const COLUMNS = 12;
 
+/**
+ * The axes as they stand, always on screen.
+ *
+ * Its own component and its own subscription: the board around it is 144
+ * buttons, and re-rendering those to move two numbers seventy times a second
+ * is what made the old floating readout flicker.
+ */
+const AxisReadout: React.FC<{ store: AxisStore; ccY: number; ccX: number }> = ({ store, ccY, ccX }) => {
+  const axis = useSyncExternalStore(store.subscribe, store.get, store.get);
+  return (
+    <span className="flex items-center gap-2 px-2 py-[3px] border border-white/10 bg-[var(--surface-deep)]
+                     font-['Space_Mono'] text-[10px] text-[var(--accent)] tabular-nums whitespace-nowrap">
+      <span>CC{ccY} · {String(Math.round(axis.y)).padStart(3, ' ')}</span>
+      <span className="opacity-40">|</span>
+      <span>CC{ccX} · {String(Math.round(axis.x)).padStart(3, ' ')}</span>
+    </span>
+  );
+};
+
 export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
-  settings, onSettings, onChord, onExpression, onMapCC, fullScreen, onToggleFullScreen,
+  settings, onSettings, onChord, onExpression, onMapCC, axisStore, fullScreen, onToggleFullScreen,
 }) => {
   const surface = useRef<HTMLDivElement | null>(null);
   const [showSetup, setShowSetup] = useState(false);
@@ -86,28 +108,10 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
   const [wanted, setWanted] = useState<number[]>([]);
   const [lit, setLit] = useState<Set<string>>(new Set());
 
-  // Where the two axes were left. A new chord picks up from here rather than
-  // snapping back to the middle, so releasing one button and pressing the next
-  // does not put a step in the controller.
-  const axis = useRef({ x: 64, y: 64 });
-
-  // What the axes last sent, shown over the board while a finger is moving
-  // them. Without it there is no way to tell which controller is going out or
-  // where it has got to, short of watching the receiving end.
-  const [hud, setHud] = useState<Array<[number, number]> | null>(null);
-  const hudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // It stays for as long as a finger is on the board, and lingers a moment
-  // after: a readout that expired while the hand was still holding still would
-  // vanish exactly when it was being read.
-  const showHud = useCallback((ccs: Array<[number, number]>) => {
-    if (hudTimer.current) { clearTimeout(hudTimer.current); hudTimer.current = null; }
-    setHud(ccs);
-  }, []);
-  const fadeHud = useCallback(() => {
-    if (hudTimer.current) clearTimeout(hudTimer.current);
-    hudTimer.current = setTimeout(() => setHud(null), 1400);
-  }, []);
-  useEffect(() => () => { if (hudTimer.current) clearTimeout(hudTimer.current); }, []);
+  // Where the two axes stand, shared with the XY pad. Read through the store
+  // rather than held here, so a chord picked up after the pad was moved
+  // continues from the pad's value instead of from its own idea of it.
+  const axis = axisStore;
 
   const rows = Math.max(1, Math.min(CHORD_ROWS.length, settings.visibleRows));
   const grid = useMemo(
@@ -148,7 +152,7 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     // of at whatever the engine hands a fresh note.
     if (settings.ccEnabled) {
       onExpression(cell.rootPitch,
-        [[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]], settings.ccPerVoice);
+        [[settings.ccY, axis.get().y], [settings.ccX, axis.get().x]], settings.ccPerVoice);
     }
   }, [onChord, onExpression, settings.velocity, settings.ccEnabled, settings.ccPerVoice,
     settings.ccY, settings.ccX]);
@@ -159,12 +163,10 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
 
   /** Put the axes back where they rest, and say so. */
   const resetAxes = useCallback(() => {
-    axis.current = { x: 64, y: 64 };
-    if (!settings.ccEnabled) return;
-    onExpression(0, [[settings.ccY, 64], [settings.ccX, 64]], false);
-    showHud([[settings.ccY, 64], [settings.ccX, 64]]);
-    fadeHud();
-  }, [settings.ccEnabled, settings.ccY, settings.ccX, onExpression, showHud, fadeHud]);
+    const moved = axis.reset();
+    if (!settings.ccEnabled || moved.length === 0) return;
+    onExpression(0, [[settings.ccY, AXIS_REST], [settings.ccX, AXIS_REST]], false);
+  }, [axis, settings.ccEnabled, settings.ccY, settings.ccX, onExpression]);
 
   /**
    * Let a chord go, after the grace window rather than at once.
@@ -230,25 +232,20 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
       }
       latched.current = cell;
       touches.current.set(pointerId, {
-        cell, x, y, baseX: axis.current.x, baseY: axis.current.y, sent: 0,
+        cell, x, y, baseX: axis.get().x, baseY: axis.get().y, sent: 0,
       });
-      if (settings.ccEnabled) showHud([[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]]);
       haptic('tap');
       relight();
       return;
     }
 
     touches.current.set(pointerId, {
-      cell, x, y, baseX: axis.current.x, baseY: axis.current.y, sent: 0,
+      cell, x, y, baseX: axis.get().x, baseY: axis.get().y, sent: 0,
     });
     takeChord(cell);
-    if (settings.ccEnabled) {
-      showHud([[settings.ccY, axis.current.y], [settings.ccX, axis.current.x]]);
-    }
     haptic('tap');
     relight();
-  }, [settings.momentary, settings.slideMode, settings.ccEnabled, settings.ccY, settings.ccX,
-    takeChord, letGo, startChord, stopChord, relight, showHud]);
+  }, [settings.momentary, settings.slideMode, axis, takeChord, letGo, startChord, stopChord, relight]);
 
   const release = useCallback((pointerId: number) => {
     const touch = touches.current.get(pointerId);
@@ -257,9 +254,8 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     // Latched, the finger leaving means nothing: the chord is held by the
     // button, not by the hand.
     if (settings.momentary) letGo(touch.cell);
-    if (touches.current.size === 0) fadeHud();
     relight();
-  }, [settings.momentary, letGo, relight, fadeHud]);
+  }, [settings.momentary, letGo, relight]);
 
   const move = useCallback((pointerId: number, clientX: number, clientY: number) => {
     const touch = touches.current.get(pointerId);
@@ -275,15 +271,14 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
         touch.sent = now;
         // Measured from where the axes were left rather than from the middle,
         // so a finger continues the gesture the last one finished.
-        const y = Math.max(0, Math.min(127, touch.baseY - ((clientY - touch.y) / (rect.height / 2)) * 64));
-        const x = Math.max(0, Math.min(127, touch.baseX + ((clientX - touch.x) / (rect.width / 2)) * 64));
-        const moved: Array<[number, number]> = [];
-        if (Math.round(y) !== Math.round(axis.current.y)) moved.push([settings.ccY, y]);
-        if (Math.round(x) !== Math.round(axis.current.x)) moved.push([settings.ccX, x]);
-        axis.current = { x, y };
+        const y = touch.baseY - ((clientY - touch.y) / (rect.height / 2)) * 64;
+        const x = touch.baseX + ((clientX - touch.x) / (rect.width / 2)) * 64;
+        const moved = axis.set({ x, y });
         if (moved.length) {
-          onExpression(touch.cell.rootPitch, moved, settings.ccPerVoice);
-          showHud(moved);
+          const now2 = axis.get();
+          onExpression(touch.cell.rootPitch,
+            moved.map(k => (k === 'y' ? [settings.ccY, now2.y] : [settings.ccX, now2.x])),
+            settings.ccPerVoice);
         }
       }
     }
@@ -317,8 +312,8 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
     haptic('tap');
     relight();
   }, [settings.slideMode, settings.momentary, settings.ccEnabled, settings.ccPerVoice,
-    settings.ccX, settings.ccY, byPosition, rows, startChord, stopChord,
-    onExpression, relight, showHud]);
+    settings.ccX, settings.ccY, axis, byPosition, rows, startChord, stopChord,
+    onExpression, relight]);
 
   // Deliberately no dependencies: this runs when the board is genuinely put
   // away, and at no other time.
@@ -372,10 +367,13 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
           {settings.slideMode === 'off' ? 'SLIDE: RESTRIKE'
             : 'SLIDE: GLIDE'}
           {settings.momentary ? '' : ' · LATCH'}
-          {settings.ccEnabled ? ` · Y CC${settings.ccY} X CC${settings.ccX}` : ''}
+
         </span>
 
         <div className="flex items-center gap-1 ml-auto">
+          {settings.ccEnabled && (
+            <AxisReadout store={axisStore} ccY={settings.ccY} ccX={settings.ccX} />
+          )}
           <button
             onPointerDown={() => { haptic('step'); change({ visibleRows: Math.max(3, rows - 1) }); }}
             className="analog-btn !px-3 !py-[6px] !text-[13px] leading-none" {...hapticLabelProps()}
@@ -603,16 +601,6 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
         onPointerUp={(e) => release(e.pointerId)}
         onPointerCancel={(e) => release(e.pointerId)}
       >
-        {hud && (
-          <div className="absolute top-1 right-1 z-10 pointer-events-none flex flex-col items-end gap-[2px]
-                          bg-black/80 border border-[var(--accent)] px-2 py-1 fade-in">
-            {hud.map(([cc, value]) => (
-              <span key={cc} className="font-['Space_Mono'] text-[11px] text-[var(--accent)] tabular-nums leading-none">
-                CC{cc} · {Math.round(value)}
-              </span>
-            ))}
-          </div>
-        )}
         {CHORD_ROWS.slice(0, rows).map((row, rowIndex) => (
           Array.from({ length: COLUMNS }, (_, column) => {
             const cell = byPosition.get(`${column}:${rowIndex}`);

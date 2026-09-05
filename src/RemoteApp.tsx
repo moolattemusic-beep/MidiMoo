@@ -6,6 +6,8 @@ import { CustomSlider } from './components/CustomSlider';
 import { MemorySlots } from './components/MemorySlots';
 import { HexKeyboard, HexSettings, defaultHexSettings } from './components/HexKeyboard';
 import { ChordGridBoard, GridSettings, defaultGridSettings } from './components/ChordGridBoard';
+import { MpeXYPad } from './components/MpeXYPad';
+import { AxisStore } from './lib/AxisStore';
 import { RemoteEngine } from './lib/RemoteEngine';
 import { isStalePage, REMOTE_PORT, RemoteCommandName, RemoteSnapshot, ServerMessage } from './lib/RemoteProtocol';
 import {
@@ -63,6 +65,14 @@ export function RemoteApp() {
     } catch { return defaultHexSettings; }
   });
   const [hexFull, setHexFull] = useState(false);
+  // One set of axis values behind both the chord grid and the XY pad.
+  const [axisStore] = useState(() => new AxisStore());
+  // Which of the two lives in the column beside the board.
+  const [sidePad, setSidePad] = useState<'arp' | 'xy'>(
+    () => (localStorage.getItem('midimoo-sidepad') === 'xy' ? 'xy' : 'arp'));
+  useEffect(() => {
+    try { localStorage.setItem('midimoo-sidepad', sidePad); } catch { /* private mode */ }
+  }, [sidePad]);
   // The chord board's settings belong to the device it is played on, like the
   // hex board's: how many rows fit is a fact about the screen.
   const [gridSet, setGridSet] = useState<GridSettings>(() => {
@@ -370,6 +380,7 @@ export function RemoteApp() {
                 onChord={gridChord}
                 onExpression={gridTimbre}
                 onMapCC={gridMapCC}
+                axisStore={axisStore}
                 fullScreen={hexFull}
                 onToggleFullScreen={() => setHexFull(v => !v)}
               />
@@ -499,8 +510,34 @@ export function RemoteApp() {
           </div>
         </div>
 
-        <div className="w-[27%] min-w-[150px] portrait:w-full portrait:h-[38%] shrink-0">
-          <ArpeggioXYPad engine={engine as unknown as OrchidEngine} params={params} setParams={setParams} padOnly />
+        <div className="w-[27%] min-w-[150px] portrait:w-full portrait:h-[38%] shrink-0 flex flex-col gap-1 min-h-0">
+          {tab === 'grid' && !useHex && (
+            <div className="flex items-center gap-1 shrink-0">
+              {([['arp', 'ARP'], ['xy', 'MPE XY']] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  onPointerDown={() => { haptic('tap'); setSidePad(id); }}
+                  className={`analog-btn flex-1 !px-2 !py-[5px] !text-[9px] tracking-[0.14em] ${sidePad === id ? 'active' : ''}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex-1 min-h-0">
+            {tab === 'grid' && !useHex && sidePad === 'xy' ? (
+              <MpeXYPad
+                store={axisStore}
+                ccY={gridSet.ccY}
+                ccX={gridSet.ccX}
+                // Channel 1 and no chord needed: the point of the pad is
+                // setting the sound up before anything is played.
+                onSend={(ccs) => { for (const [cc, v] of ccs) send('emitControlChange', [cc, Math.round(v), 1]); }}
+              />
+            ) : (
+              <ArpeggioXYPad engine={engine as unknown as OrchidEngine} params={params} setParams={setParams} padOnly />
+            )}
+          </div>
         </div>
       </div>
 
