@@ -294,6 +294,14 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**The strum pad's CC1 mirror is the velocity, not a second calculation of it.**
+`arpVelocity` exists so the controller and the note are the same number: two
+copies of `round(x * max)` could differ by a step, which nobody notices until a
+filter sits a hair off the accent it was following. The mirror only runs with
+the strip beside the pad set to CC1, and only sends when the value changes — a
+pointer move is a message a frame or faster otherwise. The strip's handle is
+moved to match rather than left reading a position that means nothing.
+
 **The memory pads have always been playable from MIDI.** Eight chromatic keys
 an octave below the chord modifiers, tied to the control octave. WHITE KEYS FOR
 PADS puts them on an octave of naturals instead — C D E F G A B C, eight

@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
+import { arpVelocity } from '../lib/ArpVelocity';
 import { OrchidParams } from '../types';
 import { CustomSlider } from './CustomSlider';
 
@@ -107,6 +108,11 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
     }
   }, [incomingCC]);
 
+  // The last CC1 the pad sent, so a stationary finger is not re-sending it,
+  // and so the strip's handle can be moved to match.
+  const lastCC1 = useRef<number | null>(null);
+  const [stripMirror, setStripMirror] = useState<number | null>(null);
+
   const handlePointerInternal = (lx: number, ly: number, type: 'down' | 'move' | 'up' | 'midi_jump' | 'midi_move') => {
     if (!engine) return;
     
@@ -124,6 +130,21 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
     
     engine.emitControlChange(124, Math.round(xVal * 127), 8);
     engine.emitControlChange(125, Math.round((1 - yVal) * 127), 8);
+
+    // With the strip beside it set to CC1, the pad's own across-axis moves that
+    // controller too, at exactly the velocity it is about to play the note at.
+    // The gesture that decides how hard a note is struck then says so on the
+    // controller as well, so a filter or a swell follows the dynamics without
+    // asking for a second hand. Sent only when the value actually changes: a
+    // pointer move is a message a frame or faster otherwise.
+    if ((params.arpeggioStripMode ?? 0) === 1) {
+      const mirrored = arpVelocity(xVal, params.arpeggioMaxVelocity ?? 127);
+      if (mirrored !== lastCC1.current) {
+        lastCC1.current = mirrored;
+        engine.emitControlChange(1, mirrored, 1);
+        setStripMirror(mirrored);
+      }
+    }
     
     const pitches = engine.getArpeggioSequence();
     if (pitches.length === 0) return;
@@ -134,7 +155,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
     
     if (type === 'down') {
        const maxVel = params.arpeggioMaxVelocity ?? 127;
-       const velocity = Math.max(1, Math.min(maxVel, Math.round(xVal * maxVel)));
+       const velocity = arpVelocity(xVal, maxVel);
        engine.handleArpeggioNoteOn(targetPitch, velocity);
        pluck(safeIndex);
        activePitchRef.current = targetPitch;
@@ -146,7 +167,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
        // sprinkle single notes over a chord without swiping.
        if (params.arpeggioTapToPlay) {
           const maxVel = params.arpeggioMaxVelocity ?? 127;
-          const velocity = Math.max(1, Math.min(maxVel, Math.round(xVal * maxVel)));
+          const velocity = arpVelocity(xVal, maxVel);
           engine.handleArpeggioNoteOn(targetPitch, velocity);
           pluck(safeIndex);
        }
@@ -171,7 +192,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
        }
 
        const maxVel = params.arpeggioMaxVelocity ?? 127;
-       const velocity = Math.max(1, Math.min(maxVel, Math.round(xVal * maxVel)));
+       const velocity = arpVelocity(xVal, maxVel);
        
        // If no note was previously active, treat this first movement as a down trigger
        if (activePitchRef.current === null) {
@@ -423,6 +444,7 @@ export function ArpeggioXYPad({ engine, params, setParams, incomingCC, padOnly }
           engine={engine}
           incomingCC={incomingCC}
           mode={params.arpeggioStripMode ?? 0}
+          mirror={stripMirror}
           velocity={params.outputVelocity ?? 127}
           onVelocity={(value) => {
             const newParams = { ...params, outputVelocity: value };
@@ -511,10 +533,12 @@ const Strings: React.FC<{
  * for. The two rest in different places, so switching between them puts the
  * strip at its new rest rather than leaving it somewhere that means nothing.
  */
-function MagneticPitchBend({ engine, incomingCC, mode, velocity, onVelocity }: {
+function MagneticPitchBend({ engine, incomingCC, mode, mirror, velocity, onVelocity }: {
   engine: OrchidEngine | null,
   incomingCC?: {cc: number, val: number, ch: number, t: number} | null,
   mode: number,
+  /** CC1 the pad has just sent; the handle follows so it cannot read stale. */
+  mirror?: number | null,
   velocity?: number,
   onVelocity?: (value: number) => void,
 }) {
@@ -541,6 +565,12 @@ function MagneticPitchBend({ engine, incomingCC, mode, velocity, onVelocity }: {
     }
   }, [mode, isVelocity, velocity]);
   
+  // The pad has already sent it; this only moves the handle, so the strip
+  // cannot sit somewhere that means nothing.
+  useEffect(() => {
+    if (mode === 1 && mirror !== null && mirror !== undefined) setVal(mirror);
+  }, [mirror, mode]);
+
   useEffect(() => {
     if (incomingCC && incomingCC.ch === 8 && incomingCC.cc === 126) {
       setVal(incomingCC.val);
