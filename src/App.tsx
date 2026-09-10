@@ -4,6 +4,7 @@ import { MidiDeviceManager } from './lib/MidiDeviceManager';
 import { SimpleSynth } from './lib/SimpleSynth';
 import { VelocityModulator } from './lib/VelocityModulator';
 import { ModelD } from './lib/ModelD';
+import { padForKey } from './lib/MemoryKeys';
 import { PatternEditor } from './components/PatternEditor';
 import { MidiSetup } from './components/MidiSetup';
 import { OrchidParams, defaultParams, NoteEvent } from './types';
@@ -248,13 +249,18 @@ function App() {
 
     midiManager.onInputMessage = (pitch, velocity, isOn, channel) => {
       addLog(isOn ? 'NOTE ON' : 'NOTE OFF', channel, pitch, velocity);
-      // Memory slots are exactly one octave below the Major chords base type
-      // Major base type = 24 + (controlOctave * 12)
-      const memoryStartNote = 12 + (paramsRef.current.controlOctave * 12);
-      
-      if (channel === 1 && pitch >= memoryStartNote && pitch < memoryStartNote + 8) {
-        if (true) {
-          const slotIndex = pitch - memoryStartNote;
+      // Memory slots sit one octave below the Major chords base type, which is
+      // at 24 + (controlOctave * 12) — unless they have been put on the white
+      // keys, where they answer to a C of their own choosing instead.
+      const white = paramsRef.current.memoryKeysWhite === true;
+      const memoryStartNote = white
+        ? (paramsRef.current.memoryKeysStart ?? 36)
+        : 12 + (paramsRef.current.controlOctave * 12);
+      const padIndex = channel === 1 ? padForKey(pitch, memoryStartNote, white) : null;
+
+      if (padIndex !== null) {
+        {
+          const slotIndex = padIndex;
           const slot = memorySlotsRef.current[slotIndex];
           if (slot) {
             const vel = paramsRef.current.memoryVelocity || 100;

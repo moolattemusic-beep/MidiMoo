@@ -294,6 +294,15 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**The memory pads have always been playable from MIDI.** Eight chromatic keys
+an octave below the chord modifiers, tied to the control octave. WHITE KEYS FOR
+PADS puts them on an octave of naturals instead — C D E F G A B C, eight
+naturals, so the last pad is the octave above the first rather than a seventh
+above it, which is what counting to eight means to a hand on a keyboard. The
+mapping is in `MemoryKeys.ts` where a test can hold it: the failure that
+matters is not a pad going unreached but a key that fires no pad being quietly
+swallowed instead of played.
+
 **The axes are a store, not React state.** The chord grid and the XY pad move
 the same two numbers and cannot each keep a copy, or grabbing one after the
 other would jump the value. Putting them in state instead would re-render a

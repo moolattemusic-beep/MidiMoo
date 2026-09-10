@@ -111,6 +111,14 @@ export interface OrchidParams {
   // The register slider moves the next chord rather than the one sounding, so
   // it can be set up in advance without announcing itself.
   registerSilent: boolean;
+  /**
+   * Fire the eight memory pads from the white keys — an octave of naturals,
+   * C to C — rather than from eight semitones in a row. Off keeps the pads
+   * where they have always been, eight chromatic keys below the modifiers.
+   */
+  memoryKeysWhite: boolean;
+  /** The C the eight are counted from, when they are on the white keys. */
+  memoryKeysStart: number;
   // How long pattern notes are held, as a percentage of their written length.
   // Kept off the editor on purpose: it is one feel control for the whole
   // pattern, and drawing it would clutter the notes being edited.
@@ -300,6 +308,8 @@ export const defaultParams: OrchidParams = {
   patternBassMode: 0,
   memoryMomentary: true,
   registerSilent: false,
+  memoryKeysWhite: false,
+  memoryKeysStart: 36,
   patternRelease: 100,
   patternGrid: 24,
   patternPedalLift: true,

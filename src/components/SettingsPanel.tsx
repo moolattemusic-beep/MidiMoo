@@ -6,6 +6,7 @@ import { OrchidParams } from '../types';
 import { stageDurationMs } from '../lib/VelocityModulator';
 import { MidiDeviceManager } from '../lib/MidiDeviceManager';
 import { pruneOpenSections } from '../lib/AccordionState';
+import { START_NOTES, memoryKeyRange, noteLabel } from '../lib/MemoryKeys';
 
 interface SettingsPanelProps {
   engine: OrchidEngine | null;
@@ -669,7 +670,51 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
       </CollapsibleSection>
 
       <CollapsibleSection title="Register Control">
-        <div className="flex justify-between items-center mb-3">
+        {/* Playing the pads from real keys rather than from a screen: the
+            difference between a chord landing where it was meant to and landing
+            where the network and the browser got round to it. */}
+        <div className="flex justify-between items-center mb-2">
+          <span className="label-meta">WHITE KEYS FOR PADS</span>
+          <div
+            className={`toggle-switch sm ${params.memoryKeysWhite ? 'on' : ''}`}
+            title="Fire the eight memory pads from an octave of white keys, C to C"
+            onClick={() => updateParam('memoryKeysWhite', !params.memoryKeysWhite)}
+          ></div>
+        </div>
+
+        {params.memoryKeysWhite && (
+          <div className="fade-in mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="label-meta">COUNT FROM</span>
+              <span className="label-meta !text-[var(--accent)]">
+                {memoryKeyRange(params.memoryKeysStart ?? 36, true)}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {START_NOTES.map(note => (
+                <button
+                  key={note}
+                  onClick={() => updateParam('memoryKeysStart', note)}
+                  className={`analog-btn !text-[10px] ${(params.memoryKeysStart ?? 36) === note ? 'active' : ''}`}
+                >
+                  {noteLabel(note)}
+                </button>
+              ))}
+            </div>
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-2 leading-relaxed">
+              THE EIGHT NATURALS FROM THAT C — C D E F G A B C — PLAY PADS ONE TO EIGHT.
+              BLACK KEYS INSIDE THE OCTAVE ARE LEFT ALONE AND STILL PLAY CHORDS AS USUAL.
+            </p>
+          </div>
+        )}
+        {!params.memoryKeysWhite && (
+          <p className="help-text label-meta !text-[0.6rem] opacity-75 mb-4 leading-relaxed">
+            OFF, THE PADS STAY WHERE THEY HAVE ALWAYS BEEN: EIGHT KEYS IN A ROW AN OCTAVE
+            BELOW THE CHORD MODIFIERS, AT {memoryKeyRange(12 + params.controlOctave * 12, false)}.
+          </p>
+        )}
+
+        <div className="flex justify-between items-center mb-3 pt-3 border-t border-white/5">
           <span className="label-meta">SILENT</span>
           <div
             className={`toggle-switch sm ${params.registerSilent ? 'on' : ''}`}
