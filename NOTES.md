@@ -294,6 +294,17 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**A progression is playing order, not a set.** The grid remembers the last
+eight chords played so they can be moved onto the pads, and the same chord
+coming round again is a step of its own — I-V-I is three chords. Only the one
+just sounded is collapsed: pressing it again, or sliding off it and back, is
+one step played twice and would otherwise eat the history a press at a time.
+
+**Pads made from the grid carry a symbol and intervals, not notes.** Which is
+what the text field and the chord builder produce, and it is the difference
+between a pad that still answers to the register, the inversion and the voicing
+disk and one frozen exactly where the grid happened to play it.
+
 **The strum pad's CC1 mirror is the velocity, not a second calculation of it.**
 `arpVelocity` exists so the controller and the note are the same number: two
 copies of `round(x * max)` could differ by a step, which nobody notices until a

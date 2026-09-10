@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  CHORD_ROWS, GridCell, RootOrder, buildChordGrid, cellAt, cellHoldsNotes, rootName, slideActions,
+  CHORD_ROWS, GridCell, RootOrder, buildChordGrid, cellAt, cellHoldsNotes, playedPosition,
+  rememberPlayed, rootName, slideActions,
 } from '../lib/ChordGrid';
 import { haptic, hapticLabelProps } from '../lib/Haptics';
 import { AXIS_REST, AxisStore } from '../lib/AxisStore';
@@ -72,6 +73,8 @@ interface ChordGridBoardProps {
   onExpression: (rootPitch: number, ccs: Array<[number, number]>, perVoice: boolean) => void;
   /** Send a controller back and forth so a plugin can learn it. */
   onMapCC: (cc: number) => void;
+  /** Put a progression found by playing onto the memory pads. */
+  onLoadToMemory: (cells: GridCell[]) => void;
   /** Shared with the XY pad, so the two never disagree about where they are. */
   axisStore: AxisStore;
   fullScreen: boolean;
@@ -100,12 +103,16 @@ const AxisReadout: React.FC<{ store: AxisStore; ccY: number; ccX: number }> = ({
 };
 
 export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
-  settings, onSettings, onChord, onExpression, onMapCC, axisStore, fullScreen, onToggleFullScreen,
+  settings, onSettings, onChord, onExpression, onMapCC, onLoadToMemory,
+  axisStore, fullScreen, onToggleFullScreen,
 }) => {
   const surface = useRef<HTMLDivElement | null>(null);
   const [showSetup, setShowSetup] = useState(false);
   const [showRndm, setShowRndm] = useState(false);
   const [wanted, setWanted] = useState<number[]>([]);
+  // The chords last played, in the order they were played, so a progression
+  // found by ear can be moved onto the pads without writing it down.
+  const [played, setPlayed] = useState<GridCell[]>([]);
   const [lit, setLit] = useState<Set<string>>(new Set());
 
   // Where the two axes stand, shared with the XY pad. Read through the store
@@ -148,6 +155,7 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
 
   const startChord = useCallback((cell: GridCell, isUpdate = false) => {
     onChord(cell.rootPitch, settings.velocity, true, cell.intervals, isUpdate);
+    setPlayed(prev => rememberPlayed(prev, cell));
     // Restate where the axes were left, so the new chord starts there instead
     // of at whatever the engine hands a fresh note.
     if (settings.ccEnabled) {
@@ -363,6 +371,26 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
         >
           RNDM{wanted.length ? ` ${wanted.length}` : ''}
         </button>
+        {played.length > 0 && (
+          <>
+            <button
+              onPointerDown={() => { haptic('tap'); onLoadToMemory(played); }}
+              className="analog-btn !px-3 !py-[6px] !text-[10px] tracking-[0.14em] active"
+              title="Put these chords on the memory pads, in the order they were played"
+              {...hapticLabelProps()}
+            >
+              LOAD {played.length}
+            </button>
+            <button
+              onPointerDown={() => { haptic('release'); setPlayed([]); }}
+              className="analog-btn !px-2 !py-[6px] !text-[10px]"
+              title="Forget them and start the progression again"
+              {...hapticLabelProps()}
+            >
+              ✕
+            </button>
+          </>
+        )}
         <span className="text-[9px] tracking-[0.16em] opacity-50">
           {settings.slideMode === 'off' ? 'SLIDE: RESTRIKE'
             : 'SLIDE: GLIDE'}
@@ -606,16 +634,32 @@ export const ChordGridBoard: React.FC<ChordGridBoardProps> = ({
             const cell = byPosition.get(`${column}:${rowIndex}`);
             const on = lit.has(`${column}:${rowIndex}`);
             const holds = holding.has(`${column}:${rowIndex}`);
+            const order = playedPosition(played, column, rowIndex);
             return (
               <div
                 key={`${column}:${rowIndex}`}
-                className={`flex flex-col items-center justify-center overflow-hidden pointer-events-none
+                className={`relative flex flex-col items-center justify-center overflow-hidden pointer-events-none
                   ${on ? 'bg-[var(--accent)] text-black'
                     : holds ? 'bg-[var(--accent)]/25 text-[var(--ink)]'
                     : wanted.length ? 'bg-white/[0.02] text-[var(--ink-dim)] opacity-40'
                     : 'bg-white/[0.05] text-[var(--ink-dim)]'}`}
-                style={{ borderRadius: 2 }}
+                style={{
+                  borderRadius: 2,
+                  // A ring rather than a fill, so being in the progression
+                  // reads differently from sounding now and from holding the
+                  // notes RNDM was asked for.
+                  boxShadow: order && !on ? 'inset 0 0 0 1px var(--accent)' : undefined,
+                }}
               >
+                {order > 0 && (
+                  <span
+                    className={`absolute top-[1px] left-[2px] leading-none font-['Space_Mono']
+                      ${on ? 'text-black/70' : 'text-[var(--accent)]'}`}
+                    style={{ fontSize: 'clamp(6px, 0.9vh, 9px)' }}
+                  >
+                    {order}
+                  </span>
+                )}
                 <span
                   className="font-['Space_Mono'] leading-none"
                   style={{ fontSize: 'clamp(7px, 1.4vh, 13px)' }}

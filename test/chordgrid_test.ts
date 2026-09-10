@@ -1,6 +1,6 @@
 import {
-  CHORD_ROWS, buildChordGrid, cellAt, cellHoldsNotes, rootClasses, rootName,
-  scaleClassesOf, slideActions,
+  CHORD_ROWS, buildChordGrid, cellAt, cellHoldsNotes, gridCellsToSlots, playedPosition,
+  rememberPlayed, rootClasses, rootName, scaleClassesOf, slideActions,
 } from '../src/lib/ChordGrid.ts';
 import { parseChordSymbol } from '../src/lib/ChordSymbol.ts';
 
@@ -184,6 +184,88 @@ function main() {
     check('asking for nothing highlights nothing', !cellHoldsNotes(cMaj, []));
     check('an impossible pair holds nowhere',
       grid.filter(c => cellHoldsNotes(c, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])).length === 0);
+  }
+
+  console.log('\n=== Remembering what was played ===');
+  {
+    const grid = buildChordGrid(spec);
+    const cell = (rootClass: number, label: string) =>
+      grid.find(c => c.rootClass === rootClass && CHORD_ROWS[c.row].label === label)!;
+    const C = cell(0, 'MAJ'), G = cell(7, 'MAJ'), Am = cell(9, 'MIN'), F = cell(5, 'MAJ');
+    const names = (h: ReturnType<typeof rememberPlayed>) => h.map(c => c.symbol).join(' ');
+
+    let h: typeof grid = [];
+    for (const c of [C, G, Am, F]) h = rememberPlayed(h, c);
+    check('it keeps them in playing order', names(h) === 'C G Am F', names(h));
+
+    // The same chord coming round again is a step of the progression, not a
+    // duplicate: I-V-I is three chords, not two.
+    h = rememberPlayed(h, C);
+    check('a chord returning later is kept', names(h) === 'C G Am F C', names(h));
+
+    // But pressing the one already sounding, or sliding off it and back, is
+    // one step played twice — that would eat the history a press at a time.
+    h = rememberPlayed(h, C);
+    check('and pressing the same one again is not a new step',
+      names(h) === 'C G Am F C', names(h));
+  }
+  {
+    const grid = buildChordGrid(spec);
+    const eight = grid.slice(0, 10);
+    let h: typeof grid = [];
+    for (const c of eight) h = rememberPlayed(h, c);
+    check('it holds at eight, one per pad', h.length === 8, `${h.length}`);
+    check('and it is the last eight that are kept',
+      h[0].symbol === eight[2].symbol && h[7].symbol === eight[9].symbol,
+      `${h[0].symbol}..${h[7].symbol}`);
+  }
+  {
+    const grid = buildChordGrid(spec);
+    const C = grid.find(c => c.rootClass === 0 && c.row === 0)!;
+    const G = grid.find(c => c.rootClass === 7 && c.row === 0)!;
+    const h = rememberPlayed(rememberPlayed([], C), G);
+    check('a button knows where it will land', playedPosition(h, C.column, C.row) === 1);
+    check('and so does the next', playedPosition(h, G.column, G.row) === 2);
+    check('one never played is nowhere', playedPosition(h, 3, 5) === 0);
+    // The first time it was played is the pad it goes to; a later repeat does
+    // not move it.
+    const withRepeat = rememberPlayed(h, C);
+    check('a repeat is numbered where it first landed',
+      playedPosition(withRepeat, C.column, C.row) === 1, `${playedPosition(withRepeat, C.column, C.row)}`);
+  }
+
+  console.log('\n=== Loading a progression onto the pads ===');
+  {
+    const grid = buildChordGrid(spec);
+    const cell = (rootClass: number, label: string) =>
+      grid.find(c => c.rootClass === rootClass && CHORD_ROWS[c.row].label === label)!;
+    const played = [cell(2, 'MIN7'), cell(7, '7'), cell(0, 'MAJ7')];
+    const slots = gridCellsToSlots(played);
+
+    check('there is a pad for every pad', slots.length === 8);
+    check('the progression lands in the order it was played',
+      slots.slice(0, 3).map(s => s!.symbol).join(' ') === 'Dm7 G7 Cmaj7',
+      slots.slice(0, 3).map(s => s!.symbol).join(' '));
+    // Anything left over has to be cleared, or the pads beyond the progression
+    // would still hold whatever was there and read as part of it.
+    check('and the pads beyond it are emptied', slots.slice(3).every(s => s === null));
+
+    // Intervals rather than frozen notes: a pad written this way still answers
+    // to the register, the inversion and the voicing disk.
+    check('each pad carries its intervals', slots[0]!.chordIntervals.join() === '0,3,7,10',
+      slots[0]!.chordIntervals.join());
+    check('and a symbol the rest of the app can read',
+      slots.slice(0, 3).every(s => !!parseChordSymbol(s!.symbol)));
+    check('with no chord modifier stuck on',
+      slots.slice(0, 3).every(s => s!.baseType === -1 && !s!.ext_m7 && !s!.ext_M7 && !s!.ext_6 && !s!.ext_9));
+    check('and the root it was played at', slots[1]!.rootPitch === cell(7, '7').rootPitch);
+  }
+  {
+    check('nothing played empties every pad',
+      gridCellsToSlots([]).every(s => s === null));
+    const grid = buildChordGrid(spec);
+    check('more than eight fills eight and no more',
+      gridCellsToSlots(grid.slice(0, 20)).length === 8);
   }
 
   console.log('\n=== Naming ===');

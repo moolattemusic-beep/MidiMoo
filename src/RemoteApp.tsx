@@ -6,6 +6,7 @@ import { CustomSlider } from './components/CustomSlider';
 import { MemorySlots } from './components/MemorySlots';
 import { HexKeyboard, HexSettings, defaultHexSettings } from './components/HexKeyboard';
 import { ChordGridBoard, GridSettings, defaultGridSettings } from './components/ChordGridBoard';
+import { GridCell, gridCellsToSlots } from './lib/ChordGrid';
 import { MpeXYPad } from './components/MpeXYPad';
 import { AxisStore } from './lib/AxisStore';
 import { RemoteEngine } from './lib/RemoteEngine';
@@ -137,6 +138,18 @@ export function RemoteApp() {
   // Learned on the same channel the playing sends on, or the mapping would be
   // made somewhere the controller never appears again.
   const gridMapCC = useCallback((cc: number) => send('wiggleCC', [cc, 1]), [send]);
+
+  /**
+   * A progression played on the grid, moved onto the pads.
+   *
+   * Written as a symbol and its intervals rather than as frozen notes, which
+   * is what the text field and the chord builder produce: a pad made that way
+   * still answers to the register, the inversion and the voicing disk, where a
+   * literal voicing would sit exactly where the grid happened to play it.
+   */
+  const gridToMemory = useCallback(
+    (cells: GridCell[]) => send('updateSlots', [gridCellsToSlots(cells)]),
+    [send]);
 
   const hexExpression = useCallback(
     (sourceKey: number, bend: number, timbre?: number) =>
@@ -380,6 +393,7 @@ export function RemoteApp() {
                 onChord={gridChord}
                 onExpression={gridTimbre}
                 onMapCC={gridMapCC}
+                onLoadToMemory={gridToMemory}
                 axisStore={axisStore}
                 fullScreen={hexFull}
                 onToggleFullScreen={() => setHexFull(v => !v)}

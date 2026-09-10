@@ -207,3 +207,69 @@ export function cellHoldsNotes(cell: GridCell, notes: number[]): boolean {
   const scale = scaleClassesOf(cell);
   return notes.every(n => scale.has(((n % 12) + 12) % 12));
 }
+
+/**
+ * The chords most recently played, oldest first.
+ *
+ * Kept so a progression found by playing can be moved onto the memory pads
+ * without writing it down. Playing order is what is kept, because that is the
+ * progression — the same chord returning later in it is a step of its own, not
+ * a duplicate to be tidied away.
+ *
+ * The exception is the chord that has just sounded: pressing it again, or
+ * sliding off it and back, is one step being played twice rather than two
+ * steps, and would otherwise eat the history a press at a time.
+ */
+export function rememberPlayed(history: GridCell[], cell: GridCell, limit = 8): GridCell[] {
+  const last = history[history.length - 1];
+  if (last && last.column === cell.column && last.row === cell.row) return history;
+  const next = [...history, cell];
+  return next.length > limit ? next.slice(next.length - limit) : next;
+}
+
+/** Where a button sits in the history, 1-based, or 0 if it is not in it. */
+export function playedPosition(history: GridCell[], column: number, row: number): number {
+  for (let i = 0; i < history.length; i++) {
+    if (history[i].column === column && history[i].row === row) return i + 1;
+  }
+  return 0;
+}
+
+/** A memory pad, as the text field and the chord builder write one. */
+export interface GridSlot {
+  rootPitch: number;
+  baseType: number;
+  ext_m7: boolean;
+  ext_M7: boolean;
+  ext_6: boolean;
+  ext_9: boolean;
+  symbol: string;
+  chordIntervals: number[];
+}
+
+/**
+ * A progression played on the grid, as eight memory pads.
+ *
+ * Written as a symbol and its intervals rather than as frozen notes, which is
+ * what the text field and the chord builder produce: a pad made that way still
+ * answers to the register, the inversion and the voicing disk, where a literal
+ * voicing would sit exactly where the grid happened to play it and ignore all
+ * three.
+ *
+ * Always eight, because that is how many pads there are — a shorter
+ * progression empties the rest rather than leaving whatever was there before,
+ * which would read as part of what was just played.
+ */
+export function gridCellsToSlots(cells: GridCell[], padCount = 8): Array<GridSlot | null> {
+  return Array.from({ length: padCount }, (_, i) => {
+    const cell = cells[i];
+    if (!cell) return null;
+    return {
+      rootPitch: cell.rootPitch,
+      baseType: -1,
+      ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
+      symbol: cell.symbol,
+      chordIntervals: cell.intervals,
+    };
+  });
+}
