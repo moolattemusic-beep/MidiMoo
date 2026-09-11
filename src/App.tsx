@@ -277,7 +277,7 @@ function App() {
               newEngine.ext_6 = slot.ext_6;
               newEngine.ext_9 = slot.ext_9;
               newEngine.notifyState();
-              newEngine.handleMidi(slot.rootPitch, vel, true, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+              newEngine.handleMidi(slot.rootPitch, vel, true, false, false, false, true, slot.customVoicing, slot.chordIntervals, slotIndex);
             } else if (paramsRef.current.memoryMomentary) {
               setPlayingSlotIndices(prev => prev.filter(x => x !== slotIndex));
               newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
@@ -373,6 +373,12 @@ function App() {
   useEffect(() => {
     if (engine) engine.params = params;
   }, [engine, params]);
+
+  // Voice leading works a pad out from its neighbours, so the engine needs the
+  // whole row rather than only the pad being pressed.
+  useEffect(() => {
+    if (engine) engine.setPadSlots(memorySlots);
+  }, [engine, memorySlots]);
 
   // Velocity envelope -> pitch bend and CC1, at the tail of the MIDI chain.
   // Pitch is published as an offset the MIDI layer adds to the glide engine's

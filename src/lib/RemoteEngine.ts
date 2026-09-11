@@ -68,11 +68,14 @@ export class RemoteEngine {
     isMemoryTrigger = false,
     customVoicing?: number[],
     chordIntervals?: number[],
+    padIndex?: number,
   ) {
     haptic(isOn ? 'press' : 'release');
+    // Which pad it was travels too: without it a pad pressed on the phone would
+    // be voiced on its own rather than led from its neighbours.
     this.send('handleMidi', [
       pitch, velocity, isOn, skipBass, isUpdate, forcePlay, isMemoryTrigger,
-      customVoicing, chordIntervals,
+      customVoicing, chordIntervals, padIndex,
     ]);
   }
 

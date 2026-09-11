@@ -119,6 +119,16 @@ export interface OrchidParams {
   memoryKeysWhite: boolean;
   /** The C the eight are counted from, when they are on the white keys. */
   memoryKeysStart: number;
+  /**
+   * Voice the memory pads from each other rather than one at a time. Off keeps
+   * every pad exactly as it has always been voiced. See `VoiceLeading.ts`.
+   */
+  voiceLeadEnabled: boolean;
+  /** PAD ORDER leads pad n from pad n-1; AS PLAYED leads from whatever sounded last. */
+  voiceLeadScope: 'pads' | 'played';
+  voiceLeadMode: 'topLine' | 'anchor' | 'allVoices' | 'commonTones';
+  /** The note the top voice is held near, in ANCHOR. */
+  voiceLeadAnchor: number;
   // How long pattern notes are held, as a percentage of their written length.
   // Kept off the editor on purpose: it is one feel control for the whole
   // pattern, and drawing it would clutter the notes being edited.
@@ -310,6 +320,10 @@ export const defaultParams: OrchidParams = {
   registerSilent: false,
   memoryKeysWhite: false,
   memoryKeysStart: 36,
+  voiceLeadEnabled: false,
+  voiceLeadScope: 'pads',
+  voiceLeadMode: 'topLine',
+  voiceLeadAnchor: 67,
   patternRelease: 100,
   patternGrid: 24,
   patternPedalLift: true,

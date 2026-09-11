@@ -1,3 +1,4 @@
+import { LeadOptions, leadChain, leadNext } from './VoiceLeading';
 import { OrchidParams, NoteEvent } from '../types';
 import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
 import { colourTensionsFor, parseColourMatrix, qualityOf, scaleFor } from './ChordColour';
@@ -35,6 +36,18 @@ interface PatternRun {
   holds: Map<string, { pitch: number; channel?: number }>;
   holdsStale: boolean;
   timers: Set<any>;
+}
+
+/** What the engine needs from a memory pad to voice it without it being pressed. */
+interface PadSlotLike {
+  rootPitch: number;
+  baseType: number;
+  ext_m7: boolean;
+  ext_M7: boolean;
+  ext_6: boolean;
+  ext_9: boolean;
+  customVoicing?: number[];
+  chordIntervals?: number[];
 }
 
 export class OrchidEngine {
@@ -1283,6 +1296,10 @@ export class OrchidEngine {
     this.heldKeys.clear();
     this.heldCustomVoicings.clear();
     this.heldChordIntervals.clear();
+    this.heldPadIndex.clear();
+    // A line interrupted by panic starts again from the next chord.
+    this.lastLedVoicing = null;
+    this.ledSeedKey = null;
     this.heldMemoryKeys.clear();
     this.lastStrumIndex = -1;
     this.sustainPedalActive = false;
@@ -1427,6 +1444,13 @@ export class OrchidEngine {
   // Intervals of a pasted chord symbol, kept so retriggers (a register move,
   // an inversion change) rebuild the same chord rather than the default one.
   public heldChordIntervals: Map<number, number[]> = new Map();
+  // Voice leading: which pad each held key came from, the row of pads, and for
+  // AS PLAYED the voicing that sounded last and the settings it was seeded under.
+  private heldPadIndex: Map<number, number> = new Map();
+  private padSlots: Array<PadSlotLike | null> = [];
+  private lastLedVoicing: number[] | null = null;
+  private ledSeedKey: string | null = null;
+  private ledAnchorShift = 0;
   // Which held keys came from a memory pad. In Free mode the pads still play
   // chords, so a retrigger has to go back down the chord path — routing it
   // through the free-mode branch instead would strand the chord's notes.
@@ -1459,7 +1483,7 @@ export class OrchidEngine {
     this.retriggerHeldKeys(true);
   }
 
-  private pickVoicing(): string {
+  private pickVoicing(deterministic = false): string {
     const vx = this.params.voicingX;
     const vy = this.params.voicingY;
     
@@ -1470,6 +1494,19 @@ export class OrchidEngine {
       { name: 'Drop 4', x: -0.588, y: 0.809 },
       { name: 'Open', x: -0.951, y: -0.309 }
     ];
+
+    // Otherwise the disk blends between nodes at random, which is a fine thing
+    // for a chord played by hand and ruinous for a voice-led pad: a chain worked
+    // out from a random voicing would come out different every time.
+    if (deterministic) {
+      let nearest = nodes[0];
+      let best = Infinity;
+      for (const node of nodes) {
+        const d = Math.hypot(vx - node.x, vy - node.y);
+        if (d < best) { best = d; nearest = node; }
+      }
+      return nearest.name;
+    }
     
     let weights = [];
     let totalWeight = 0;
@@ -1829,6 +1866,179 @@ export class OrchidEngine {
       out.sort((a, b) => a - b);
     }
     return out;
+  }
+
+  /**
+   * A chord's notes, before anything decides where it sits relative to others.
+   *
+   * Pulled out of handleMidi so the voice-leading chain can voice a pad nobody
+   * is pressing through exactly the same path a press would take. A second copy
+   * of this would drift, and a pad would then lead from a voicing it never plays.
+   */
+  private voiceChord(
+    pitch: number, mappedRoot: number, intervals: number[], customVoicing: number[] | undefined,
+    usingPastedChord: boolean, memoryVoiceLimit: number | undefined, deterministic: boolean,
+  ): { pitches: number[]; isSingleNote: boolean } {
+    let out: number[];
+    let single = false;
+    if (customVoicing && customVoicing.length > 0) {
+      out = this.params.memoryFollowRegister !== false
+        ? this.reRegisterVoicing(customVoicing)
+        : this.applyInversion([...customVoicing]);
+    } else if (intervals.length === 0) {
+      out = [pitch];
+      single = true;
+    } else {
+      out = this.calculateFoldedPitches(mappedRoot, intervals, usingPastedChord, memoryVoiceLimit);
+
+      // Apply Voicing Mutation (only to generated chords)
+      out.sort((a, b) => a - b);
+      const voicing = this.pickVoicing(deterministic);
+      if (voicing === 'Drop 2' && out.length >= 2) {
+        out[out.length - 2] -= 12;
+      } else if (voicing === 'Drop 3' && out.length >= 3) {
+        out[out.length - 3] -= 12;
+      } else if (voicing === 'Drop 4' && out.length >= 4) {
+        out[out.length - 4] -= 12;
+      } else if (voicing === 'Open' && out.length >= 3) {
+        if (out.length >= 2) out[out.length - 2] -= 12;
+        if (out.length >= 4) out[out.length - 4] -= 12;
+      }
+      // Drop voicings can push a note well below the register, and those are
+      // tidied away here. A downward inversion is not that: it is meant to go
+      // below, so the floor is lowered by exactly as far as it was asked to
+      // reach — otherwise the inversion is thrown away note by note and the
+      // chord loses its bottom as the control is turned down.
+      const startRange = this.params.chordRegisterStart;
+      const inversionFloor = startRange + Math.min(0, Math.round(this.params.chordInversion ?? 0)) * 12;
+      out = out.filter(p => p >= inversionFloor && p <= 127).map(p => Math.max(0, p));
+    }
+    return { pitches: out, isSingleNote: single };
+  }
+
+  // ---- voice leading ------------------------------------------------------
+  // The pads voiced from each other. See VoiceLeading.ts for the placement
+  // itself; this is where the engine supplies the chords and the settings.
+
+  /** The whole row of pads, so a pad can be led from ones nobody is pressing. */
+  public setPadSlots(slots: Array<PadSlotLike | null>) {
+    this.padSlots = slots.map(slot => (slot ? { ...slot } : null));
+  }
+
+  /**
+   * Where voicings may be placed: from an octave under the register to three
+   * above, and never outside RANGE. Keeping inside RANGE matters — a led chord
+   * that RANGE then had to fold would jump an octave, which is the opposite of
+   * the point.
+   */
+  private leadWindow() {
+    const register = this.params.chordRegisterStart;
+    const rangeLow = Math.max(0, Math.min(127, Math.round(this.params.outputRangeLow ?? 0)));
+    const rangeHigh = Math.max(0, Math.min(127, Math.round(this.params.outputRangeHigh ?? 127)));
+    return {
+      low: Math.max(register - 12, rangeLow),
+      high: Math.min(register + 36, rangeHigh),
+      floor: register,
+    };
+  }
+
+  private leadOptions(anchorShift: number): LeadOptions {
+    return {
+      mode: this.params.voiceLeadMode ?? 'topLine',
+      window: this.leadWindow(),
+      anchor: (this.params.voiceLeadAnchor ?? 67) + anchorShift,
+    };
+  }
+
+  /**
+   * Run something against different settings without touching the real ones.
+   * A copy rather than an edit: `params` is the same object the interface holds
+   * in state, and writing to it, even for an instant, would be writing to that.
+   */
+  private withParams<T>(patch: Partial<OrchidEngine['params']>, fn: () => T): T {
+    const saved = this.params;
+    this.params = { ...saved, ...patch };
+    try { return fn(); } finally { this.params = saved; }
+  }
+
+  /**
+   * A pad saved from the keyboard stores its modifiers, not its notes, and the
+   * engine only knows how to turn modifiers into notes from its own live state.
+   * So that state is borrowed for the moment it takes, and handed back.
+   * Deliberately not setModifiers(): that would retrigger every held key.
+   */
+  private withSlotModifiers<T>(slot: PadSlotLike, fn: () => T): T {
+    const saved = [this.manualBaseType, this.ext_m7, this.ext_M7, this.ext_6, this.ext_9] as const;
+    this.manualBaseType = slot.baseType;
+    this.ext_m7 = slot.ext_m7; this.ext_M7 = slot.ext_M7; this.ext_6 = slot.ext_6; this.ext_9 = slot.ext_9;
+    try { return fn(); } finally {
+      [this.manualBaseType, this.ext_m7, this.ext_M7, this.ext_6, this.ext_9] = saved;
+    }
+  }
+
+  /** A pad voiced as a press would voice it, for the chain. Null for no chord. */
+  private baseForSlot(slot: PadSlotLike): number[] | null {
+    const usingPasted = !!(slot.chordIntervals && slot.chordIntervals.length > 0);
+    const memoryVoiceLimit = this.params.mpeEnabled ? Math.max(1, this.params.mpeMaxVoices ?? 5) : undefined;
+    const mappedRoot = usingPasted ? slot.rootPitch : this.getMappedRootPitch(slot.rootPitch);
+    const intervals = usingPasted
+      ? slot.chordIntervals!
+      : this.withSlotModifiers(slot, () => this.getIntervalsForState(slot.rootPitch));
+    const voiced = this.voiceChord(slot.rootPitch, mappedRoot, intervals, slot.customVoicing,
+      usingPasted, memoryVoiceLimit, true);
+    return voiced.isSingleNote || voiced.pitches.length === 0 ? null : voiced.pitches;
+  }
+
+  /**
+   * How far INVERSION moved the seed's top note. ANCHOR moves by the same amount,
+   * which is what makes inversion an offset in every mode rather than something
+   * the anchor simply overrules.
+   */
+  private inversionShift(slot: PadSlotLike): number {
+    if ((this.params.voiceLeadMode ?? 'topLine') !== 'anchor') return 0;
+    const turned = this.baseForSlot(slot);
+    const plain = this.withParams({ chordInversion: 0 }, () => this.baseForSlot(slot));
+    if (!turned || !plain) return 0;
+    return Math.max(...turned) - Math.max(...plain);
+  }
+
+  private static samePitchClasses(a: number[], b: number[]) {
+    const pcs = (v: number[]) => [...new Set(v.map(p => ((p % 12) + 12) % 12))].sort((x, y) => x - y).join();
+    return pcs(a) === pcs(b);
+  }
+
+  /**
+   * The voicing a pad should sound, led from its neighbour.
+   *
+   * PAD ORDER works the whole row out from the first pad each time, so a pad is a
+   * function of the pads and the settings and sounds the same however it is
+   * reached. AS PLAYED leads from whatever sounded last, and starts afresh from
+   * the chord being pressed whenever INVERSION or the register has moved since —
+   * which is how turning INVERSION re-seeds the line.
+   */
+  private ledVoicingFor(index: number, base: number[]): number[] | null {
+    if (this.params.voiceLeadScope === 'played') {
+      const seedKey = `${Math.round(this.params.chordInversion ?? 0)}|${this.params.chordRegisterStart}|${this.params.voiceLeadMode}|${this.params.voiceLeadAnchor}`;
+      if (this.lastLedVoicing === null || this.ledSeedKey !== seedKey) {
+        const slot = this.padSlots[index];
+        this.ledAnchorShift = slot ? this.inversionShift(slot) : 0;
+        this.ledSeedKey = seedKey;
+        this.lastLedVoicing = leadNext(base, null, this.leadOptions(this.ledAnchorShift));
+      } else {
+        this.lastLedVoicing = leadNext(base, this.lastLedVoicing, this.leadOptions(this.ledAnchorShift));
+      }
+      return this.lastLedVoicing;
+    }
+
+    const bases = this.padSlots.map(slot => (slot ? this.baseForSlot(slot) : null));
+    const seed = bases.findIndex(b => !!b && b.length > 0);
+    if (seed === -1) return null;
+    const chain = leadChain(bases, this.leadOptions(this.inversionShift(this.padSlots[seed]!)));
+    const led = chain[index];
+    // If the row the engine was given is out of step with what was pressed, a
+    // voicing of some other chord would be worse than no leading at all.
+    if (!led || !OrchidEngine.samePitchClasses(led, base)) return null;
+    return led;
   }
 
   private calculateFoldedPitches(rootPitch: number, intervals: number[], keepAllTones = false, noteLimit?: number): number[] {
@@ -2476,6 +2686,14 @@ export class OrchidEngine {
         const newIntervals = pasted ?? this.getIntervalsForState(perfKey);
         newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
       }
+
+      // Dragging the register or turning INVERSION under a held pad re-leads it,
+      // rather than dropping it back to where it would sit on its own.
+      const heldPad = this.heldPadIndex.get(perfKey);
+      if (heldPad !== undefined && this.params.voiceLeadEnabled && newPitches.length > 1) {
+        const led = this.ledVoicingFor(heldPad, newPitches);
+        if (led) newPitches = led;
+      }
       
       // A running pattern is handed the new voicing rather than having notes
       // diffed against it: the pattern decides when they sound, not this.
@@ -2694,7 +2912,7 @@ export class OrchidEngine {
 
   
 
-  public handleMidi(pitch: number, velocity: number, isOn: boolean, skipBass: boolean = false, isUpdate: boolean = false, forcePlay: boolean = false, isMemoryTrigger: boolean = false, customVoicing?: number[], chordIntervals?: number[]) {
+  public handleMidi(pitch: number, velocity: number, isOn: boolean, skipBass: boolean = false, isUpdate: boolean = false, forcePlay: boolean = false, isMemoryTrigger: boolean = false, customVoicing?: number[], chordIntervals?: number[], padIndex?: number) {
     const controlLowBound = 24 + (this.params.controlOctave * 12);
     const controlHighBound = controlLowBound + 11;
     let isControlKey = pitch >= controlLowBound && pitch <= controlHighBound;
@@ -2906,6 +3124,7 @@ export class OrchidEngine {
         this.heldCustomVoicings.delete(pitch);
         this.heldChordIntervals.delete(pitch);
         this.heldMemoryKeys.delete(pitch);
+        this.heldPadIndex.delete(pitch);
         const allReleased = this.heldKeys.size === 0;
         if (this.onPerformanceKey) {
           this.onPerformanceKey(pitch, false, allReleased);
@@ -2973,6 +3192,8 @@ export class OrchidEngine {
     else this.heldChordIntervals.delete(pitch);
     if (isMemoryTrigger) this.heldMemoryKeys.add(pitch);
     else this.heldMemoryKeys.delete(pitch);
+    if (padIndex !== undefined) this.heldPadIndex.set(pitch, padIndex);
+    else this.heldPadIndex.delete(pitch);
     // Clean up if it was a re-triggered key while sustained
     if (this.physicallyReleasedKeys.has(pitch)) {
       this.physicallyReleasedKeys.delete(pitch);
@@ -3045,41 +3266,19 @@ export class OrchidEngine {
     
     const extraInversions = this.params.inversionRepeat > 0 ? (this.consecutiveChordCount * this.params.inversionRepeat) : 0;
 
-    if (customVoicing && customVoicing.length > 0) {
-      finalPitches = this.params.memoryFollowRegister !== false
-        ? this.reRegisterVoicing(customVoicing)
-        : this.applyInversion([...customVoicing]);
-    } else if (intervals.length === 0) {
-      finalPitches = [pitch];
-      isSingleNote = true;
-    } else {
-      finalPitches = this.calculateFoldedPitches(mappedRoot, intervals, usingPastedChord, memoryVoiceLimit);
-
-      // Apply Voicing Mutation (only to generated chords)
-      finalPitches.sort((a, b) => a - b);
-      const voicing = this.pickVoicing();
-      if (voicing === 'Drop 2' && finalPitches.length >= 2) {
-        finalPitches[finalPitches.length - 2] -= 12;
-      } else if (voicing === 'Drop 3' && finalPitches.length >= 3) {
-        finalPitches[finalPitches.length - 3] -= 12;
-      } else if (voicing === 'Drop 4' && finalPitches.length >= 4) {
-        finalPitches[finalPitches.length - 4] -= 12;
-      } else if (voicing === 'Open' && finalPitches.length >= 3) {
-        if (finalPitches.length >= 2) finalPitches[finalPitches.length - 2] -= 12;
-        if (finalPitches.length >= 4) finalPitches[finalPitches.length - 4] -= 12;
-      }
-      // Drop voicings can push a note well below the register, and those are
-      // tidied away here. A downward inversion is not that: it is meant to go
-      // below, so the floor is lowered by exactly as far as it was asked to
-      // reach — otherwise the inversion is thrown away note by note and the
-      // chord loses its bottom as the control is turned down.
-      const startRange = this.params.chordRegisterStart;
-      const inversionFloor = startRange + Math.min(0, Math.round(this.params.chordInversion ?? 0)) * 12;
-      finalPitches = finalPitches.filter(p => p >= inversionFloor && p <= 127).map(p => Math.max(0, p));
-    }
+    const voiced = this.voiceChord(pitch, mappedRoot, intervals, customVoicing, usingPastedChord,
+      memoryVoiceLimit, padIndex !== undefined && this.params.voiceLeadEnabled === true);
+    finalPitches = voiced.pitches;
+    isSingleNote = voiced.isSingleNote;
+    // A pad being voice-led is placed from its neighbour rather than on its own.
+    // Inversion repeat is skipped for it: turning each chord further by a count
+    // of presses would undo the very placement just chosen.
+    const ledPitches = (!isSingleNote && padIndex !== undefined && this.params.voiceLeadEnabled)
+      ? this.ledVoicingFor(padIndex, finalPitches) : null;
+    if (ledPitches) finalPitches = ledPitches;
     
     // Apply Inversion Repeat Extra Inversions uniformly (to both custom voicings and generated chords)
-    if (extraInversions > 0 && !isSingleNote) {
+    if (extraInversions > 0 && !isSingleNote && !ledPitches) {
        for (let i = 0; i < extraInversions; i++) {
          if (finalPitches.length > 0) {
            finalPitches.sort((a,b) => a-b);

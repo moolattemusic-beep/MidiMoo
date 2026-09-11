@@ -670,6 +670,68 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
       </CollapsibleSection>
 
       <CollapsibleSection title="Register Control">
+        {/* VOICE LEADING — the pads voiced from each other. It sits here because
+            everything it coordinates with (register, inversion, range) is here. */}
+        <div className="flex justify-between items-center mb-2">
+          <span className="label-meta">VOICE LEADING</span>
+          <div
+            className={`toggle-switch sm ${params.voiceLeadEnabled ? 'on' : ''}`}
+            title="Voice the memory pads from each other, so the top line stays smooth"
+            onClick={() => updateParam('voiceLeadEnabled', !params.voiceLeadEnabled)}
+          ></div>
+        </div>
+        {params.voiceLeadEnabled && (
+          <div className="fade-in mb-4">
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              {([['pads', 'PAD ORDER'], ['played', 'AS PLAYED']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => updateParam('voiceLeadScope', value)}
+                  className={`analog-btn !text-[10px] ${(params.voiceLeadScope ?? 'pads') === value ? 'active' : ''}`}
+                  title={value === 'pads'
+                    ? 'Each pad is led from the pad before it, so a pad always sounds the same'
+                    : 'Each pad is led from whatever sounded last, in any order'}
+                >{label}</button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              {([['topLine', 'TOP LINE'], ['anchor', 'ANCHOR'], ['allVoices', 'ALL VOICES'], ['commonTones', 'COMMON TONES']] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  onClick={() => updateParam('voiceLeadMode', value)}
+                  className={`analog-btn !text-[10px] ${(params.voiceLeadMode ?? 'topLine') === value ? 'active' : ''}`}
+                >{label}</button>
+              ))}
+            </div>
+            {(params.voiceLeadMode ?? 'topLine') === 'anchor' && (
+              <div className="fade-in mb-2">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="label-meta">TOP NOTE NEAR</span>
+                  <span className="label-meta !text-[var(--accent)]">{noteLabel(params.voiceLeadAnchor ?? 67)}</span>
+                </div>
+                <CustomSlider min={48} max={96} step={1}
+                  value={params.voiceLeadAnchor ?? 67}
+                  onChange={(val) => updateParam('voiceLeadAnchor', val)} />
+              </div>
+            )}
+            <p className="label-meta !text-[0.6rem] opacity-75 mb-1 leading-relaxed">
+              {{
+                topLine: 'THE TOP NOTE MOVES AS LITTLE AS THE CHORDS ALLOW.',
+                anchor: 'EVERY TOP NOTE STAYS NEAR THE NOTE ABOVE. INVERSION MOVES THE WHOLE LINE.',
+                allVoices: 'THE WHOLE CHORD MOVES AS LITTLE AS IT CAN.',
+                commonTones: 'A NOTE TWO CHORDS SHARE STAYS EXACTLY WHERE IT IS.',
+              }[params.voiceLeadMode ?? 'topLine']}
+            </p>
+            {/* Always on screen rather than help text: not knowing which control
+                does what is the problem this exists to solve. */}
+            <p className="label-meta !text-[0.55rem] opacity-60 leading-relaxed">
+              ONE JOB EACH: THE VOICING DISK PICKS THE SHAPE · VOICE LEADING PICKS WHERE IT
+              SITS · REGISTER IS THE FLOOR, AND MAY BE DIPPED UNDER BY AN OCTAVE TO KEEP A
+              LINE · INVERSION RE-SEEDS THE LINE · RANGE STAYS LAST.
+            </p>
+          </div>
+        )}
+
         {/* Playing the pads from real keys rather than from a screen: the
             difference between a chord landing where it was meant to and landing
             where the network and the browser got round to it. */}
@@ -747,7 +809,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         </div>
 
         <div className="flex justify-between items-center mb-6">
-          <span className="label-meta">INVERSION</span>
+          <span className="label-meta">{params.voiceLeadEnabled ? 'INVERSION · RE-SEEDS' : 'INVERSION'}</span>
           <div className="flex items-center gap-1">
             <button
               onClick={() => updateParam('chordInversion', Math.max(-8, (params.chordInversion ?? 0) - 1))}

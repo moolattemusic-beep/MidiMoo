@@ -626,7 +626,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                       return;
                     }
                     engine.setModifiers(slot.baseType, slot.ext_m7, slot.ext_M7, slot.ext_6, slot.ext_9);
-                    engine.handleMidi(slot.rootPitch, memoryVelocity, true, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                    engine.handleMidi(slot.rootPitch, memoryVelocity, true, false, false, false, true, slot.customVoicing, slot.chordIntervals, i);
                     onPlaySlot(i);
                   } else if (!slot && lastPlayedChord) {
                     onSaveSlot(i, lastPlayedChord);

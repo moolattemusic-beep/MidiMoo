@@ -294,6 +294,41 @@ closes or it never will. Disengaging resends the MPE bend-range RPN, since the
 panic that engaged bypass also sent Reset All Controllers and wiped it — same
 reasoning as the existing PANIC button's tail call.
 
+**The pads jumped because triads and sevenths are voiced by different paths.**
+A pasted triad can be stated exactly by a library shape, so it gets a wide
+two-octave voicing — spread 24, top at 72-81 from a register of 48. A pasted
+seventh is refused by the library whenever its only shapes add a tone (a maj7
+shape with a ninth in it would turn Cmaj7 into Cmaj9), so it is built compactly
+instead — spread 8-11, top at 59-60. An RNDM row alternating the two flings the
+top voice about by up to two octaves. Across the 133 preset progressions whose
+symbols all parse, 41% of chord changes jumped the top a fifth or more.
+
+**Voice leading places a shape; it never changes one.** The voicing disk still
+picks what a chord sounds like and `VoiceLeading.ts` only picks where it sits —
+the same notes turned over or moved an octave, whichever continues most
+smoothly. Candidates never leave RANGE, because a led chord that RANGE then had
+to fold would jump an octave, which is the opposite of the point. Measured over
+the preset library: TOP LINE takes jumps of a fifth or more from 229 of 552 to
+22, ANCHOR to none.
+
+**`voiceChord` exists so the chain voices a pad exactly as a press would.**
+PAD ORDER works out pads nobody is pressing, and a second copy of the voicing
+pipeline would drift — a pad would then lead from a voicing it never plays. So
+the block that turns a chord into notes was lifted out of `handleMidi` rather
+than copied. The voicing disk is made deterministic for a led pad only
+(`pickVoicing(true)`): it blends between nodes at random otherwise, which is
+fine by hand and would make a chain come out different on every recompute.
+
+**The pad index has to travel.** `handleMidi` takes it as a trailing argument,
+and `RemoteEngine.handleMidi` forwards a fixed list — so it has to be added
+there too, or a pad pressed on the phone is voiced on its own. The grid never
+passes one, which is what keeps it exactly as it was.
+
+**INVERSION re-seeds rather than fights.** It turns the first chord of the line,
+and everything after leads from there; in ANCHOR the anchor moves by exactly
+how far it moved that chord's top. In AS PLAYED the next pad after INVERSION or
+the register changes starts afresh.
+
 **A progression is playing order, not a set.** The grid remembers the last
 eight chords played so they can be moved onto the pads, and the same chord
 coming round again is a step of its own — I-V-I is three chords. Only the one
