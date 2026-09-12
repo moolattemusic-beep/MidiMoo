@@ -48,9 +48,14 @@ export interface OrchidParams {
   strumDirection: number; // 0=Up, 1=Down, 2=Random
   strumAlternate: boolean;
   inversionRepeat: number; // 0 to 8
-  strumSpeedMs: number; // 0 to 360
+  strumSpeedMs: number; // 0 to 360 — the longest a strum may take between notes
+  /** How much faster than MAX SPEED a strum may come, 0 to 100. */
+  strumVariation: number;
   voicingX: number; // -1 to 1
   voicingY: number; // -1 to 1
+  /** Preset pads play the voicing the progression was written with, rather than
+   *  being voiced by the disk like any other chord. */
+  presetAsWritten: boolean;
   omnichordMode: boolean;
   omnichordSynthMonitor: boolean;
   velHumanize: number;
@@ -275,8 +280,10 @@ export const defaultParams: OrchidParams = {
   strumAlternate: false,
   inversionRepeat: 0,
   strumSpeedMs: 40,
+  strumVariation: 80,
   voicingX: 0,
   voicingY: -1, // default to top (Closed)
+  presetAsWritten: false,
   omnichordMode: false,
   omnichordSynthMonitor: true,
   velHumanize: 10,

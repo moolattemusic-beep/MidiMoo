@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
-import { randomPreset } from '../lib/ChordPresets';
+import { presetPad, randomPreset } from '../lib/ChordPresets';
 
 const TRANSPOSE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 const NOTE_INDEX: Record<string, number> = {
@@ -207,11 +207,10 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
   };
 
   /**
-   * Fill the pads from one of the bundled progressions. The chords are kept as
-   * the notes they were written with rather than as a name, so what lands on the
-   * pad is the voicing itself — which is the whole reason for taking them from
-   * played progressions in the first place. With FOLLOW REG on they still move
-   * with the register slider.
+   * Fill the pads from one of the bundled progressions. Each chord lands in both
+   * of its readings — see `presetPad` — so AS WRITTEN can choose between the
+   * voicing it was written with and the voicing disk's reading of it, without
+   * the preset having to be loaded again.
    */
   const loadPreset = () => {
     const preset = randomPreset(presetTitle ?? undefined);
@@ -220,11 +219,9 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
       const chord = preset.chords[i];
       if (!chord) return null;
       return {
-        rootPitch: chord.notes[0] % 12,
+        ...presetPad(chord),
         baseType: 0,
         ext_m7: false, ext_M7: false, ext_6: false, ext_9: false,
-        customVoicing: [...chord.notes],
-        symbol: chord.symbol,
       };
     });
     onUpdateSlots(next);
@@ -617,11 +614,11 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                       if (other === i) continue;
                       const previous = slots[other];
                       if (!previous) continue;
-                      engine.handleMidi(previous.rootPitch, 0, false, false, false, false, true, previous.customVoicing, previous.chordIntervals);
+                      engine.handleMidi(previous.rootPitch, 0, false, false, false, false, true, previous.customVoicing, previous.chordIntervals, other);
                       onStopSlot(other);
                     }
                     if (!momentary && isPlaying) {
-                      engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                      engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals, i);
                       onStopSlot(i);
                       return;
                     }
@@ -636,7 +633,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                   if (isEditMode || !momentary) return;
                   if (!hapticFor) e.preventDefault();
                   if (engine && slot) {
-                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals, i);
                     onStopSlot(i);
                   }
                 }}
@@ -644,7 +641,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                   if (isEditMode || !momentary) return;
                   if (!hapticFor) e.preventDefault();
                   if (engine && slot) {
-                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals, i);
                     onStopSlot(i);
                   }
                 }}
@@ -654,7 +651,7 @@ export function MemorySlots({ engine, slots, playingSlotIndices, onPlaySlot, onS
                   if (isEditMode || !momentary) return;
                   e.preventDefault();
                   if (engine && slot) {
-                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                    engine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals, i);
                     onStopSlot(i);
                   }
                 }}

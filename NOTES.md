@@ -315,9 +315,9 @@ the preset library: TOP LINE takes jumps of a fifth or more from 229 of 552 to
 PAD ORDER works out pads nobody is pressing, and a second copy of the voicing
 pipeline would drift — a pad would then lead from a voicing it never plays. So
 the block that turns a chord into notes was lifted out of `handleMidi` rather
-than copied. The voicing disk is made deterministic for a led pad only
-(`pickVoicing(true)`): it blends between nodes at random otherwise, which is
-fine by hand and would make a chain come out different on every recompute.
+than copied. The chain also needs the disk to answer the same way twice, which
+it did not while it blended between its nodes at random; `pickVoicing` now takes
+the nearest node outright, for every chord and not only a led one.
 
 **The pad index has to travel.** `handleMidi` takes it as a trailing argument,
 and `RemoteEngine.handleMidi` forwards a fixed list — so it has to be added
@@ -328,6 +328,54 @@ passes one, which is what keeps it exactly as it was.
 and everything after leads from there; in ANCHOR the anchor moves by exactly
 how far it moved that chord's top. In AS PLAYED the next pad after INVERSION or
 the register changes starts afresh.
+
+**A pad's release is addressed to its chord's root, so pads collide.** The
+engine files one chord per key, and the key a pad uses is its root — which two
+pads share whenever their chords do. A preset pad is filed under its bass note,
+and 213 of the 221 bundled presets have two pads on one key. Pressing the second
+takes the key over; the first pad's release then arrived a moment later, landed
+on the same key, and cut the new chord short — or, under the pedal, marked it as
+let go while its pad was still held, so the next chord or the pedal lifting
+ended it. `handleMidi` now ignores a pad release whose key has been taken over
+by another pad (`heldPadIndex`), which is why every pad note-off names its pad
+and not only its root.
+
+**The strum speed is the longest a strum may take, not the length each one is.**
+A player does not strum twice at the same speed, and the quick ones are what
+make the slower ones sound deliberate. One gap is drawn per strum and used for
+all of that strum's notes, so a strum stays even in itself. Squaring the draw
+weights it: about four in ten land near the setting rather than spread evenly,
+which is what keeps the control meaning what it says. At a variation of nought
+it is exactly the metronome it always was.
+
+**A preset chord has two readings, and AS WRITTEN chooses between them.** The
+notes the progression was written with are the reason for having these presets
+at all; the chord those notes spell is what the voicing disk can work with. A
+pad now carries both, so the switch re-voices what is already on the board
+instead of only what is loaded after it. The chord is read off the notes rather
+than off the label, so nothing is added or lost — only the root comes from the
+name, since the notes alone cannot say which of them it is, and 88 of the 221
+presets are labelled with a symbol the parser will not take. A pad carrying
+nothing but a voicing — a MIDI import, a chord saved by hand — has no second
+reading, so it plays as saved whatever the switch says.
+
+**The voicing disk does one job at a time.** The five drop voicings used to run
+underneath the played-voicing library, which widened a shape that had already
+been chosen for its width — and brought in OPEN, the widest of them, at the
+disk's CLOSE edge, since the nodes sit at the pentagon's corners rather than
+where the labels are. With PLAYED VOICINGS on the disk is now only the library
+axes; with it off it is only the drops. The cost is that a chord the library
+turns down answers nothing but the register while the switch is on: 459 of the
+1671 preset chords re-voice between CLOSE and WIDE, and all 1671 do between
+CLOSED and DROP 2 with played voicings off.
+
+**A drop moves its note; it used to delete it.** Everything under the register
+was filtered away, and a chord built at the register has every note inside its
+first octave, so the dropped note was always below the floor: DROP 2 on C3 E3 G3
+came back as a bare C3 G3. A dropped note is the one thing that is meant to sit
+below the register, so its floor is the bottom of RANGE instead — below that it
+would only be folded back up on its way out, so it stays where it was rather
+than being dropped at all.
 
 **A progression is playing order, not a set.** The grid remembers the last
 eight chords played so they can be moved onto the pads, and the same chord

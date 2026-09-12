@@ -267,7 +267,7 @@ function App() {
             if (isOn && velocity > 0) {
               if (!paramsRef.current.memoryMomentary && playingSlotIndicesRef.current.includes(slotIndex)) {
                 setPlayingSlotIndices(prev => prev.filter(x => x !== slotIndex));
-                newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+                newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals, slotIndex);
                 return;
               }
               setPlayingSlotIndices(prev => prev.includes(slotIndex) ? prev : [...prev, slotIndex]);
@@ -280,7 +280,7 @@ function App() {
               newEngine.handleMidi(slot.rootPitch, vel, true, false, false, false, true, slot.customVoicing, slot.chordIntervals, slotIndex);
             } else if (paramsRef.current.memoryMomentary) {
               setPlayingSlotIndices(prev => prev.filter(x => x !== slotIndex));
-              newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals);
+              newEngine.handleMidi(slot.rootPitch, 0, false, false, false, false, true, slot.customVoicing, slot.chordIntervals, slotIndex);
             }
           } else if (isOn && velocity > 0) {
             // Save to slot

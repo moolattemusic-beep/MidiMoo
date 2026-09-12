@@ -7,6 +7,7 @@
  * The symbol beside each is worked out from the notes and is only a label for
  * the pad.
  */
+import { nameChordFromPitches, parseChordSymbol } from './ChordSymbol';
 
 export interface PresetChord {
   /** Absolute MIDI notes, as they were written. */
@@ -17,6 +18,39 @@ export interface PresetChord {
 export interface ChordPreset {
   title: string;
   chords: PresetChord[];
+}
+
+/** A preset chord as it lands on a pad, in both of its readings. */
+export interface PresetPad {
+  rootPitch: number;
+  customVoicing: number[];
+  chordIntervals: number[];
+  symbol: string;
+}
+
+/**
+ * Both readings of a preset chord: the notes it was written with, and the chord
+ * those notes spell. AS WRITTEN decides which of them is played — the written
+ * voicing, or the voicing disk's reading of the same chord.
+ *
+ * The chord is read off the notes rather than off the name, so nothing is added
+ * or lost: a preset written as Cmaj7 with a ninth in it keeps its ninth
+ * whichever way it is voiced. Only the root comes from the name, since the notes
+ * alone cannot say which of them it is; where the name is one the parser will
+ * not take — 88 of the 221 presets are — the notes are named afresh, and failing
+ * that the bass stands in.
+ */
+export function presetPad(chord: PresetChord): PresetPad {
+  const written = [...chord.notes].sort((a, b) => a - b);
+  const fromNotes = nameChordFromPitches(written);
+  const named = parseChordSymbol(chord.symbol) ?? (fromNotes ? parseChordSymbol(fromNotes) : null);
+  const root = named ? named.root : written[0] % 12;
+  return {
+    rootPitch: 60 + root,
+    customVoicing: written,
+    chordIntervals: [...new Set(written.map(n => (((n - root) % 12) + 12) % 12))].sort((a, b) => a - b),
+    symbol: chord.symbol,
+  };
 }
 
 export const CHORD_PRESETS: ChordPreset[] = [

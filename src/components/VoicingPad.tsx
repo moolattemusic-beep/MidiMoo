@@ -170,7 +170,30 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
         THEY REACH ABOUT TWO OCTAVES, OFTEN PUT THE SEVENTH BELOW THE THIRD, AND MAY
         NOT START ON THE ROOT. LEFT TO RIGHT IS HOW FAR THE CHORD REACHES; TOP TO
         BOTTOM IS HOW USUAL A WAY OF PLAYING IT THIS IS. SWITCHED OFF, THE DISK GOES
-        BACK TO THE DROP VOICINGS.
+        BACK TO THE DROP VOICINGS, WHERE EACH CORNER DROPS ONE VOICE OF THE CHORD AN
+        OCTAVE. THE DISK DOES ONE OR THE OTHER, NEVER BOTH AT ONCE, AND THE NEAREST
+        CORNER ALWAYS WINS — THE SAME SPOT SOUNDS THE SAME EVERY PRESS.
+      </p>
+
+      {/* Presets arrive as written-out voicings, which is the reason for having
+          them; the disk can only have them if it is told it may. */}
+      <div className="flex items-center justify-between w-full mt-4 mb-3">
+        <span className="label-meta">PRESETS AS WRITTEN</span>
+        <div
+          className={`toggle-switch sm ${params.presetAsWritten ? 'on' : ''}`}
+          title="Preset pads keep the voicing the progression was written with, instead of being voiced by the disk"
+          onClick={() => {
+            const next = { ...params, presetAsWritten: !params.presetAsWritten };
+            setParams(next);
+            if (engine) { engine.params = next; engine.retriggerHeldKeys(true); }
+          }}
+        ></div>
+      </div>
+      <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
+        ON, A PRESET PAD PLAYS THE NOTES ITS PROGRESSION WAS WRITTEN WITH. OFF, THE
+        DISK VOICES IT LIKE ANY OTHER CHORD — THE SAME NOTES ARE NAMED, NONE ADDED OR
+        LOST. PADS SAVED BY HAND OR TAKEN OFF A MIDI FILE ALWAYS KEEP THEIR OWN
+        VOICING.
       </p>
     </div>
   );

@@ -50,6 +50,25 @@ interface PadSlotLike {
   chordIntervals?: number[];
 }
 
+/**
+ * How long one strum leaves between its notes.
+ *
+ * The setting is the longest it may take rather than the length every strum is:
+ * a player does not strum at the same speed twice running, and the quick ones
+ * are what make the slower ones sound deliberate. One gap is drawn per strum
+ * and used for all of its notes, so a strum is still even in itself.
+ *
+ * Squaring the draw is what weights it. About 40% of strums land in the top
+ * sixth of the range, near the setting, and the fastest take `1 − variation` of
+ * it. At a variation of 0 every strum is exactly the setting, which is how the
+ * strum behaved before the control existed.
+ */
+export function strumGap(maxMs: number, variation01: number, r: number): number {
+  const spread = Math.max(0, Math.min(1, variation01));
+  const draw = Math.max(0, Math.min(1, r));
+  return Math.max(0, maxMs * (1 - spread * draw * draw));
+}
+
 export class OrchidEngine {
   public params: OrchidParams;
 
@@ -1483,10 +1502,18 @@ export class OrchidEngine {
     this.retriggerHeldKeys(true);
   }
 
-  private pickVoicing(deterministic = false): string {
+  /**
+   * Which drop voicing the disk is asking for: the node the thumb is nearest.
+   *
+   * It used to blend between the five at random, so the same position on the
+   * disk sounded different press to press — which is a surprise rather than a
+   * control, and was ruinous for a voice-led pad, whose chain would come out
+   * differently every time it was worked out.
+   */
+  private pickVoicing(): string {
     const vx = this.params.voicingX;
     const vy = this.params.voicingY;
-    
+
     const nodes = [
       { name: 'Closed', x: 0, y: -1 },
       { name: 'Drop 2', x: 0.951, y: -0.309 },
@@ -1495,35 +1522,13 @@ export class OrchidEngine {
       { name: 'Open', x: -0.951, y: -0.309 }
     ];
 
-    // Otherwise the disk blends between nodes at random, which is a fine thing
-    // for a chord played by hand and ruinous for a voice-led pad: a chain worked
-    // out from a random voicing would come out different every time.
-    if (deterministic) {
-      let nearest = nodes[0];
-      let best = Infinity;
-      for (const node of nodes) {
-        const d = Math.hypot(vx - node.x, vy - node.y);
-        if (d < best) { best = d; nearest = node; }
-      }
-      return nearest.name;
-    }
-    
-    let weights = [];
-    let totalWeight = 0;
-    
+    let nearest = nodes[0];
+    let best = Infinity;
     for (const node of nodes) {
-      const d = Math.sqrt(Math.pow(vx - node.x, 2) + Math.pow(vy - node.y, 2));
-      const w = 1 / Math.pow(Math.max(d, 0.001), 2.5); // IDW
-      weights.push(w);
-      totalWeight += w;
+      const d = Math.hypot(vx - node.x, vy - node.y);
+      if (d < best) { best = d; nearest = node; }
     }
-    
-    let rnd = Math.random() * totalWeight;
-    for (let i = 0; i < nodes.length; i++) {
-      if (rnd < weights[i]) return nodes[i].name;
-      rnd -= weights[i];
-    }
-    return 'Closed';
+    return nearest.name;
   }
 
   private getScaleData(pc: number, scaleType: number): { offset: number; type: number; seventh: 'M7' | 'm7' | null } {
@@ -1869,6 +1874,23 @@ export class OrchidEngine {
   }
 
   /**
+   * Whether a pad plays the voicing it was saved with, or is voiced afresh.
+   *
+   * A preset pad carries both readings: the notes the progression was written
+   * with, and the chord those notes spell. AS WRITTEN chooses between them,
+   * which is why the switch re-voices the pads already on the board rather than
+   * only the ones loaded after it.
+   *
+   * A pad that carries nothing but a voicing — a MIDI import, a chord saved by
+   * hand, a free edit — has no second reading to be voiced from, so it plays as
+   * it was saved whatever the switch says.
+   */
+  private playsAsWritten(voicing: number[] | undefined, hasChordIntervals: boolean): boolean {
+    if (!voicing || voicing.length === 0) return false;
+    return !hasChordIntervals || this.params.presetAsWritten === true;
+  }
+
+  /**
    * A chord's notes, before anything decides where it sits relative to others.
    *
    * Pulled out of handleMidi so the voice-leading chain can voice a pad nobody
@@ -1877,41 +1899,60 @@ export class OrchidEngine {
    */
   private voiceChord(
     pitch: number, mappedRoot: number, intervals: number[], customVoicing: number[] | undefined,
-    usingPastedChord: boolean, memoryVoiceLimit: number | undefined, deterministic: boolean,
+    usingPastedChord: boolean, memoryVoiceLimit: number | undefined,
   ): { pitches: number[]; isSingleNote: boolean } {
     let out: number[];
     let single = false;
-    if (customVoicing && customVoicing.length > 0) {
+    if (this.playsAsWritten(customVoicing, usingPastedChord)) {
       out = this.params.memoryFollowRegister !== false
-        ? this.reRegisterVoicing(customVoicing)
-        : this.applyInversion([...customVoicing]);
+        ? this.reRegisterVoicing(customVoicing!)
+        : this.applyInversion([...customVoicing!]);
     } else if (intervals.length === 0) {
       out = [pitch];
       single = true;
     } else {
       out = this.calculateFoldedPitches(mappedRoot, intervals, usingPastedChord, memoryVoiceLimit);
-
-      // Apply Voicing Mutation (only to generated chords)
       out.sort((a, b) => a - b);
-      const voicing = this.pickVoicing(deterministic);
-      if (voicing === 'Drop 2' && out.length >= 2) {
-        out[out.length - 2] -= 12;
-      } else if (voicing === 'Drop 3' && out.length >= 3) {
-        out[out.length - 3] -= 12;
-      } else if (voicing === 'Drop 4' && out.length >= 4) {
-        out[out.length - 4] -= 12;
-      } else if (voicing === 'Open' && out.length >= 3) {
-        if (out.length >= 2) out[out.length - 2] -= 12;
-        if (out.length >= 4) out[out.length - 4] -= 12;
-      }
-      // Drop voicings can push a note well below the register, and those are
-      // tidied away here. A downward inversion is not that: it is meant to go
-      // below, so the floor is lowered by exactly as far as it was asked to
-      // reach — otherwise the inversion is thrown away note by note and the
-      // chord loses its bottom as the control is turned down.
+
       const startRange = this.params.chordRegisterStart;
       const inversionFloor = startRange + Math.min(0, Math.round(this.params.chordInversion ?? 0)) * 12;
-      out = out.filter(p => p >= inversionFloor && p <= 127).map(p => Math.max(0, p));
+
+      // The drop voicings are what the disk means while PLAYED VOICINGS is off.
+      // With it on, the disk has already chosen a shape from the library by how
+      // far it reaches, and dropping a note of that shape widened it a second
+      // time — which is why the disk's CLOSE edge could sound open.
+      const dropped = new Set<number>();
+      if (!this.params.voicingPlayed) {
+        const voicing = this.pickVoicing();
+        const indices: number[] = [];
+        if (voicing === 'Drop 2' && out.length >= 2) indices.push(out.length - 2);
+        else if (voicing === 'Drop 3' && out.length >= 3) indices.push(out.length - 3);
+        else if (voicing === 'Drop 4' && out.length >= 4) indices.push(out.length - 4);
+        else if (voicing === 'Open' && out.length >= 3) {
+          indices.push(out.length - 2);
+          if (out.length >= 4) indices.push(out.length - 4);
+        }
+
+        // A dropped note belongs below the chord, so the register is not its
+        // floor — RANGE is, since anything under that would only be folded back
+        // up on its way out. It used to be thrown away here for sitting below
+        // the register, and every drop on a chord voiced at the register came
+        // back a note short: DROP 2 on C E G was a bare fifth.
+        const rangeLow = Math.max(0, Math.min(127, Math.round(this.params.outputRangeLow ?? 0)));
+        for (const index of indices) {
+          const lowered = out[index] - 12;
+          if (lowered >= rangeLow && !out.includes(lowered)) {
+            out[index] = lowered;
+            dropped.add(lowered);
+          }
+        }
+        out.sort((a, b) => a - b);
+      }
+
+      // A downward inversion is meant to go below the register, so the floor is
+      // lowered by exactly as far as it was asked to reach — otherwise the
+      // inversion is thrown away note by note as the control is turned down.
+      out = out.filter(p => (p >= inversionFloor || dropped.has(p)) && p <= 127).map(p => Math.max(0, p));
     }
     return { pitches: out, isSingleNote: single };
   }
@@ -1985,7 +2026,7 @@ export class OrchidEngine {
       ? slot.chordIntervals!
       : this.withSlotModifiers(slot, () => this.getIntervalsForState(slot.rootPitch));
     const voiced = this.voiceChord(slot.rootPitch, mappedRoot, intervals, slot.customVoicing,
-      usingPasted, memoryVoiceLimit, true);
+      usingPasted, memoryVoiceLimit);
     return voiced.isSingleNote || voiced.pitches.length === 0 ? null : voiced.pitches;
   }
 
@@ -2678,10 +2719,10 @@ export class OrchidEngine {
       // dragging the slider inverts the voicing that is actually sounding.
       const heldVoicing = this.heldCustomVoicings.get(perfKey);
       let newPitches: number[];
-      if (heldVoicing && heldVoicing.length > 0) {
+      if (this.playsAsWritten(heldVoicing, !!pasted)) {
         newPitches = this.params.memoryFollowRegister !== false
-          ? this.reRegisterVoicing(heldVoicing)
-          : this.applyInversion([...heldVoicing]);
+          ? this.reRegisterVoicing(heldVoicing!)
+          : this.applyInversion([...heldVoicing!]);
       } else {
         const newIntervals = pasted ?? this.getIntervalsForState(perfKey);
         newPitches = this.calculateFoldedPitches(mappedRoot, newIntervals, !!pasted, limit);
@@ -3120,6 +3161,17 @@ export class OrchidEngine {
       
       // Note Off
       if (!isControlKey) {
+        // A pad's release ends the chord that pad started, and nothing else.
+        // The key a pad is filed under is its chord's root, and two pads share
+        // one when their chords share a root — which is most sets, since a
+        // preset pad is filed under its bass note. Pressing the second pad
+        // takes the key over; this is the first pad's release arriving after
+        // that, and acting on it would cut the new chord short, or under the
+        // pedal mark it as let go while it is still being held.
+        if (padIndex !== undefined) {
+          const owner = this.heldPadIndex.get(pitch);
+          if (owner !== undefined && owner !== padIndex) return;
+        }
         this.heldKeys.delete(pitch);
         this.heldCustomVoicings.delete(pitch);
         this.heldChordIntervals.delete(pitch);
@@ -3267,7 +3319,7 @@ export class OrchidEngine {
     const extraInversions = this.params.inversionRepeat > 0 ? (this.consecutiveChordCount * this.params.inversionRepeat) : 0;
 
     const voiced = this.voiceChord(pitch, mappedRoot, intervals, customVoicing, usingPastedChord,
-      memoryVoiceLimit, padIndex !== undefined && this.params.voiceLeadEnabled === true);
+      memoryVoiceLimit);
     finalPitches = voiced.pitches;
     isSingleNote = voiced.isSingleNote;
     // A pad being voice-led is placed from its neighbour rather than on its own.
@@ -3557,9 +3609,15 @@ export class OrchidEngine {
       return;
     }
 
+    // Drawn once for the whole strum: every note of it is spaced the same, and
+    // it is the next strum that comes at its own speed.
+    const gap = this.params.strumEngine === 1
+      ? strumGap(this.params.strumSpeedMs, (this.params.strumVariation ?? 0) / 100, Math.random())
+      : 0;
+
     for (let j = 0; j < finalPitches.length; j++) {
       const targetPitch = finalPitches[j];
-      const delayForThisNote = (this.params.strumEngine === 1) ? (j * this.params.strumSpeedMs) : 0;
+      const delayForThisNote = j * gap;
 
       if (targetPitch >= 0 && targetPitch <= 127 && !playedPitches[targetPitch]) {
         playedPitches[targetPitch] = true;

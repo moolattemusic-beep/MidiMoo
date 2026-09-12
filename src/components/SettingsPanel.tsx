@@ -1244,7 +1244,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
         <div className={`transition-opacity duration-300 ${params.strumEngine === 1 ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
           <div className="mb-4">
             <div className="flex justify-between items-center mb-2">
-              <span className="label-meta">SPEED</span>
+              <span className="label-meta">MAX SPEED</span>
               <span className="label-meta !text-[var(--accent)]">{params.strumSpeedMs}MS</span>
             </div>
             <CustomSlider
@@ -1254,6 +1254,30 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ engine, params, se
               value={params.strumSpeedMs}
               onChange={(val) => updateParam('strumSpeedMs', val)}
             />
+          </div>
+          {/* The setting is the longest a strum may take; each one picks its own
+              speed up to it, the way a hand does. */}
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="label-meta">VARIATION</span>
+              <span className="label-meta !text-[var(--accent)]">
+                {(params.strumVariation ?? 0) === 0
+                  ? 'EVEN'
+                  : `${params.strumVariation}% · ${Math.round(params.strumSpeedMs * (1 - (params.strumVariation ?? 0) / 100))}MS AT ITS FASTEST`}
+              </span>
+            </div>
+            <CustomSlider
+              min={0}
+              max={100}
+              step={5}
+              value={params.strumVariation ?? 0}
+              onChange={(val) => updateParam('strumVariation', val)}
+            />
+            <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
+              EVERY STRUM PICKS ITS OWN SPEED, UP TO MAX SPEED. ABOUT FOUR IN TEN COME
+              NEAR THE MAXIMUM AND THE REST ARE QUICKER. AT NOUGHT EVERY STRUM IS THE
+              SAME LENGTH.
+            </p>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-4">
             <button
