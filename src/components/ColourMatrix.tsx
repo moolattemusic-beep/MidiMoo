@@ -5,10 +5,12 @@ import {
   ChordQuality,
   COLOUR_ORDER,
   DEFAULT_COLOUR_MATRIX,
+  PLAY_STYLES,
+  PlayStyle,
   QUALITIES,
   TENSIONS,
-  colourTensionsFor,
   parseColourMatrix,
+  styleTensionsFor,
 } from '../lib/ChordColour';
 
 interface Props {
@@ -26,6 +28,10 @@ interface Props {
  */
 export const ColourMatrix: React.FC<Props> = ({ params, setParams, engine, onClose }) => {
   const matrix = parseColourMatrix(params.chordColorMatrix);
+  const style = (params.playStyle ?? 'normal') as PlayStyle;
+  const styleLabel = (PLAY_STYLES.find(s => s.id === style) ?? PLAY_STYLES[0]).label;
+  /** What the style reaches for on this quality, in order, after the ticks. */
+  const reachFor = (quality: ChordQuality) => styleTensionsFor(quality, style, matrix, new Set<number>());
 
   const write = (next: Record<string, string[]>) => {
     const merged = { ...params, chordColorMatrix: JSON.stringify(next) };
@@ -47,7 +53,7 @@ export const ColourMatrix: React.FC<Props> = ({ params, setParams, engine, onClo
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <p className="label-meta">COLOUR — WHICH TENSIONS EACH CHORD MAY TAKE</p>
+          <p className="label-meta">WHICH TENSIONS A STYLE MAY ADD — {styleLabel}</p>
           <div className="flex items-center gap-1">
             <button
               onClick={() => write({ ...DEFAULT_COLOUR_MATRIX })}
@@ -78,11 +84,10 @@ export const ColourMatrix: React.FC<Props> = ({ params, setParams, engine, onClo
                   </td>
                   {TENSIONS.map(t => {
                     const checked = on.has(t.id);
-                    // Where this tension falls in the order the colour control
-                    // walks, so the effect of a tick is visible.
-                    const place = checked
-                      ? colourTensionsFor(q.id, matrix).findIndex(x => x.id === t.id) + 1
-                      : 0;
+                    // Where this tension falls in what the style reaches for, so
+                    // the effect of a tick is visible. A tension no style asks
+                    // for is ticked but unnumbered: available, not reached for.
+                    const place = checked ? reachFor(q.id).findIndex(x => x.id === t.id) + 1 : 0;
                     return (
                       <td key={t.id} className="py-1 text-center">
                         <button
@@ -106,9 +111,9 @@ export const ColourMatrix: React.FC<Props> = ({ params, setParams, engine, onClo
         </table>
 
         <div className="flex flex-col gap-1">
-          <p className="label-meta !text-[9px]">AS THE COLOUR CONTROL IS TURNED UP</p>
+          <p className="label-meta !text-[9px]">WHAT {styleLabel} ADDS, IN ORDER</p>
           {QUALITIES.map(q => {
-            const order = colourTensionsFor(q.id, matrix);
+            const order = reachFor(q.id);
             return (
               <div key={q.id} className="flex items-center gap-2">
                 <span className="label-meta !text-[9px] w-12 shrink-0">{q.label}</span>
@@ -122,10 +127,12 @@ export const ColourMatrix: React.FC<Props> = ({ params, setParams, engine, onClo
 
         <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
           THE QUALITY IS READ OFF THE CHORD'S OWN THIRD AND SEVENTH, SO A DOMINANT IS
-          ONE HOWEVER IT ARRIVED. THE NUMBER IN EACH BOX IS WHERE THAT TENSION FALLS
-          AS THE COLOUR CONTROL IS TURNED UP; UNTICKING ONE MOVES THE REST UP RATHER
-          THAN LEAVING A GAP. A TENSION THE CHORD ALREADY STATES IS NEVER ADDED
-          TWICE, AND A SEVENTH IS NEVER PUT AGAINST THE OTHER SEVENTH.
+          ONE HOWEVER IT ARRIVED. THE NUMBER IN EACH BOX IS WHERE THE STYLE REACHES
+          FOR THAT TENSION; UNTICKING ONE TAKES IT AWAY FROM EVERY STYLE AND MOVES
+          THE REST UP. THE TICKS CAN ONLY TAKE AWAY — WHAT A STYLE REACHES FOR IS ITS
+          OWN, AND NORMAL REACHES FOR NOTHING. A TENSION THE CHORD ALREADY STATES IS
+          NEVER ADDED TWICE, A SEVENTH IS NEVER PUT AGAINST THE OTHER SEVENTH, AND AN
+          ALTERED CHORD IS LEFT EXACTLY AS IT WAS WRITTEN.
         </p>
       </div>
     </div>

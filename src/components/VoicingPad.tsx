@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { OrchidEngine } from '../lib/OrchidEngine';
 import { OrchidParams } from '../types';
 import { ColourMatrix } from './ColourMatrix';
+import { PLAY_STYLES } from '../lib/ChordColour';
 
 interface VoicingPadProps {
   engine: OrchidEngine;
@@ -72,44 +73,43 @@ export function VoicingPad({ engine, params, setParams }: VoicingPadProps) {
       )}
       <p className="label-meta self-start mb-3">VOICING DISK</p>
 
-      {/* Dry to rich. Each quality takes its tensions in the order it wants
-          them, so one control walks a triad out to the sort of chord a harp or
-          a guitar is usually voiced with. */}
+      {/* The chord a keyboard player would reach for, given the one written.
+          Each style says which additions are welcome; the library does the rest. */}
       <div className="w-full mb-4">
         <div className="flex justify-between items-center mb-1">
-          <span className="label-meta">COLOUR</span>
-          <div className="flex items-center gap-2">
-            <span className="label-meta !text-[var(--accent)]">
-              {(() => {
-                const n = Math.max(0, Math.min(6, params.chordColor ?? 0));
-                return n === 0 ? 'DRY' : `+${n}`;
-              })()}
-            </span>
-            <button
-              onClick={() => setShowMatrix(true)}
-              className="analog-btn !text-[9px] !px-2 !py-[2px]"
-              title="Choose which tensions each quality of chord may take"
-            >
-              EDIT
-            </button>
-          </div>
+          <span className="label-meta">PLAYING STYLE</span>
+          <button
+            onClick={() => setShowMatrix(true)}
+            className="analog-btn !text-[9px] !px-2 !py-[2px]"
+            title="Choose which tensions each quality of chord may take"
+          >
+            EDIT
+          </button>
         </div>
-        <input
-          type="range" min={0} max={6} step={1}
-          value={params.chordColor ?? 0}
-          onChange={(e) => {
-            const next = { ...params, chordColor: parseInt(e.target.value, 10) };
-            setParams(next);
-            if (engine) engine.params = next;
-          }}
-          className="range-sm w-full accent-[var(--accent)]"
-        />
-        <p className="help-text label-meta !text-[0.6rem] opacity-75 leading-relaxed">
-          THE CHORD'S QUALITY IS READ OFF ITS OWN THIRD AND SEVENTH, AND THE TENSIONS
-          IT TAKES ARE THE ONES TICKED UNDER EDIT.
+        <div className="grid grid-cols-4 gap-1">
+          {PLAY_STYLES.map(style => (
+            <button
+              key={style.id}
+              title={style.hint}
+              onClick={() => {
+                const next = { ...params, playStyle: style.id };
+                setParams(next);
+                if (engine) { engine.params = next; engine.retriggerHeldKeys(true); }
+              }}
+              className={`analog-btn !text-[10px] !px-1 ${params.playStyle === style.id ? 'active' : ''}`}
+            >
+              {style.label}
+            </button>
+          ))}
+        </div>
+        <p className="help-text label-meta !text-[0.6rem] opacity-75 mt-1 leading-relaxed">
+          {(PLAY_STYLES.find(s => s.id === (params.playStyle ?? 'normal')) ?? PLAY_STYLES[0]).hint.toUpperCase()}.
+          {(params.playStyle ?? 'normal') !== 'normal'
+            ? ' A STYLE ADDS ONLY WHAT MAX NOTES LEAVES ROOM FOR, AND LEAVES AN ALTERED CHORD ALONE.'
+            : ''}
         </p>
       </div>
-      
+
       <div 
         ref={containerRef}
         onPointerDown={handlePointerDown}

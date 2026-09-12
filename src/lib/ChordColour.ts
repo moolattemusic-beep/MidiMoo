@@ -56,9 +56,9 @@ export const COLOUR_ORDER: Record<ChordQuality, string[]> = {
 };
 
 export const DEFAULT_COLOUR_MATRIX: Record<ChordQuality, string[]> = {
-  major: ['maj7', '9', '13', '#11'],
+  major: ['maj7', '9', '13', '#11', '6'],
   minor: ['b7', '9', '11', '13'],
-  dominant: ['b9', '#9', 'b13', '#11'],
+  dominant: ['b9', '#9', 'b13', '#11', '9', '13'],
   dim: ['b7', '11', 'b13'],
   sus: ['b7', '9', '13'],
 };
@@ -161,4 +161,98 @@ export function colourTensionsFor(quality: ChordQuality, matrix: ColourMatrix): 
     .filter(id => allowed.has(id))
     .map(id => TENSIONS.find(t => t.id === id))
     .filter((t): t is Tension => !!t);
+}
+
+/**
+ * How a keyboard player would voice the chord, rather than which notes it was
+ * written with.
+ *
+ * A chord written as C is three notes, and nobody plays it as three notes: the
+ * library of shapes lifted off real progressions has seven ways of playing a C
+ * major triad that put a ninth or a sixth in it. A written chord is refused
+ * those, because a chord named in writing gets exactly what it was named — so
+ * the style is the player saying which additions are welcome, and that is all it
+ * says. What is then played comes from the library as before.
+ *
+ * The dividing line between the styles is the seventh. POP never adds one: an
+ * add9 is a pop chord and a maj9 is not. GOSPEL adds colour above whatever
+ * seventh the chord already has. JAZZ adds the seventh itself, so a plain C
+ * becomes a maj7 or a 6/9 and a plain Am becomes an Am9.
+ */
+export type PlayStyle = 'normal' | 'pop' | 'gospel' | 'jazz';
+
+export const PLAY_STYLES: Array<{ id: PlayStyle; label: string; hint: string }> = [
+  { id: 'normal', label: 'NORMAL', hint: 'exactly the notes the chord was written with' },
+  { id: 'pop', label: 'POP', hint: 'ninths and sixths, never a seventh' },
+  { id: 'gospel', label: 'GOSPEL', hint: 'ninths, sixths, elevenths, thirteenths over what is there' },
+  { id: 'jazz', label: 'JAZZ', hint: 'adds the seventh too, then ninths and elevenths' },
+];
+
+/** What each style will add, in the order it reaches for them. */
+export const STYLE_TENSIONS: Record<PlayStyle, Record<ChordQuality, string[]>> = {
+  normal: { major: [], minor: [], dominant: [], dim: [], sus: [] },
+  pop: {
+    major: ['9', '6'],
+    minor: ['9'],
+    dominant: ['9'],
+    dim: [],
+    sus: ['9'],
+  },
+  gospel: {
+    major: ['9', '6'],
+    minor: ['9', '11'],
+    dominant: ['13', '9', 'b13'],
+    dim: ['11'],
+    sus: ['9', '13'],
+  },
+  jazz: {
+    major: ['maj7', '9', '6'],
+    minor: ['b7', '9', '11'],
+    dominant: ['13', '9', '#11', 'b13'],
+    dim: ['b7', '11'],
+    sus: ['b7', '9', '13'],
+  },
+};
+
+/**
+ * How many tones a style adds when the chord has to be built rather than taken
+ * from the library. A borrowed shape needs no such number — how far it goes is
+ * part of the shape, and it was played that way by somebody.
+ */
+export const STYLE_DEPTH: Record<PlayStyle, number> = { normal: 0, pop: 1, gospel: 2, jazz: 3 };
+
+/**
+ * Whether the chord has already been specific about a degree.
+ *
+ * A flat ninth, a sharp ninth over a major third, a flat or sharp fifth, a flat
+ * thirteenth: each is the writer saying something particular, and a style that
+ * added notes on top would be answering back. Diminished and half-diminished
+ * chords carry a flat fifth, so they are covered by the same rule.
+ */
+export function isAlteredChord(relativeClasses: Set<number>): boolean {
+  if (relativeClasses.has(1) || relativeClasses.has(6) || relativeClasses.has(8)) return true;
+  return relativeClasses.has(3) && relativeClasses.has(4);
+}
+
+/**
+ * The tones a style will add to this chord, in order, keeping only what the
+ * matrix allows and nothing the chord already states.
+ */
+export function styleTensionsFor(
+  quality: ChordQuality, style: PlayStyle, matrix: ColourMatrix, has: Set<number>,
+): Tension[] {
+  const allowed = new Set(matrix[quality] ?? DEFAULT_COLOUR_MATRIX[quality]);
+  return (STYLE_TENSIONS[style]?.[quality] ?? [])
+    .filter(id => allowed.has(id))
+    .map(id => TENSIONS.find(t => t.id === id))
+    .filter((t): t is Tension => !!t)
+    .filter(t => {
+      const pc = ((t.interval % 12) + 12) % 12;
+      if (has.has(pc)) return false;
+      // Never a seventh against the other seventh, or a ninth against the other
+      // ninth: those are not colour, they are two chords at once.
+      if ((pc === 11 && has.has(10)) || (pc === 10 && has.has(11))) return false;
+      if ((pc === 1 || pc === 3) && has.has(2)) return false;
+      return true;
+    });
 }

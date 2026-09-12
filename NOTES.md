@@ -329,6 +329,54 @@ and everything after leads from there; in ANCHOR the anchor moves by exactly
 how far it moved that chord's top. In AS PLAYED the next pad after INVERSION or
 the register changes starts afresh.
 
+**COLOUR could never reach the chords it was wanted for.** It was applied inside
+`getIntervalsForState`, which builds a chord from the MAJOR/MINOR buttons and
+the extensions — and `handleMidi` skips that entirely for anything arriving with
+its own intervals. Every typed chord, every RNDM pad, every grid chord and every
+preset went straight past it, which is most of what anybody plays. PLAYING STYLE
+replaced it and acts in `calculateFoldedPitches` instead, where every chord is
+voiced whatever it came from.
+
+**The style asks; the library answers.** A style says which additions are
+welcome and nothing more. The library is then asked for the *enriched* chord —
+a jazz C looks among the maj7 shapes rather than the triad shapes — but a shape
+only has to state what was actually written, and may state as much or as little
+of the rest as it was played with. Dictating the notes instead was the first
+attempt, and a written chord enriched to six tones is a chord no shape states
+exactly: every one of them fell to the built path and came out as a cluster
+inside one octave. Asking rather than dictating is what turns a written C into
+D3 C4 E4 G4 B4 D5.
+
+**A shape that uses none of what a style offers is the style saying nothing.**
+So the field is narrowed in steps — inside the chord, using a style tone, and
+leaning the way the style leans — and each step gives way rather than costing
+the chord a note. Without the middle step POP and GOSPEL kept choosing the plain
+triad shape that was commonest, and the buttons did nothing on half the chords.
+
+**NORMAL is the instrument exactly as it was, and that is a code path.** A chord
+the style has nothing to add to — NORMAL, or an altered chord in any style —
+goes through the original `chooseVoicing` call with no filter and no lean. Not
+because filtering would sound bad, but because pre-filtering the field finds
+library shapes the old refuse-afterwards never did, which would quietly re-voice
+pads that have been that way for twenty versions.
+
+**The ticks in EDIT can only take away.** The matrix was the whole tension table
+when COLOUR walked it; now what a style reaches for is the style's own, and the
+matrix is a veto over it. Ticking a tension no style asks for does nothing,
+which is why the screen names the current style and prints what it adds.
+
+**MAX NOTES past six is a ceiling, not a quota.** The shapes in the library are
+four to six notes, so a chord voiced from one is as many notes as the shape has.
+COLOUR used to be able to stuff a chord out to eight; nothing does now, and a
+count above six simply means nothing is capped away.
+
+**An audition shares notes with the chord underneath it.** `stopAudition` sent a
+note-off for everything it had sounded, so auditioning the chord above a held
+one punched a hole in what was playing — the two overlap more often than not.
+It asks `heldByAnotherKey` first now, the same way a pad's release does. The
+test had been passing by luck: it captured the held chord 80ms in, and until
+strums varied in speed the note that collided had not sounded yet.
+
 **A pad's release is addressed to its chord's root, so pads collide.** The
 engine files one chord per key, and the key a pad uses is its root — which two
 pads share whenever their chords do. A preset pad is filed under its bass note,

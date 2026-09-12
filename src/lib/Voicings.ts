@@ -233,7 +233,14 @@ export function chooseVoicing(
   required: Set<number>,
   noteCount: number,
   spread01: number,
-  character01: number
+  character01: number,
+  /**
+   * How a playing style leans the library — rooted for pop, two-handed for
+   * gospel, off the root for jazz. It only ever narrows a field that is already
+   * covering the chord, and is ignored where it would leave nothing to choose
+   * from, so a style can never cost a chord its notes.
+   */
+  prefer?: (intervals: number[]) => boolean
 ): Voicing | null {
   const all = voicingsFor(quality);
   if (all.length === 0) return null;
@@ -247,6 +254,11 @@ export function chooseVoicing(
 
   const best = Math.min(...all.map(covers));
   let pool = all.filter(v => covers(v) === best);
+
+  if (prefer) {
+    const leaning = pool.filter(v => prefer(v.intervals));
+    if (leaning.length) pool = leaning;
+  }
 
   // Prefer the size asked for, but never at the cost of coverage.
   const sized = pool.filter(v => v.intervals.length === noteCount);

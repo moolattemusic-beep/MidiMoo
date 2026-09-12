@@ -165,7 +165,8 @@ export interface OrchidParams {
   patternSpread: number; // 1-3 octaves
   // How much colour the chord carries, dry to rich. The tensions are added in
   // the order each quality wants them.
-  chordColor: number; // 0-4
+  /** How a keyboard player would voice it: normal, pop, gospel or jazz. */
+  playStyle: 'normal' | 'pop' | 'gospel' | 'jazz';
   // How many notes a chord is voiced with, plainly. Replaces the old density
   // bands, which said things like "4-6" and left the actual count implicit.
   chordMaxNotes: number; // 1-8
@@ -342,7 +343,7 @@ export const defaultParams: OrchidParams = {
   patternRandomDensity: 45,
   patternRandomOverlap: 30,
   patternSpread: 1,
-  chordColor: 0,
+  playStyle: 'normal',
   chordMaxNotes: 6,
   chordColorMatrix: null,
   voicingPlayed: true,

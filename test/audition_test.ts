@@ -108,6 +108,8 @@ const CHORD = [60, 64, 67, 71];   // Cmaj7 as the builder would name it
     e.stopAudition();
     await sleep(60);
     check('the chord being held is untouched', played.every(p => !off.includes(p)), `${off}`);
+    check('even where the audition shares one of its notes',
+      played.includes(79) ? !off.includes(79) : true, `played ${played} off ${off}`);
     e.panic();
   }
 

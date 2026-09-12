@@ -1,7 +1,7 @@
 import { LeadOptions, leadChain, leadNext } from './VoiceLeading';
 import { OrchidParams, NoteEvent } from '../types';
 import { CHORD_PATTERNS, ChordPattern, PatternEvent, patternDurationMs, patternTicks } from './ChordPatterns';
-import { colourTensionsFor, parseColourMatrix, qualityOf, scaleFor } from './ChordColour';
+import { STYLE_DEPTH, PlayStyle, isAlteredChord, parseColourMatrix, qualityOf, scaleFor, styleTensionsFor } from './ChordColour';
 import { chooseVoicing, voicingQualityOf } from './Voicings';
 
 // One voice in the Free MOO pool: a held MPE channel that is bent around
@@ -1679,48 +1679,70 @@ export class OrchidEngine {
       if (this.ext_9) intervals.push(14);
     }
 
-    return this.addColour(intervals, effectiveBaseType, isDominant);
+    void effectiveBaseType; void isDominant;
+    return intervals;
   }
 
   /**
-   * Dry to rich. Each quality takes its tensions in the order it wants them, so
-   * turning one knob walks a plain triad out to the sort of chord these
-   * instruments are usually voiced with.
+   * The chord a keyboard player would reach for, given the one that was written.
    *
-   * The orders avoid the notes that fight the chord: a natural 11th sits a
-   * semitone above a major third and clouds it, so major and dominant take a
-   * raised 11th and take it last, while a minor chord has no such quarrel and
-   * takes its 11th early.
+   * A chord written as C is three notes and nobody plays it as three notes. The
+   * style says which additions are welcome — and then nothing else changes: the
+   * enriched chord goes to the library and the disk exactly as a chord spelled
+   * that way by hand would, so a jazz C is voiced from the maj7 shapes rather
+   * than from a triad shape that happens to have a ninth in it.
+   *
+   * It stops where the chord has already been specific. An altered chord is the
+   * writer saying something particular, and a style answering back over the top
+   * of it is how you get two chords at once.
+   *
+   * MAX NOTES is the ceiling, so a style can only add what there is room for:
+   * the notes that were written are never dropped to make space for colour.
    */
-  private addColour(intervals: number[], _baseType: number, _isDominant: boolean): number[] {
-    const colour = Math.max(0, Math.min(8, Math.round(this.params.chordColor ?? 0)));
-    if (colour === 0 || intervals.length === 0) return intervals;
+  private withStyleTones(intervals: number[], keepAllTones: boolean): number[] {
+    this.colourClasses.clear();
+    const style = (this.params.playStyle ?? 'normal') as PlayStyle;
+    if (style === 'normal' || intervals.length === 0) return intervals;
 
-    // What the chord actually is, read off its own third and seventh rather than
-    // off which button was pressed. A major third with a flat seventh is a
-    // dominant however it arrived — played by hand, or handed over by the key as
-    // the fifth degree.
     const pcs = new Set(intervals.map(i => ((i % 12) + 12) % 12));
-    const quality = qualityOf(pcs);
+    if (isAlteredChord(pcs)) return intervals;
+
     const matrix = parseColourMatrix(this.params.chordColorMatrix);
-    const wanted = colourTensionsFor(quality, matrix);
+    const wanted = styleTensionsFor(qualityOf(pcs), style, matrix, pcs);
+    if (wanted.length === 0) return intervals;
+
+    const maxNotes = Math.max(1, Math.min(8, Math.round(this.params.chordMaxNotes ?? 6)));
+    // A chord played by hand is thinned to MAX NOTES further down, so the room
+    // is counted against what it will actually sound rather than what it holds.
+    const room = keepAllTones
+      ? maxNotes - intervals.length
+      : maxNotes - Math.min(intervals.length, maxNotes);
+    const depth = Math.max(0, Math.min(STYLE_DEPTH[style] ?? 0, room));
+    if (depth === 0) return intervals;
 
     const out = [...intervals];
-    this.colourClasses.clear();
-    for (const tension of wanted) {
-      if (this.colourClasses.size >= colour) break;
-      const pc = ((tension.interval % 12) + 12) % 12;
-      // Never twice, and never a tone the chord already states in another
-      // octave — a written extension keeps its own place.
-      if (out.some(i => ((i % 12) + 12) % 12 === pc)) continue;
-      // Never a seventh against the other seventh, or a ninth against the other
-      // ninth: those are not colour, they are two chords at once.
-      if ((pc === 11 && pcs.has(10)) || (pc === 10 && pcs.has(11))) continue;
-      if ((pc === 1 || pc === 3) && pcs.has(2)) continue;
+    for (const tension of wanted.slice(0, depth)) {
       out.push(tension.interval);
-      this.colourClasses.add(pc);
+      this.colourClasses.add(((tension.interval % 12) + 12) % 12);
     }
     return out.sort((a, b) => a - b);
+  }
+
+  /** How a style leans the library, beyond which notes it adds. */
+  private styleShapePreference(): ((intervals: number[]) => boolean) | undefined {
+    switch ((this.params.playStyle ?? 'normal') as PlayStyle) {
+      // Solid and rooted: the bass note is the root, and the fifth is in there.
+      case 'pop':
+        return (iv) => iv[0] === 0 && iv.some(i => ((i % 12) + 12) % 12 === 7);
+      // Two hands: something low, and the rest of the chord well above it.
+      case 'gospel':
+        return (iv) => iv[iv.length - 1] - iv[0] >= 12;
+      // Off the root, the way a left hand voices under a bass player.
+      case 'jazz':
+        return (iv) => iv[0] !== 0;
+      default:
+        return undefined;
+    }
   }
 
   private getIntervalPriority(interval: number): number {
@@ -1780,23 +1802,69 @@ export class OrchidEngine {
   private playedVoicing(rootPitch: number, intervals: number[], keepAllTones: boolean, noteLimit?: number): number[] | null {
     if (!this.params.voicingPlayed) return null;
     if (intervals.length < 3) return null;
-    // A pasted chord is voiced from the library like any other, so the same
-    // chord sounds the same however it arrived. What protects its spelling is
-    // the coverage check below: a shape that cannot state every written tone is
-    // refused, and the chord is built instead. Refusing the library outright
-    // here made a pasted chord sound unlike a played one.
-    void keepAllTones;
 
+    // What the chord says, and what the style would have it say. The library is
+    // asked for the enriched chord — a jazz C looks among the maj7 shapes, not
+    // the triad shapes — but a shape only has to state what was written. That is
+    // the difference between asking for a voicing and dictating one: the shape
+    // decides how far it goes, and it goes that far because somebody played it
+    // that way.
     const required = new Set(intervals.map(i => ((i % 12) + 12) % 12));
-    const quality = voicingQualityOf(required);
+    const enriched = this.withStyleTones(intervals, keepAllTones);
+    const allowed = new Set(enriched.map(i => ((i % 12) + 12) % 12));
+    const styled = allowed.size > required.size;
+
+    const quality = voicingQualityOf(allowed);
     const wanted = noteLimit ?? Math.max(1, Math.min(8, Math.round(this.params.chordMaxNotes ?? 6)));
 
     // The two axes of the pad, as fractions. Spread runs from the closest
     // voicing to the widest, character from the commonest to the least.
     const spread01 = ((this.params.voicingX ?? 0) + 1) / 2;
     const character01 = ((this.params.voicingY ?? 0) + 1) / 2;
+    const size = Math.max(4, Math.min(6, wanted));
 
-    const voicing = chooseVoicing(quality, required, Math.max(4, Math.min(6, wanted)), spread01, character01);
+    // A chord named in writing gets what it was named and what the style was
+    // told it may add — nothing else. A chord played by hand has no spelling to
+    // honour, so any shape of its quality is welcome, as it always was.
+    const acceptable = (iv: number[]) => {
+      if (!keepAllTones) return true;
+      for (const i of iv) {
+        const pc = ((i % 12) + 12) % 12;
+        if (!allowed.has(pc)) return false;
+      }
+      return true;
+    };
+    // A shape that uses none of what the style offers is the style saying
+    // nothing, so one that uses it is preferred — and a style leans the library
+    // besides. Neither is allowed to cost the chord a note, so both give way:
+    // the lean first, then the preference for hearing the style at all.
+    //
+    // The lean waits for room to be leant: a shape is thinned from the top down
+    // when the chord is smaller than it, and a jazz voicing off the root thinned
+    // to three notes can lose the root altogether.
+    const lean = wanted >= 4 ? this.styleShapePreference() : undefined;
+    const usesStyle = (iv: number[]) => iv.some(i => {
+      const pc = ((i % 12) + 12) % 12;
+      return allowed.has(pc) && !required.has(pc);
+    });
+    const pick = (pred: (iv: number[]) => boolean) => {
+      // chooseVoicing falls back to the whole field rather than return nothing,
+      // so what comes back is only taken when it really does answer.
+      const found = chooseVoicing(quality, required, size, spread01, character01, pred);
+      return found && pred(found.intervals) ? found : null;
+    };
+
+    let voicing = null;
+    if (styled) {
+      if (lean) voicing = pick(iv => acceptable(iv) && usesStyle(iv) && lean(iv));
+      if (!voicing) voicing = pick(iv => acceptable(iv) && usesStyle(iv));
+      if (!voicing && lean) voicing = pick(iv => acceptable(iv) && lean(iv));
+      if (!voicing) voicing = pick(acceptable);
+    } else {
+      // A chord the style has nothing to say about — an altered one, or NORMAL —
+      // is voiced exactly as it was before styles existed.
+      voicing = chooseVoicing(quality, required, size, spread01, character01);
+    }
     if (!voicing) return null;
 
     // The library covers the ordinary chords, not every colouring of them. If
@@ -1805,13 +1873,7 @@ export class OrchidEngine {
     // voicing of the right chord than a handsome voicing of the wrong one.
     const stated = new Set(voicing.intervals.map(i => ((i % 12) + 12) % 12));
     for (const pc of required) if (!stated.has(pc)) return null;
-    // A chord named in writing gets exactly what it was named: a shape that
-    // adds a tone of its own would turn a pasted Dbmaj7 into a Dbmaj9, which is
-    // a different chord from the one asked for. A chord played by hand has no
-    // such spelling to honour, so a richer shape is welcome there.
-    if (keepAllTones) {
-      for (const pc of stated) if (!required.has(pc)) return null;
-    }
+    if (keepAllTones && !acceptable(voicing.intervals)) return null;
 
     // Place it so the lowest note it actually sounds sits at the register.
     const start = this.params.chordRegisterStart;
@@ -2083,8 +2145,12 @@ export class OrchidEngine {
   }
 
   private calculateFoldedPitches(rootPitch: number, intervals: number[], keepAllTones = false, noteLimit?: number): number[] {
+    // The library is asked first, and it does its own negotiating with the style.
     const played = this.playedVoicing(rootPitch, intervals, keepAllTones, noteLimit);
     if (played) return played;
+    // Nothing in the library covers this chord, so it is built — and the style
+    // adds its tones here instead.
+    intervals = this.withStyleTones(intervals, keepAllTones);
 
     const startRange = this.params.chordRegisterStart;
     const endRange = startRange + this.params.voicingRange;
@@ -2564,7 +2630,13 @@ export class OrchidEngine {
 
   public stopAudition() {
     for (const voice of this.auditionVoices) {
-      this.emitNoteOff(voice.pitch, 0, 0, voice.channel);
+      // A chord may be holding this very note — an audition of the chord above
+      // the one being played will share notes with it more often than not. The
+      // note-off belongs to whoever is still holding it, or examining a chord
+      // would punch a hole in the one sounding underneath.
+      if (!this.heldByAnotherKey(voice.pitch, voice.channel, -1)) {
+        this.emitNoteOff(voice.pitch, 0, 0, voice.channel);
+      }
       if (voice.channel) this.freeMpeChannel(voice.channel);
     }
     this.auditionVoices = [];

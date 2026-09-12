@@ -54,11 +54,11 @@ const play = async (over: any, voices: number[], chord: number[]) => {
     check('inversion still rotates the tones', JSON.stringify(ons) === JSON.stringify([64, 67, 72]), JSON.stringify(ons));
   }
 
-  console.log('\n=== Colour adds the tensions each quality wants ===');
+  console.log('\n=== A playing style adds what a keyboard player would ===');
   {
     const chordOf = (over: any, mods: (e: any) => void) => {
-      // Room for every colour tone: MAX NOTES is a hard cap and is tested on its
-      // own below, so it must not be what limits the chord here.
+      // Room for anything a style might add: MAX NOTES is a hard cap and is
+      // tested on its own below, so it must not be what limits the chord here.
       const e = new OrchidEngine({ ...defaultParams, strumEngine: 0, chordMaxNotes: 8, ...over });
       const ons: number[] = [];
       e.onOutputNote = (ev: any) => { if (ev.isOn && !ev.isPitchBend && !ev.isCC) ons.push(ev.pitch); };
@@ -66,33 +66,42 @@ const play = async (over: any, voices: number[], chord: number[]) => {
       e.handleMidi(60, 100, true);
       return [...new Set(ons)].sort((a, b) => a - b).map(p => p - 60);
     };
-    const major = (c: number) => chordOf({ chordColor: c }, (e) => e.setModifiers(0, false, false, false, false));
-    const minor = (c: number) => chordOf({ chordColor: c }, (e) => e.setModifiers(1, false, false, false, false));
+    // A played voicing doubles notes across octaves, so what the chord states is
+    // compared rather than the exact list of intervals it came out as.
+    const tones = (a: number[]) => [...new Set(a.map(i => ((i % 12) + 12) % 12))].sort((x, y) => x - y);
+    const major = (playStyle: string) => tones(chordOf({ playStyle }, (e) => e.setModifiers(0, false, false, false, false)));
+    const minor = (playStyle: string) => tones(chordOf({ playStyle }, (e) => e.setModifiers(1, false, false, false, false)));
 
-    // A played voicing doubles notes across octaves, so the chord is compared
-    // rather than the exact list of intervals it came out as.
-    const chordOnly = (a: number[]) => [...new Set(a.map(i => ((i % 12) + 12) % 12))].sort((x, y) => x - y);
-    check('dry major is a triad', JSON.stringify(chordOnly(major(0))) === JSON.stringify([0, 4, 7]), JSON.stringify(major(0)));
-    check('major +1 adds a major 7th', major(1).includes(11), JSON.stringify(major(1)));
-    check('major +2 adds the 9th', major(2).some(i => i % 12 === 2), JSON.stringify(major(2)));
-    check('major +3 adds the 13th', major(3).some(i => i % 12 === 9), JSON.stringify(major(3)));
-    check('major +4 adds a RAISED 11th, not a natural one', major(4).some(i => i % 12 === 6) && !major(4).some(i => i % 12 === 5), JSON.stringify(major(4)));
+    check('NORMAL plays the triad it was written as',
+      JSON.stringify(major('normal')) === JSON.stringify([0, 4, 7]), JSON.stringify(major('normal')));
+    check('POP adds the ninth', major('pop').includes(2), JSON.stringify(major('pop')));
+    check('and POP never adds a seventh of either kind',
+      !major('pop').includes(10) && !major('pop').includes(11), JSON.stringify(major('pop')));
+    check('GOSPEL adds the ninth and the sixth',
+      major('gospel').includes(2) && major('gospel').includes(9), JSON.stringify(major('gospel')));
+    check('and GOSPEL still adds no seventh to a triad',
+      !major('gospel').includes(11), JSON.stringify(major('gospel')));
+    check('JAZZ adds the seventh itself', major('jazz').includes(11), JSON.stringify(major('jazz')));
 
-    check('dry minor is a triad', JSON.stringify(chordOnly(minor(0))) === JSON.stringify([0, 3, 7]), JSON.stringify(minor(0)));
-    check('minor +1 adds a flat 7th', minor(1).includes(10), JSON.stringify(minor(1)));
-    check('minor +2 adds the 9th', minor(2).some(i => i % 12 === 2), JSON.stringify(minor(2)));
-    check('minor +3 adds a NATURAL 11th', minor(3).some(i => i % 12 === 5), JSON.stringify(minor(3)));
-    check('minor +4 adds the 13th', minor(4).some(i => i % 12 === 9), JSON.stringify(minor(4)));
+    check('NORMAL minor is the triad',
+      JSON.stringify(minor('normal')) === JSON.stringify([0, 3, 7]), JSON.stringify(minor('normal')));
+    check('POP minor adds the ninth', minor('pop').includes(2), JSON.stringify(minor('pop')));
+    check('JAZZ minor takes a flat seventh, not a major one',
+      minor('jazz').includes(10) && !minor('jazz').includes(11), JSON.stringify(minor('jazz')));
+    check('a style really is more notes',
+      major('jazz').length > major('normal').length, `${major('normal').length} -> ${major('jazz').length}`);
 
-    check('colour survives the density thinning', major(4).length >= 6, `${major(4).length} notes`);
-    check('richer really is more notes', major(4).length > major(0).length, `${major(0).length} -> ${major(4).length}`);
-
-    // MAX NOTES is a cap, and it wins: colour asks for tones, the cap decides
-    // how many of them are actually voiced.
-    const capped = chordOf({ chordColor: 4, chordMaxNotes: 4 }, (e) => e.setModifiers(1, false, false, false, false));
-    check('the cap wins over colour', capped.length === 4, `${capped.length} notes`);
-    const roomy = chordOf({ chordColor: 4, chordMaxNotes: 8 }, (e) => e.setModifiers(1, false, false, false, false));
-    check('raising the cap lets the colour through', roomy.length > capped.length, `${capped.length} -> ${roomy.length}`);
+    // MAX NOTES is the ceiling, and it wins: a style adds what there is room for
+    // and the notes that were written are never dropped to make space for colour.
+    const minorTriad = (e: any) => e.setModifiers(1, false, false, false, false);
+    const capped = chordOf({ playStyle: 'jazz', chordMaxNotes: 3 }, minorTriad);
+    const uncoloured = chordOf({ playStyle: 'normal', chordMaxNotes: 3 }, minorTriad);
+    check('the cap wins over the style', capped.length === 3, JSON.stringify(capped));
+    check('and with no room to add, a style sounds exactly as NORMAL does',
+      JSON.stringify(capped) === JSON.stringify(uncoloured), `${JSON.stringify(capped)} vs ${JSON.stringify(uncoloured)}`);
+    const roomy = tones(chordOf({ playStyle: 'jazz', chordMaxNotes: 8 }, minorTriad));
+    check('raising the cap lets the style through', roomy.length > tones(capped).length,
+      `${tones(capped).length} -> ${roomy.length}`);
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);
